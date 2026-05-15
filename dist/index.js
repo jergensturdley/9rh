@@ -316,7 +316,7 @@ const state = {
 async function main() {
     const argv = process.argv.slice(2);
     const isInit = argv[0] === "init" && argv.length > 0;
-    const wantsDoctor = argv.includes("--doctor") || argv.includes("-d");
+    const wantsDoctor = opts.doctor;
     if (isInit) {
         return;
     }
