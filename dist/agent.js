@@ -93,49 +93,85 @@ export class Agent {
         throw new Error(exhaustedMsg);
     }
     async streamCompletion() {
-        const stream = await this.client.chat.completions.create({
-            model: this.config.model,
-            messages: this.messages,
-            tools: TOOL_DEFINITIONS,
-            tool_choice: "auto",
-            stream: true,
-        });
-        let text = "";
-        const toolCallAccumulators = new Map();
-        for await (const chunk of stream) {
-            const delta = chunk.choices[0]?.delta;
-            if (!delta)
-                continue;
-            if (delta.content) {
-                text += delta.content;
-                this.emit({ type: "thinking", text: delta.content });
-            }
-            if (delta.tool_calls) {
-                for (const tc of delta.tool_calls) {
-                    const idx = tc.index ?? 0;
-                    if (!toolCallAccumulators.has(idx)) {
-                        toolCallAccumulators.set(idx, {
-                            id: tc.id ?? "",
-                            name: "",
-                            argsRaw: "",
-                        });
+        const maxRetries = 3;
+        let lastError = "";
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                const stream = await this.client.chat.completions.create({
+                    model: this.config.model,
+                    messages: this.messages,
+                    tools: TOOL_DEFINITIONS,
+                    tool_choice: "auto",
+                    stream: true,
+                });
+                let text = "";
+                const toolCallAccumulators = new Map();
+                for await (const chunk of stream) {
+                    const delta = chunk.choices[0]?.delta;
+                    if (!delta)
+                        continue;
+                    if (delta.content) {
+                        text += delta.content;
+                        this.emit({ type: "thinking", text: delta.content });
                     }
-                    const acc = toolCallAccumulators.get(idx);
-                    if (tc.id)
-                        acc.id = tc.id;
-                    if (tc.function?.name)
-                        acc.name = tc.function.name;
-                    if (tc.function?.arguments)
-                        acc.argsRaw += tc.function.arguments;
+                    if (delta.tool_calls) {
+                        for (const tc of delta.tool_calls) {
+                            const idx = tc.index ?? 0;
+                            if (!toolCallAccumulators.has(idx)) {
+                                toolCallAccumulators.set(idx, {
+                                    id: tc.id ?? "",
+                                    name: "",
+                                    argsRaw: "",
+                                });
+                            }
+                            const acc = toolCallAccumulators.get(idx);
+                            if (tc.id)
+                                acc.id = tc.id;
+                            if (tc.function?.name)
+                                acc.name = tc.function.name;
+                            if (tc.function?.arguments)
+                                acc.argsRaw += tc.function.arguments;
+                        }
+                    }
                 }
+                const toolCalls = toolCallAccumulators.size > 0
+                    ? Array.from(toolCallAccumulators.entries())
+                        .sort(([a], [b]) => a - b)
+                        .map(([, v]) => v)
+                    : null;
+                return { text, toolCalls };
+            }
+            catch (err) {
+                const error = err;
+                const errorMsg = error.message || String(err);
+                lastError = errorMsg;
+                const isRetryable = errorMsg.includes("500") ||
+                    errorMsg.includes("502") ||
+                    errorMsg.includes("503") ||
+                    errorMsg.includes("rate limit") ||
+                    errorMsg.includes("socket") ||
+                    errorMsg.includes("ECONNRESET") ||
+                    errorMsg.includes("ECONNREFUSED") ||
+                    errorMsg.includes("network");
+                if (isRetryable && attempt < maxRetries) {
+                    const delayMs = attempt * 1000;
+                    this.emit({
+                        type: "tool_result",
+                        name: "openai_request",
+                        output: "",
+                        error: `API error (attempt ${attempt}/${maxRetries}): ${errorMsg}. Retrying in ${delayMs}ms...`,
+                    });
+                    await new Promise((resolve) => setTimeout(resolve, delayMs));
+                    continue;
+                }
+                this.emit({
+                    type: "error",
+                    message: `OpenAI API error: ${errorMsg}`,
+                });
+                throw new Error(`OpenAI API error: ${errorMsg}`);
             }
         }
-        const toolCalls = toolCallAccumulators.size > 0
-            ? Array.from(toolCallAccumulators.entries())
-                .sort(([a], [b]) => a - b)
-                .map(([, v]) => v)
-            : null;
-        return { text, toolCalls };
+        throw new Error(`OpenAI API error after ${maxRetries} retries: ${lastError}`);
     }
 }
 //# sourceMappingURL=agent.js.map
