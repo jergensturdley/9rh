@@ -12,7 +12,7 @@ const DEFAULTS = {
   url: process.env.NINE_ROUTER_URL ?? "http://localhost:20128/v1",
   key: process.env.NINE_ROUTER_KEY ?? "9router",
   model: process.env.NINE_ROUTER_MODEL ?? "kr/claude-sonnet-4.5",
-  maxIter: 30,
+  maxIter: 100,
 };
 
 program
@@ -119,6 +119,13 @@ function renderEvent(event: AgentEvent): void {
     case "iteration":
       process.stderr.write(
         chalk.dim(`\n[iter ${event.current}/${event.max}]\n`)
+      );
+      break;
+    case "compact":
+      process.stderr.write(
+        opts.color
+          ? chalk.yellow(`\n  ⟳ compacting context...\n  summary: ${event.summary}\n`)
+          : `\n  compacting context...\n  summary: ${event.summary}\n`
       );
       break;
     case "thinking":

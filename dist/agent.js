@@ -12,15 +12,58 @@ export class Agent {
     client;
     config;
     messages = [];
+    compactThreshold;
     constructor(config) {
         this.config = config;
         this.client = new OpenAI({
             baseURL: config.baseURL,
             apiKey: config.apiKey,
         });
+        this.compactThreshold = config.compactAfter ?? 20;
     }
     emit(event) {
         this.config.onEvent?.(event);
+    }
+    shouldCompact() {
+        return this.messages.length > this.compactThreshold;
+    }
+    async compactContext() {
+        const historyText = this.messages
+            .slice(1)
+            .map((m) => {
+            if (m.role === "user")
+                return `User: ${m.content}`;
+            if (m.role === "assistant") {
+                const tc = m.tool_calls;
+                if (tc?.length) {
+                    return `Assistant: called tools ${tc.map((t) => t.function.name).join(", ")}`;
+                }
+                return `Assistant: ${m.content ?? ""}`;
+            }
+            if (m.role === "tool")
+                return `Tool result: ${m.content ?? ""}`;
+            return "";
+        })
+            .join("\n");
+        const compactPrompt = `Summarize the conversation in 2-3 sentences. What task, what done, what next.\n\n${historyText}\n\nSummary:`;
+        const response = await this.client.chat.completions.create({
+            model: this.config.model,
+            messages: [{ role: "user", content: compactPrompt }],
+            temperature: 0.3,
+        });
+        return response.choices[0]?.message?.content ?? "Work in progress";
+    }
+    resetForContinuation(summary, originalTask) {
+        this.messages = [
+            {
+                role: "system",
+                content: this.config.systemPrompt ?? DEFAULT_SYSTEM,
+            },
+            {
+                role: "user",
+                content: `RESUME: ${summary}\n\nOriginal task: ${originalTask}`,
+            },
+        ];
     }
     async run(task) {
         this.messages = [
@@ -34,8 +77,15 @@ export class Agent {
             },
         ];
         let finalResponse = "";
+        let compactCount = 0;
         for (let iteration = 1; iteration <= this.config.maxIterations; iteration++) {
             this.emit({ type: "iteration", current: iteration, max: this.config.maxIterations });
+            if (this.shouldCompact()) {
+                const summary = await this.compactContext();
+                compactCount++;
+                this.emit({ type: "compact", summary });
+                this.resetForContinuation(summary, task);
+            }
             const { text, toolCalls } = await this.streamCompletion();
             if (text)
                 finalResponse = text;

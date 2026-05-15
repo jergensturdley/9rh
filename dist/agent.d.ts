@@ -6,6 +6,7 @@ export interface AgentConfig {
     workDir: string;
     systemPrompt?: string;
     onEvent?: (event: AgentEvent) => void;
+    compactAfter?: number;
 }
 export type AgentEvent = {
     type: "thinking";
@@ -29,13 +30,20 @@ export type AgentEvent = {
     type: "iteration";
     current: number;
     max: number;
+} | {
+    type: "compact";
+    summary: string;
 };
 export declare class Agent {
     private client;
     private config;
     private messages;
+    private compactThreshold;
     constructor(config: AgentConfig);
     private emit;
+    private shouldCompact;
+    private compactContext;
+    private resetForContinuation;
     run(task: string): Promise<string>;
     private streamCompletion;
 }
