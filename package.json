@@ -2,10 +2,19 @@
   "name": "9rh",
   "version": "1.0.0",
   "description": "Coding agent harness for 9router",
-  "main": "dist/index.js",
+  "main": "dist/main.js",
+  "types": "dist/main.d.ts",
+  "exports": {
+    ".": "./dist/main.js",
+    "./package.json": "./package.json"
+  },
   "bin": {
     "9rh": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "ts-node src/index.ts",
