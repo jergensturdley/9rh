@@ -15,6 +15,7 @@ export interface AgentConfig {
   workDir: string;
   systemPrompt?: string;
   onEvent?: (event: AgentEvent) => void;
+  compactAfter?: number;
 }
 
 export type AgentEvent =
@@ -23,7 +24,8 @@ export type AgentEvent =
   | { type: "tool_result"; name: string; output: string; error?: string }
   | { type: "done"; text: string }
   | { type: "error"; message: string }
-  | { type: "iteration"; current: number; max: number };
+  | { type: "iteration"; current: number; max: number }
+  | { type: "compact"; summary: string };
 
 const DEFAULT_SYSTEM = `You are a skilled coding agent. You help with coding tasks by reading, writing, and modifying files, running commands, and solving problems step by step.
 
@@ -38,6 +40,7 @@ export class Agent {
   private client: OpenAI;
   private config: AgentConfig;
   private messages: ChatCompletionMessageParam[] = [];
+  private compactThreshold: number;
 
   constructor(config: AgentConfig) {
     this.config = config;
@@ -45,10 +48,57 @@ export class Agent {
       baseURL: config.baseURL,
       apiKey: config.apiKey,
     });
+    this.compactThreshold = config.compactAfter ?? 20;
   }
 
   private emit(event: AgentEvent): void {
     this.config.onEvent?.(event);
+  }
+
+  private shouldCompact(): boolean {
+    return this.messages.length > this.compactThreshold;
+  }
+
+  private async compactContext(): Promise<string> {
+    const historyText = this.messages
+      .slice(1)
+      .map((m) => {
+        if (m.role === "user") return `User: ${m.content}`;
+        if (m.role === "assistant") {
+          const tc = (m as { tool_calls?: unknown[] }).tool_calls;
+          if (tc?.length) {
+            return `Assistant: called tools ${tc.map((t: unknown) => (t as { function: { name: string } }).function.name).join(", ")}`;
+          }
+          return `Assistant: ${(m.content as string) ?? ""}`;
+        }
+        if (m.role === "tool") return `Tool result: ${(m.content as string) ?? ""}`;
+        return "";
+      })
+      .join("\n");
+
+    const compactPrompt =
+      `Summarize the conversation in 2-3 sentences. What task, what done, what next.\n\n${historyText}\n\nSummary:`;
+
+    const response = await this.client.chat.completions.create({
+      model: this.config.model,
+      messages: [{ role: "user", content: compactPrompt }],
+      temperature: 0.3,
+    });
+
+    return response.choices[0]?.message?.content ?? "Work in progress";
+  }
+
+  private resetForContinuation(summary: string, originalTask: string): void {
+    this.messages = [
+      {
+        role: "system",
+        content: this.config.systemPrompt ?? DEFAULT_SYSTEM,
+      },
+      {
+        role: "user",
+        content: `RESUME: ${summary}\n\nOriginal task: ${originalTask}`,
+      },
+    ];
   }
 
   async run(task: string): Promise<string> {
@@ -64,9 +114,17 @@ export class Agent {
     ];
 
     let finalResponse = "";
+    let compactCount = 0;
 
     for (let iteration = 1; iteration <= this.config.maxIterations; iteration++) {
       this.emit({ type: "iteration", current: iteration, max: this.config.maxIterations });
+
+      if (this.shouldCompact()) {
+        const summary = await this.compactContext();
+        compactCount++;
+        this.emit({ type: "compact", summary });
+        this.resetForContinuation(summary, task);
+      }
 
       const { text, toolCalls } = await this.streamCompletion();
 

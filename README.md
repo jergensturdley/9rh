@@ -96,7 +96,7 @@ export NINE_ROUTER_MODEL=kr/claude-sonnet-4.5
 | `-u, --url <url>` | `NINE_ROUTER_URL` | `http://localhost:20128/v1` | 9router API URL |
 | `-k, --key <key>` | `NINE_ROUTER_KEY` | `9router` | 9router API key |
 | `-d, --dir <dir>` | — | current working directory | Target directory for agent tools |
-| `-i, --max-iter <n>` | — | `30` | Maximum agent iterations |
+| `-i, --max-iter <n>` | — | `100` | Maximum agent iterations |
 | `--repl` | — | — | Start an interactive REPL |
 | `--doctor` | — | — | Run diagnostics and exit |
 | `--no-color` | — | — | Disable colored output |
