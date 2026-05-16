@@ -202,7 +202,10 @@ export class Agent {
                     errorMsg.includes("socket") ||
                     errorMsg.includes("ECONNRESET") ||
                     errorMsg.includes("ECONNREFUSED") ||
-                    errorMsg.includes("network");
+                    errorMsg.includes("network") ||
+                    errorMsg.includes("premature close") ||
+                    errorMsg.includes("other side closed") ||
+                    errorMsg.includes("UND_ERR_PRE_CLOSE");
                 if (isRetryable && attempt < maxRetries) {
                     const delayMs = attempt * 1000;
                     this.emit({

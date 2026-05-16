@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createInterface, emitKeypressEvents } from "readline";
+import { createInterface, cursorTo, emitKeypressEvents, moveCursor, clearScreenDown } from "readline";
 import { resolve } from "path";
 import { program } from "commander";
 import chalk from "chalk";
@@ -181,34 +181,76 @@ async function runRepl(state: SessionState): Promise<void> {
   }
 
   let suggCount = 0;
-  
-  function clearSuggestions(): void {
-    if (suggCount === 0) return;
-    process.stderr.write(`\x1b[${suggCount}B`);
-    for (let i = 0; i < suggCount; i++) {
-      process.stderr.write("\x1b[2K\r\n");
-    }
-    process.stderr.write(`\x1b[${suggCount}A`);
-    suggCount = 0;
+  let lastSuggestionKey = "";
+  let renderToken = 0;
+  let renderQueued = false;
+
+  function promptColumns(): number {
+    const cols = process.stdout.columns ?? 80;
+    const modelLen = state.model.length;
+    return Math.min(cols - 1, opts.color ? 2 + modelLen + 3 : modelLen + 4);
   }
-  
+
+  function redrawLine(): void {
+    cursorTo(process.stderr, 0);
+    process.stderr.write(prompt() + rl.line);
+    cursorTo(process.stderr, promptColumns() + rl.cursor);
+  }
+
   function showSuggestions(
     matches: Array<{ name: string; description: string }>,
     partial: string,
   ): void {
-    clearSuggestions();
     const items = matches.slice(0, 7);
-    if (items.length === 0) return;
+    const key = `${partial}|${items.map((m) => m.name).join(";")}`;
+    if (key === lastSuggestionKey) return;
+    if (items.length === 0) { clearSuggestions(); return; }
     suggCount = items.length;
+    lastSuggestionKey = key;
     const maxLen = Math.max(...items.map(i => i.name.length));
-    for (const { name, description } of items) {
+    const lines = items.map(({ name, description }) => {
       const hi = highlightMatch(name, partial);
       const pad = " ".repeat(Math.max(1, maxLen - name.length + 2));
       const desc = opts.color ? chalk.dim(description.slice(0, 44)) : description.slice(0, 44);
-      process.stderr.write(`\r\n  /${hi}${pad}${desc}\x1b[0K`);
+      return `/${hi}${pad}${desc}`;
+    });
+    cursorTo(process.stderr, 0);
+    clearScreenDown(process.stderr);
+    process.stderr.write(prompt() + rl.line + "\n");
+    for (const line of lines) {
+      process.stderr.write(line + "\n");
     }
-    process.stderr.write(`\x1b[${suggCount}A`);
+    moveCursor(process.stderr, 0, -(items.length + 1));
+    cursorTo(process.stderr, promptColumns() + rl.cursor);
   }
+
+  function clearSuggestions(): void {
+    if (suggCount === 0) return;
+    renderToken++;
+    cursorTo(process.stderr, 0);
+    clearScreenDown(process.stderr);
+    suggCount = 0;
+    lastSuggestionKey = "";
+    redrawLine();
+  }
+
+  function scheduleSuggestionRefresh(): void {
+    const token = ++renderToken;
+    if (renderQueued) return;
+    renderQueued = true;
+    setTimeout(() => {
+      renderQueued = false;
+      if (token !== renderToken) return;
+      const line = rl.line;
+      if (!line.startsWith("/")) {
+        clearSuggestions();
+        return;
+      }
+      const partial = line.slice(1);
+      showSuggestions(fuzzyFilter(partial), partial);
+    }, 0);
+  }
+
 
 
   const prompt = () =>
@@ -244,22 +286,25 @@ async function runRepl(state: SessionState): Promise<void> {
   });
 
   if (process.stdin.isTTY) {
-    type KpData = { name?: string; sequence?: string };
+    type KpData = { name?: string; sequence?: string; ctrl?: boolean; meta?: boolean };
     type WithKp = { on(ev: "keypress", cb: (s: string | undefined, k: KpData | undefined) => void): void };
     emitKeypressEvents(process.stdin, rl);
-    (process.stdin as typeof process.stdin & WithKp).on("keypress", (_, key) => {
+    (process.stdin as typeof process.stdin & WithKp).on("keypress", (input, key) => {
       if (key?.name === "return" || key?.name === "enter") {
         clearSuggestions();
         return;
       }
-      setImmediate(() => {
-        const line = rl.line;
-        if (line.startsWith("/")) {
-          showSuggestions(fuzzyFilter(line.slice(1)), line.slice(1));
-        } else {
-          clearSuggestions();
-        }
-      });
+      if (key?.name === "escape") {
+        clearSuggestions();
+        return;
+      }
+      if (key?.ctrl || key?.meta) return;
+      const navKeys = new Set(["up", "down", "left", "right", "tab"]);
+      if (key?.name && navKeys.has(key.name)) return;
+      const changedLine = typeof input === "string" && input.length > 0;
+      const editingKey = key?.name === "backspace" || key?.name === "delete";
+      if (!changedLine && !editingKey) return;
+      scheduleSuggestionRefresh();
     });
   }
 
