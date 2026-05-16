@@ -1,0 +1,44 @@
+[
+  {
+    "id": "pb-001",
+    "pattern": "out of memory|heap|javascript heap",
+    "errorClass": "ENVIRONMENT_ERROR",
+    "suggestedFix": "Increase Node.js --max-old-space-size flag or reduce batch size in tool calls",
+    "autoApply": false
+  },
+  {
+    "id": "pb-002",
+    "pattern": "timeout|rate limit|429|429 too many requests",
+    "errorClass": "RECOVERABLE",
+    "suggestedFix": "Apply exponential backoff delay before retrying the failed API call",
+    "autoApply": false
+  },
+  {
+    "id": "pb-003",
+    "pattern": "malformed json|unexpected token|invalid json|parse error",
+    "errorClass": "AGENT_ERROR",
+    "suggestedFix": "Strip markdown code fences from LLM response before parsing JSON tool arguments",
+    "autoApply": true
+  },
+  {
+    "id": "pb-004",
+    "pattern": "missing environment variable|env var.*not found|no such env",
+    "errorClass": "ENVIRONMENT_ERROR",
+    "suggestedFix": "Check .env file exists and required variables are set; surface missing var to user",
+    "autoApply": false
+  },
+  {
+    "id": "pb-005",
+    "pattern": "sandbox process|sandbox.*crash|child process.*killed",
+    "errorClass": "ENVIRONMENT_ERROR",
+    "suggestedFix": "Restart sandbox subprocess and re-run the last tool call with fresh sandbox",
+    "autoApply": false
+  },
+  {
+    "id": "pb-006",
+    "pattern": "premature close|und_err_pre_close|other side closed",
+    "errorClass": "RECOVERABLE",
+    "suggestedFix": "Retry the streaming API call with a fresh connection; do not reuse the same stream",
+    "autoApply": true
+  }
+]
