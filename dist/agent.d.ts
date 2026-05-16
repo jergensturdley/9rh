@@ -1,3 +1,4 @@
+import type { ReplayEvent } from "./replay/eventSchema.js";
 export interface AgentConfig {
     baseURL: string;
     apiKey: string;
@@ -7,6 +8,15 @@ export interface AgentConfig {
     systemPrompt?: string;
     onEvent?: (event: AgentEvent) => void;
     compactAfter?: number;
+    replay?: ReplayConfig;
+}
+export interface ReplayConfig {
+    enabled: boolean;
+    runId?: string;
+    branchId?: string;
+    logDir?: string;
+    checkpointDir?: string;
+    onReplayEvent?: (event: ReplayEvent) => void;
 }
 export type AgentEvent = {
     type: "thinking";
@@ -33,17 +43,45 @@ export type AgentEvent = {
 } | {
     type: "compact";
     summary: string;
+} | {
+    type: "repair_start";
+    message: string;
+    attempt: number;
+} | {
+    type: "repair_success";
+    message: string;
+} | {
+    type: "escalate";
+    message: string;
+} | {
+    type: "circuit_open";
+} | {
+    type: "replay_event";
+    event: ReplayEvent;
 };
 export declare class Agent {
     private client;
     private config;
     private messages;
     private compactThreshold;
+    private circuitBreaker;
+    private currentTask;
+    private stepIndex;
+    private compactCount;
+    private replay;
+    private eventLogger;
     constructor(config: AgentConfig);
     private emit;
     private shouldCompact;
     private compactContext;
     private resetForContinuation;
+    private buildAgentState;
+    private stepContext;
+    private initReplay;
+    private logReplay;
+    private finalizeReplay;
+    private runRepair;
+    private executeToolWithRepair;
     run(task: string): Promise<string>;
-    private streamCompletion;
+    private streamCompletionWithReplay;
 }

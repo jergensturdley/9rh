@@ -30,6 +30,8 @@ npm install
 npm run build
 ```
 
+The build script also marks `dist/index.js` executable so the `9rh` CLI symlink works correctly on all shells (fish, zsh, bash).
+
 Run the CLI from the repo with:
 
 ```sh
@@ -159,6 +161,185 @@ The package exports:
 - `TOOL_DEFINITIONS`
 - `executeTool`
 - `ensureRouter`
+
+## Replay System
+
+The replay system reproduces any agent run step-by-step, detects divergence between recorded and fresh executions, and supports time-travel branching from recorded checkpoints. Events are written as JSON Lines to `9rh-runs/<runId>/events.jsonl`.
+
+### Architecture
+
+The system is composed of seven modules:
+
+| Module | File | Responsibility |
+|--------|------|----------------|
+| **eventSchema** | `src/replay/eventSchema.ts` | Defines all event types, run metadata, step context, and the `ReplayEvent` union |
+| **eventLogger** | `src/replay/eventLogger.ts` | Records events during agent runs; async batched writes to JSON Lines; exposes `readEventLog()` for replay |
+| **replayEngine** | `src/replay/replayEngine.ts` | Loads an event log and replays it sequentially; optionally uses a live LLM provider instead of recorded responses; detects output divergence on `tool_call` vs stored `tool_result` |
+| **divergenceDetector** | `src/replay/divergenceDetector.ts` | Compares two event logs or a fresh run against a recorded one; reports the exact field, step, and severity of mismatch |
+| **checkpointManager** | `src/replay/checkpointManager.ts` | Saves named snapshots of agent state before major steps; supports restore, list, and prune operations |
+| **branchManager** | `src/replay/branchManager.ts` | Tracks run lineage and branching; stores branch metadata in `branchDir/index.json`; provides `getLineage()` and `getBranchesForRun()` |
+| **index** | `src/replay/index.ts` | Re-exports all public types and classes |
+
+### Event Types
+
+The event log records these types (each with monotonic `seq` and `ts`):
+
+| Event | Description |
+|-------|-------------|
+| `run_start` | Run metadata (model, params, workDir, environment, versions) |
+| `step_start` / `step_end` | Step boundaries with stepIndex and iteration |
+| `llm_request` / `llm_response` | LLM calls with messages, tools, text, and tool calls |
+| `tool_call` / `tool_result` | Tool invocation and result with `callId`, output, durationMs |
+| `checkpoint` | Named snapshot (periodic, pre-compact, pre-repair, manual) |
+| `branch_create` | Branch fork with parentRunId, parentStep, reason |
+| `compact` | Message summarization with before/after counts |
+| `run_end` | Final run reason and summary |
+
+### Recording a Run
+
+```ts
+import { EventLogger } from "./replay/index.js";
+
+const logger = new EventLogger({
+  runId: "run_abc123",
+  branchId: "main",
+  runDir: "./9rh-runs/run_abc123",
+});
+
+await logger.init();
+
+// Wire into agent event stream
+agent.on("event", (event) => logger.write(event));
+```
+
+### Replaying a Run
+
+```ts
+import { ReplayEngine } from "./replay/index.js";
+
+const engine = new ReplayEngine({
+  eventLogPath: "./9rh-runs/run_abc123/events.jsonl",
+  workDir: process.cwd(),
+  fromStep: 0,           // 0 = from beginning; N = resume from step N
+  stopOnDivergence: true,
+  onDivergence(report) {
+    console.error("Diverged at step", report.divergedAt.step);
+  },
+  llmProvider: {
+    async complete(messages, model, params) {
+      // Optional: get live LLM responses instead of replaying recorded ones
+      return openai.complete(messages, model, params);
+    },
+  },
+});
+
+await engine.load();
+const { eventCount, divergenceReport } = await engine.replay();
+```
+
+### Divergence Detection
+
+During replay, before executing each `tool_call`, the engine looks up the stored output for that `callId` from the matching `tool_result` event. If `freshResult.output !== recordedOutput` and `stopOnDivergence` is true, the engine emits an `onDivergence` callback with the full report:
+
+```ts
+divergedAt: {
+  seq: number,
+  eventType: "tool_call",
+  step: number,
+  field: "output",
+  expected: string,   // first 200 chars of recorded output
+  actual: string,    // first 200 chars of fresh output
+  severity: "critical" | "major" | "minor",
+}
+```
+
+### Time-Travel Branching
+
+When divergence is detected, you can branch from the last checkpoint before the diverging step:
+
+```ts
+import { BranchManager } from "./replay/index.js";
+
+const bm = new BranchManager({ branchDir: "./9rh-runs/branches" });
+await bm.init();
+
+const branch = bm.createBranch({
+  newBranchId: "run_def456",
+  runId: "run_def456",
+  parentRunId: "run_abc123",   // replayed run
+  parentStep: divergedStep - 1,
+  branchReason: "agent went wrong at step N — retry with claude-sonnet-5",
+  eventLogPath: "./9rh-runs/run_abc123/events.jsonl",
+});
+```
+
+`getLineage(branchId)` walks parent links back to the root run. `getBranchesForRun(runId)` returns all branches forked from a given run.
+
+### Checkpoints
+
+Checkpoints serialize the full agent state (messages, tool history, step index, iteration count) to `snapshots/<snapshotId>.json`. The `checkpointManager` supports:
+
+- `save(reason)` — periodic, pre-compact, pre-repair, or manual
+- `restore(snapshotId)` — restore workDir git state and agent state
+- `list()` — enumerate all snapshots with timestamps and reasons
+
+On replay with `fromStep > 0`, the engine skips to the nearest checkpoint at or before `fromStep`, restores it, then processes remaining events from that point.
+
+## Repair System
+
+The repair system automatically detects, classifies, and fixes harness-level errors. It is composed of six modules under `src/repair/`.
+
+### Error Taxonomy
+
+All errors are classified into four tiers:
+
+| Class | Retryable | Max Retries | Triggers Repair |
+|-------|-----------|-------------|-----------------|
+| `RECOVERABLE` | Yes | 3 | Yes |
+| `AGENT_ERROR` | No | 1 | Yes |
+| `ENVIRONMENT_ERROR` | No | 1 | Yes |
+| `FATAL` | No | 0 | No — halts immediately |
+
+### Circuit Breaker
+
+The `CircuitBreaker` guards against cascading failures. It opens after 3 consecutive `ENVIRONMENT_ERROR` or `FATAL` occurrences and halts the agent loop until the timeout elapses (default 60s).
+
+### Snapshot Manager
+
+Before each major step, the agent serializes its state to `./snapshots/` as JSON. On repair success, execution can resume from the last known good state.
+
+### Repair Playbook
+
+`src/repair/repairPlaybook.json` maps error patterns to suggested fixes. Entries with `autoApply: true` are applied automatically on HIGH confidence. Current patterns:
+
+- Out-of-memory → increase Node.js heap
+- API timeout/rate-limit → exponential backoff
+- Malformed LLM JSON → strip markdown fences before parsing
+- Missing environment variable → surface to user
+- Sandbox process crash → restart sandbox subprocess
+- Premature close (undici) → retry with fresh connection
+
+### Repair Agent
+
+When an error cannot be resolved by the playbook, the repair sub-agent is invoked via the LLM using a structured prompt. It returns a JSON response:
+
+```json
+{
+  "error_classification": "RECOVERABLE|AGENT_ERROR|ENVIRONMENT_ERROR|FATAL",
+  "root_cause": "one sentence",
+  "confidence": "HIGH|MEDIUM|LOW",
+  "fix_applied": "exact description",
+  "validation_result": "PASSED|FAILED|PENDING",
+  "escalate": true|false,
+  "user_message": "plain language summary"
+}
+```
+
+After 3 failed attempts, it escalates to the user.
+
+### Incident Logging
+
+All repair attempts write structured JSON incident reports to `./logs/incidents/`. Successful repairs auto-generate a new playbook entry appended to `repairPlaybook.json`.
 
 ## Development
 

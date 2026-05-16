@@ -1,5 +1,8 @@
 import OpenAI from "openai";
 import { TOOL_DEFINITIONS, executeTool } from "./tools.js";
+import { CircuitBreaker } from "./repair/circuitBreaker.js";
+import { withErrorInterception, captureSnapshot, runRepairAgent, logIncident, } from "./repair/index.js";
+import { EventLogger } from "./replay/eventLogger.js";
 const DEFAULT_SYSTEM = `You are a skilled coding agent. You help with coding tasks by reading, writing, and modifying files, running commands, and solving problems step by step.
 
 Guidelines:
@@ -8,11 +11,20 @@ Guidelines:
 - Run tests after making changes
 - Be concise in explanations
 - When done, summarize what you accomplished`;
+function generateId() {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
 export class Agent {
     client;
     config;
     messages = [];
     compactThreshold;
+    circuitBreaker;
+    currentTask = "";
+    stepIndex = 0;
+    compactCount = 0;
+    replay;
+    eventLogger = null;
     constructor(config) {
         this.config = config;
         this.client = new OpenAI({
@@ -20,6 +32,8 @@ export class Agent {
             apiKey: config.apiKey,
         });
         this.compactThreshold = config.compactAfter ?? 20;
+        this.circuitBreaker = new CircuitBreaker(3, 60_000);
+        this.replay = config.replay ?? { enabled: false };
     }
     emit(event) {
         this.config.onEvent?.(event);
@@ -65,7 +79,115 @@ export class Agent {
             },
         ];
     }
+    buildAgentState() {
+        return {
+            currentTask: this.currentTask,
+            memory: {},
+            toolCallHistory: [],
+            stepIndex: this.stepIndex,
+            environmentVars: {},
+        };
+    }
+    stepContext() {
+        return { stepIndex: this.stepIndex, iteration: this.stepIndex, compactCount: this.compactCount };
+    }
+    async initReplay(task) {
+        if (!this.replay.enabled)
+            return;
+        const runId = this.replay.runId ?? generateId();
+        const branchId = this.replay.branchId ?? generateId();
+        const cfg = {
+            runId,
+            branchId,
+            logDir: this.replay.logDir ?? "./logs/runs",
+        };
+        this.eventLogger = new EventLogger(cfg);
+        await this.eventLogger.init();
+        const meta = {
+            runId,
+            branchId,
+            model: this.config.model,
+            modelParams: { temperature: 0.3 },
+            workDir: this.config.workDir,
+            environmentVars: {},
+            nodeVersion: process.version,
+            packageVersions: {},
+            timestamp: Date.now(),
+        };
+        this.eventLogger.log({ type: "run_start", payload: meta });
+    }
+    logReplay(event) {
+        this.eventLogger?.log(event);
+        this.emit({ type: "replay_event", event: event });
+    }
+    async finalizeReplay(reason) {
+        if (!this.eventLogger)
+            return;
+        const runId = this.replay.runId ?? "";
+        await this.eventLogger.finalize(runId, reason);
+    }
+    async runRepair(tagged, attempt, toolName, toolInput, toolOutput) {
+        const agentState = this.buildAgentState();
+        const ctx = {
+            error: tagged,
+            agentState,
+            attemptNumber: attempt,
+            toolName,
+            toolInput,
+            toolOutput,
+            lastSuccessfulStep: this.stepIndex,
+            previousAttempts: [],
+            openaiClient: this.client,
+            model: this.config.model,
+        };
+        const startMs = Date.now();
+        const result = await runRepairAgent(ctx);
+        const durationMs = Date.now() - startMs;
+        if (result.success) {
+            const outcome = result.escalate ? "ESCALATED" : "REPAIRED";
+            await logIncident(tagged, attempt, outcome, durationMs, result.userMessage);
+            this.emit({ type: "repair_success", message: result.userMessage });
+            return { escalate: false, userMessage: result.userMessage };
+        }
+        await logIncident(tagged, attempt, "ESCALATED", durationMs, result.userMessage);
+        this.emit({ type: "escalate", message: result.userMessage });
+        return { escalate: true, userMessage: result.userMessage };
+    }
+    async executeToolWithRepair(name, args, callId) {
+        const wrapped = async () => {
+            return executeTool(name, args, this.config.workDir);
+        };
+        const result = await withErrorInterception(wrapped, {
+            sourceLayer: "tool",
+            onRepairTriggered: async (tagged, attempt) => {
+                this.emit({ type: "repair_start", message: tagged.message, attempt });
+                const { escalate, userMessage } = await this.runRepair(tagged, attempt, name, args);
+                if (escalate) {
+                    this.emit({ type: "escalate", message: userMessage });
+                    throw new Error(`[repair] ${userMessage}`);
+                }
+            },
+            repairAgent: async (tagged, attempt) => {
+                this.emit({ type: "repair_start", message: tagged.message, attempt });
+                const repairResult = await this.runRepair(tagged, attempt, name, args);
+                if (repairResult.escalate) {
+                    return { success: false, snapshotId: undefined, userMessage: repairResult.userMessage, escalate: true };
+                }
+                return { success: true, snapshotId: undefined, userMessage: repairResult.userMessage, escalate: false };
+            },
+            circuitBreaker: {
+                isOpen: () => this.circuitBreaker.isOpen(),
+                recordFailure: (ec) => this.circuitBreaker.recordFailure(ec),
+                recordSuccess: () => this.circuitBreaker.recordSuccess(),
+            },
+        });
+        return result;
+    }
     async run(task) {
+        this.currentTask = task;
+        this.stepIndex = 0;
+        this.compactCount = 0;
+        await this.initReplay(task);
         this.messages = [
             {
                 role: "system",
@@ -77,20 +199,60 @@ export class Agent {
             },
         ];
         let finalResponse = "";
-        let compactCount = 0;
         for (let iteration = 1; iteration <= this.config.maxIterations; iteration++) {
+            if (this.circuitBreaker.isOpen()) {
+                this.emit({ type: "circuit_open" });
+                throw new Error("Circuit breaker is OPEN — halting agent loop");
+            }
+            this.stepIndex = iteration;
+            this.logReplay({
+                type: "step_start",
+                step: this.stepContext(),
+                payload: {},
+            });
+            const snapshotId = await captureSnapshot(this.buildAgentState());
+            this.logReplay({
+                type: "checkpoint",
+                step: this.stepContext(),
+                payload: {
+                    snapshotId,
+                    workDirGitCommit: "",
+                    workDirGitHash: "",
+                    messageCount: this.messages.length,
+                    reason: "periodic",
+                },
+            });
             this.emit({ type: "iteration", current: iteration, max: this.config.maxIterations });
             if (this.shouldCompact()) {
                 const summary = await this.compactContext();
-                compactCount++;
+                this.compactCount++;
                 this.emit({ type: "compact", summary });
                 this.resetForContinuation(summary, task);
+                this.logReplay({
+                    type: "compact",
+                    step: this.stepContext(),
+                    payload: {
+                        messageCountBefore: this.messages.length + 1,
+                        messageCountAfter: 2,
+                        summary,
+                    },
+                });
             }
-            const { text, toolCalls } = await this.streamCompletion();
+            const { text, toolCalls } = await this.streamCompletionWithReplay();
             if (text)
                 finalResponse = text;
             if (!toolCalls || toolCalls.length === 0) {
                 this.emit({ type: "done", text });
+                this.logReplay({
+                    type: "step_end",
+                    step: this.stepContext(),
+                    payload: { stepIndex: this.stepIndex },
+                });
+                this.logReplay({
+                    type: "run_end",
+                    payload: { runId: this.replay.runId ?? "", reason: "completed" },
+                });
+                await this.finalizeReplay("completed");
                 return text;
             }
             this.messages.push({
@@ -122,13 +284,33 @@ export class Agent {
                     continue;
                 }
                 this.emit({ type: "tool_call", name: tc.name, args });
-                const result = await executeTool(tc.name, args, this.config.workDir);
+                const tcEvent = {
+                    type: "tool_call",
+                    step: this.stepContext(),
+                    payload: { toolName: tc.name, args, callId: tc.id },
+                };
+                this.logReplay(tcEvent);
+                const startMs = Date.now();
+                const result = await this.executeToolWithRepair(tc.name, args, tc.id);
+                const durationMs = Date.now() - startMs;
                 this.emit({
                     type: "tool_result",
                     name: tc.name,
                     output: result.output,
                     error: result.error,
                 });
+                const trEvent = {
+                    type: "tool_result",
+                    step: this.stepContext(),
+                    payload: {
+                        toolName: tc.name,
+                        callId: tc.id,
+                        output: result.output,
+                        error: result.error,
+                        durationMs,
+                    },
+                };
+                this.logReplay(trEvent);
                 this.messages.push({
                     role: "tool",
                     tool_call_id: tc.id,
@@ -137,12 +319,22 @@ export class Agent {
                         : result.output,
                 });
             }
+            this.logReplay({
+                type: "step_end",
+                step: this.stepContext(),
+                payload: { stepIndex: this.stepIndex },
+            });
         }
         const exhaustedMsg = `Reached max iterations (${this.config.maxIterations})`;
         this.emit({ type: "error", message: exhaustedMsg });
+        this.logReplay({
+            type: "run_end",
+            payload: { runId: this.replay.runId ?? "", reason: "max_iterations" },
+        });
+        await this.finalizeReplay("max_iterations");
         throw new Error(exhaustedMsg);
     }
-    async streamCompletion() {
+    async streamCompletionWithReplay() {
         const maxRetries = 3;
         let lastError = "";
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -189,6 +381,17 @@ export class Agent {
                         .sort(([a], [b]) => a - b)
                         .map(([, v]) => v)
                     : null;
+                if (toolCalls) {
+                    this.logReplay({
+                        type: "llm_response",
+                        step: this.stepContext(),
+                        payload: {
+                            text,
+                            toolCalls,
+                            finishReason: "tool_calls",
+                        },
+                    });
+                }
                 return { text, toolCalls };
             }
             catch (err) {
