@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-import { createInterface } from "readline";
+import { createInterface, emitKeypressEvents } from "readline";
 import { resolve } from "path";
 import { program } from "commander";
 import chalk from "chalk";
 import { Agent } from "./agent.js";
-import { executeSlashCommand } from "./commands.js";
+import { executeSlashCommand, toArray, getSlashCommands } from "./commands.js";
 import { ensureRouter, readFirstApiKey } from "./init.js";
-import { toArray } from "./commands.js";
+import { createTuiRenderer, printSplash } from "./tui.js";
 const DEFAULTS = {
     url: process.env.NINE_ROUTER_URL ?? "http://localhost:20128/v1",
     key: process.env.NINE_ROUTER_KEY ?? "9router",
@@ -104,58 +104,95 @@ function makeAgent(state, onEvent) {
         onEvent,
     });
 }
-function renderEvent(event) {
-    switch (event.type) {
-        case "iteration":
-            process.stderr.write(chalk.dim(`\n[iter ${event.current}/${event.max}]\n`));
-            break;
-        case "compact":
-            process.stderr.write(opts.color
-                ? chalk.yellow(`\n  ⟳ compacting context...\n  summary: ${event.summary}\n`)
-                : `\n  compacting context...\n  summary: ${event.summary}\n`);
-            break;
-        case "thinking":
-            process.stdout.write(opts.color ? chalk.white(event.text) : event.text);
-            break;
-        case "tool_call": {
-            const argsStr = JSON.stringify(event.args, null, 2);
-            process.stdout.write("\n" +
-                (opts.color
-                    ? chalk.cyan(`⚙ ${event.name}`) + chalk.dim(` ${argsStr}`)
-                    : `⚙ ${event.name} ${argsStr}`) +
-                "\n");
-            break;
-        }
-        case "tool_result": {
-            const lines = event.output.split("\n").slice(0, 20);
-            const truncated = event.output.split("\n").length > 20 ? "\n…(truncated)" : "";
-            const out = lines.join("\n") + truncated;
-            if (event.error) {
-                process.stdout.write(opts.color ? chalk.red(`✗ ${event.error}\n${out}\n`) : `✗ ${event.error}\n${out}\n`);
-            }
-            else {
-                process.stdout.write(opts.color ? chalk.green(`✓ `) + chalk.dim(out) + "\n" : `✓ ${out}\n`);
-            }
-            break;
-        }
-        case "done":
-            process.stdout.write("\n");
-            break;
-        case "error":
-            process.stderr.write(opts.color ? chalk.red(`\n⚠ ${event.message}\n`) : `\n⚠ ${event.message}\n`);
-            break;
-    }
-}
 async function runTask(state, t) {
-    if (opts.color) {
-        process.stderr.write(chalk.bold.blue(`\n9rh`) +
-            chalk.dim(` → ${state.model} @ ${state.baseURL}\n`) +
-            chalk.dim(`dir: ${state.workDir}\n\n`));
-    }
-    const agent = makeAgent(state, renderEvent);
+    const tui = createTuiRenderer({
+        getModel: () => state.model,
+        getWorkDir: () => state.workDir,
+        useColor: state.useColor,
+    });
+    const agent = makeAgent(state, tui);
     await agent.run(t);
 }
 async function runRepl(state) {
+    const tui = createTuiRenderer({
+        getModel: () => state.model,
+        getWorkDir: () => state.workDir,
+        useColor: state.useColor,
+    });
+    const nativeBase = state.baseURL.replace(/\/v1\/?$/, "");
+    printSplash({
+        getModel: () => state.model,
+        getWorkDir: () => state.workDir,
+        useColor: state.useColor,
+        provider: nativeBase,
+        project: state.workDir.split(/[/\\]/).pop() || ".",
+        status: state.wasStarted ? "auto-started" : "connected",
+    });
+    const ALL_CMDS = getSlashCommands();
+    function fuzzyScore(pattern, target) {
+        if (!pattern)
+            return 1;
+        const p = pattern.toLowerCase();
+        const t = target.toLowerCase();
+        let pi = 0;
+        for (let ti = 0; ti < t.length && pi < p.length; ti++) {
+            if (p[pi] === t[ti])
+                pi++;
+        }
+        return pi === p.length ? pi : 0;
+    }
+    function fuzzyFilter(partial) {
+        if (!partial)
+            return ALL_CMDS;
+        return ALL_CMDS
+            .map(c => ({ c, score: fuzzyScore(partial, c.name) }))
+            .filter(({ score }) => score > 0)
+            .sort((a, b) => b.score - a.score)
+            .map(({ c }) => c);
+    }
+    function highlightMatch(name, partial) {
+        if (!partial || !opts.color)
+            return opts.color ? chalk.dim(name) : name;
+        const p = partial.toLowerCase();
+        let pi = 0;
+        let out = "";
+        for (let ti = 0; ti < name.length; ti++) {
+            if (pi < p.length && name[ti].toLowerCase() === p[pi]) {
+                out += chalk.bold.cyan(name[ti]);
+                pi++;
+            }
+            else {
+                out += chalk.dim(name[ti]);
+            }
+        }
+        return out;
+    }
+    let suggCount = 0;
+    function clearSuggestions() {
+        if (suggCount === 0)
+            return;
+        process.stderr.write(`\x1b[${suggCount}B`);
+        for (let i = 0; i < suggCount; i++) {
+            process.stderr.write("\x1b[2K\r\n");
+        }
+        process.stderr.write(`\x1b[${suggCount}A`);
+        suggCount = 0;
+    }
+    function showSuggestions(matches, partial) {
+        clearSuggestions();
+        const items = matches.slice(0, 7);
+        if (items.length === 0)
+            return;
+        suggCount = items.length;
+        const maxLen = Math.max(...items.map(i => i.name.length));
+        for (const { name, description } of items) {
+            const hi = highlightMatch(name, partial);
+            const pad = " ".repeat(Math.max(1, maxLen - name.length + 2));
+            const desc = opts.color ? chalk.dim(description.slice(0, 44)) : description.slice(0, 44);
+            process.stderr.write(`\r\n  /${hi}${pad}${desc}\x1b[0K`);
+        }
+        process.stderr.write(`\x1b[${suggCount}A`);
+    }
     const prompt = () => opts.color
         ? chalk.bold.cyan("❯ ") + chalk.dim(`[${state.model}] `)
         : `[${state.model}] > `;
@@ -167,13 +204,37 @@ async function runRepl(state) {
     }
     process.stderr.write(opts.color
         ? chalk.bold.blue("9rh REPL") +
-            chalk.dim(" — type /help for commands, 'exit' to quit\n")
-        : "9rh REPL — type /help for commands, 'exit' to quit\n");
+            chalk.dim(" — type /help for commands, Ctrl+C to quit\n")
+        : "9rh REPL — type /help for commands, Ctrl+C to quit\n");
     const rl = createInterface({
         input: process.stdin,
         output: process.stderr,
         prompt: prompt(),
+        completer: (line) => {
+            if (!line.startsWith("/"))
+                return [[], line];
+            const partial = line.slice(1).toLowerCase();
+            return [fuzzyFilter(partial).map(m => "/" + m.name), line];
+        },
     });
+    if (process.stdin.isTTY) {
+        emitKeypressEvents(process.stdin, rl);
+        process.stdin.on("keypress", (_, key) => {
+            if (key?.name === "return" || key?.name === "enter") {
+                clearSuggestions();
+                return;
+            }
+            setImmediate(() => {
+                const line = rl.line;
+                if (line.startsWith("/")) {
+                    showSuggestions(fuzzyFilter(line.slice(1)), line.slice(1));
+                }
+                else {
+                    clearSuggestions();
+                }
+            });
+        });
+    }
     const refreshPrompt = () => {
         rl.setPrompt(prompt());
         rl.prompt();
@@ -181,6 +242,7 @@ async function runRepl(state) {
     refreshPrompt();
     let queue = Promise.resolve();
     rl.on("line", (line) => {
+        clearSuggestions();
         queue = queue.then(async () => {
             const trimmed = line.trim();
             if (!trimmed) {
@@ -204,7 +266,7 @@ async function runRepl(state) {
                 refreshPrompt();
                 return;
             }
-            const agent = makeAgent(state, renderEvent);
+            const agent = makeAgent(state, tui);
             try {
                 await agent.run(trimmed);
             }
@@ -369,7 +431,21 @@ async function main() {
         });
     }
     else {
-        program.help();
+        ensureRouter(opts.url, opts.key).then((init) => {
+            state.baseURL = init.baseURL;
+            state.apiKey = init.apiKey;
+            state.wasStarted = init.wasStarted;
+            if (init.error) {
+                process.stderr.write(opts.color ? chalk.red(`  ✗ ${init.error}\n`) : `  ✗ ${init.error}\n`);
+            }
+            runRepl(state).catch((err) => {
+                process.stderr.write(String(err) + "\n");
+                process.exit(1);
+            });
+        }).catch((err) => {
+            process.stderr.write(String(err) + "\n");
+            process.exit(1);
+        });
     }
 }
 main().catch((err) => {

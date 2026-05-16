@@ -367,4 +367,7 @@ export async function executeSlashCommand(line, state) {
         return "\n" + (state.useColor ? chalk.red(msg) : msg) + "\n";
     }
 }
+export function getSlashCommands() {
+    return Object.entries(COMMANDS).map(([name, def]) => ({ name, description: def.description }));
+}
 //# sourceMappingURL=commands.js.map

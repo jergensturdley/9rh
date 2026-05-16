@@ -8,3 +8,7 @@ export interface SessionState {
 }
 export declare function toArray<T>(val: unknown): T[];
 export declare function executeSlashCommand(line: string, state: SessionState): Promise<string | null>;
+export declare function getSlashCommands(): Array<{
+    name: string;
+    description: string;
+}>;
