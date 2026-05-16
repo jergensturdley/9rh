@@ -434,3 +434,7 @@ export async function executeSlashCommand(
     return "\n" + (state.useColor ? chalk.red(msg) : msg) + "\n";
   }
 }
+
+export function getSlashCommands(): Array<{ name: string; description: string }> {
+  return Object.entries(COMMANDS).map(([name, def]) => ({ name, description: def.description }));
+}
