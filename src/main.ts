@@ -1,6 +1,39 @@
 export { Agent } from "./agent.js";
 export { TOOL_DEFINITIONS, executeTool } from "./tools.js";
 export { ensureRouter } from "./init.js";
+export {
+  formatSpecDrivenPrompt,
+  parseTaskSpecification,
+  shouldUseSpecDrivenTesting,
+  synthesizeTestPlan,
+} from "./spec/specDrivenTesting.js";
+export {
+  applyAgentEvent,
+  applyReplayEvent,
+  createRunVisualization,
+  exportRunVisualization,
+  renderRunVisualization,
+  visibleSteps,
+} from "./visualization.js";
 export type { AgentConfig, AgentEvent } from "./agent.js";
 export type { ToolResult } from "./tools.js";
 export type { InitResult } from "./init.js";
+export type {
+  CoverageEntry,
+  ParsedSpecification,
+  RequirementKind,
+  RequirementStatement,
+  SynthesizedTest,
+  SynthesizedTestPlan,
+  TestPath,
+  TestType,
+} from "./spec/specDrivenTesting.js";
+export type {
+  RunStage,
+  RunVisualization,
+  Severity,
+  StepStatus,
+  VisualEdge,
+  VisualizationFilter,
+  VisualStep,
+} from "./visualization.js";

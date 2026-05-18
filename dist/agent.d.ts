@@ -9,6 +9,7 @@ export interface AgentConfig {
     onEvent?: (event: AgentEvent) => void;
     compactAfter?: number;
     replay?: ReplayConfig;
+    specDrivenTesting?: boolean;
 }
 export interface ReplayConfig {
     enabled: boolean;
@@ -58,6 +59,15 @@ export type AgentEvent = {
 } | {
     type: "replay_event";
     event: ReplayEvent;
+} | {
+    type: "spec_plan";
+    summary: string;
+} | {
+    type: "sandbox_health";
+    total: number;
+    sandboxed: number;
+    direct: number;
+    timedOut: number;
 };
 export declare class Agent {
     private client;
@@ -70,6 +80,9 @@ export declare class Agent {
     private compactCount;
     private replay;
     private eventLogger;
+    private reasoner;
+    private executor;
+    private observer;
     constructor(config: AgentConfig);
     private emit;
     private shouldCompact;

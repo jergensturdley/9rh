@@ -4,9 +4,11 @@ import { resolve } from "path";
 import { program } from "commander";
 import chalk from "chalk";
 import { Agent } from "./agent.js";
-import { executeSlashCommand, toArray, getSlashCommands } from "./commands.js";
-import { ensureRouter, readFirstApiKey } from "./init.js";
+import { executeSlashCommand, fetchModels, filterModels, toArray, getSlashCommands } from "./commands.js";
+import { ensureRouter, readFirstApiKey, getCliToken } from "./init.js";
 import { createTuiRenderer, printSplash } from "./tui.js";
+import { compressUserInput } from "./inputCompression.js";
+import { ReplInputCoalescer } from "./replInput.js";
 const DEFAULTS = {
     url: process.env.NINE_ROUTER_URL ?? "http://localhost:20128/v1",
     key: process.env.NINE_ROUTER_KEY ?? "9router",
@@ -108,26 +110,27 @@ async function runTask(state, t) {
     const tui = createTuiRenderer({
         getModel: () => state.model,
         getWorkDir: () => state.workDir,
+        getBaseURL: () => state.baseURL,
+        getStartedByRouter: () => state.wasStarted,
         useColor: state.useColor,
     });
     const agent = makeAgent(state, tui);
-    await agent.run(t);
+    const compressed = compressUserInput(t);
+    if (compressed.notices.length > 0) {
+        process.stderr.write(compressed.notices.map((notice) => `  ⧉ ${notice}`).join("\n") + "\n");
+    }
+    await agent.run(compressed.text);
 }
 async function runRepl(state) {
     const tui = createTuiRenderer({
         getModel: () => state.model,
         getWorkDir: () => state.workDir,
+        getBaseURL: () => state.baseURL,
+        getStartedByRouter: () => state.wasStarted,
         useColor: state.useColor,
     });
     const nativeBase = state.baseURL.replace(/\/v1\/?$/, "");
-    printSplash({
-        getModel: () => state.model,
-        getWorkDir: () => state.workDir,
-        useColor: state.useColor,
-        provider: nativeBase,
-        project: state.workDir.split(/[/\\]/).pop() || ".",
-        status: state.wasStarted ? "auto-started" : "connected",
-    });
+    await printSplash(state.useColor);
     const ALL_CMDS = getSlashCommands();
     function fuzzyScore(pattern, target) {
         if (!pattern)
@@ -169,8 +172,12 @@ async function runRepl(state) {
     }
     let suggCount = 0;
     let lastSuggestionKey = "";
+    let suggestionTop = 0;
+    let lastSuggestionPartial = "";
+    let lastSuggestionMatches = [];
     let renderToken = 0;
     let renderQueued = false;
+    let pickerActive = false;
     function promptColumns() {
         const cols = process.stdout.columns ?? 80;
         const modelLen = state.model.length;
@@ -182,30 +189,43 @@ async function runRepl(state) {
         cursorTo(process.stderr, promptColumns() + rl.cursor);
     }
     function showSuggestions(matches, partial) {
-        const items = matches.slice(0, 7);
-        const key = `${partial}|${items.map((m) => m.name).join(";")}`;
+        const visibleRows = Math.max(4, Math.min(12, (process.stderr.rows ?? 24) - 8));
+        if (partial !== lastSuggestionPartial)
+            suggestionTop = 0;
+        suggestionTop = Math.max(0, Math.min(suggestionTop, Math.max(0, matches.length - visibleRows)));
+        const items = matches.slice(suggestionTop, suggestionTop + visibleRows);
+        const key = `${partial}|${suggestionTop}|${items.map((m) => m.name).join(";")}`;
         if (key === lastSuggestionKey)
             return;
         if (items.length === 0) {
             clearSuggestions();
             return;
         }
-        suggCount = items.length;
+        const hiddenBefore = suggestionTop;
+        const hiddenAfter = Math.max(0, matches.length - suggestionTop - items.length);
+        const hasOverflow = hiddenBefore > 0 || hiddenAfter > 0;
+        suggCount = items.length + (hasOverflow ? 1 : 0);
         lastSuggestionKey = key;
+        lastSuggestionPartial = partial;
+        lastSuggestionMatches = matches;
         const maxLen = Math.max(...items.map(i => i.name.length));
         const lines = items.map(({ name, description }) => {
             const hi = highlightMatch(name, partial);
             const pad = " ".repeat(Math.max(1, maxLen - name.length + 2));
             const desc = opts.color ? chalk.dim(description.slice(0, 44)) : description.slice(0, 44);
-            return `/${hi}${pad}${desc}`;
+            return `  /${hi}${pad}${desc}`;
         });
+        if (hasOverflow) {
+            const more = `  ↑/↓ scroll${hiddenBefore ? `  ${hiddenBefore} above` : ""}${hiddenAfter ? `  ${hiddenAfter} below` : ""}`;
+            lines.push(opts.color ? chalk.dim(more) : more);
+        }
         cursorTo(process.stderr, 0);
         clearScreenDown(process.stderr);
         process.stderr.write(prompt() + rl.line + "\n");
         for (const line of lines) {
             process.stderr.write(line + "\n");
         }
-        moveCursor(process.stderr, 0, -(items.length + 1));
+        moveCursor(process.stderr, 0, -(lines.length + 1));
         cursorTo(process.stderr, promptColumns() + rl.cursor);
     }
     function clearSuggestions() {
@@ -216,7 +236,18 @@ async function runRepl(state) {
         clearScreenDown(process.stderr);
         suggCount = 0;
         lastSuggestionKey = "";
+        lastSuggestionPartial = "";
+        lastSuggestionMatches = [];
+        suggestionTop = 0;
         redrawLine();
+    }
+    function scrollSuggestions(delta) {
+        if (suggCount === 0 || lastSuggestionMatches.length === 0)
+            return false;
+        suggestionTop += delta;
+        lastSuggestionKey = "";
+        showSuggestions(lastSuggestionMatches, lastSuggestionPartial);
+        return true;
     }
     function scheduleSuggestionRefresh() {
         const token = ++renderToken;
@@ -246,9 +277,8 @@ async function runRepl(state) {
             : "  ✓ 9router started automatically\n");
     }
     process.stderr.write(opts.color
-        ? chalk.bold.blue("9rh REPL") +
-            chalk.dim(" — type /help for commands, Ctrl+C to quit\n")
-        : "9rh REPL — type /help for commands, Ctrl+C to quit\n");
+        ? chalk.dim("type / for commands\n")
+        : "type / for commands\n");
     const rl = createInterface({
         input: process.stdin,
         output: process.stderr,
@@ -263,6 +293,8 @@ async function runRepl(state) {
     if (process.stdin.isTTY) {
         emitKeypressEvents(process.stdin, rl);
         process.stdin.on("keypress", (input, key) => {
+            if (pickerActive)
+                return;
             if (key?.name === "return" || key?.name === "enter") {
                 clearSuggestions();
                 return;
@@ -272,6 +304,10 @@ async function runRepl(state) {
                 return;
             }
             if (key?.ctrl || key?.meta)
+                return;
+            if (key?.name === "down" && scrollSuggestions(1))
+                return;
+            if (key?.name === "up" && scrollSuggestions(-1))
                 return;
             const navKeys = new Set(["up", "down", "left", "right", "tab"]);
             if (key?.name && navKeys.has(key.name))
@@ -287,60 +323,222 @@ async function runRepl(state) {
         rl.setPrompt(prompt());
         rl.prompt();
     };
+    function parseSlash(line) {
+        const [rawCmd, ...args] = line.slice(1).trim().split(/\s+/);
+        return { cmd: rawCmd?.toLowerCase() ?? "", args };
+    }
+    async function selectModel(models, filter) {
+        if (!process.stdin.isTTY || !process.stderr.isTTY || models.length === 0)
+            return null;
+        const visibleRows = Math.max(6, Math.min(14, (process.stderr.rows ?? 24) - 8));
+        let selected = Math.max(0, models.findIndex((model) => model.id === state.model));
+        if (selected < 0)
+            selected = 0;
+        let top = Math.max(0, Math.min(selected - Math.floor(visibleRows / 2), Math.max(0, models.length - visibleRows)));
+        let renderedLines = 0;
+        let done = false;
+        let result = null;
+        const input = process.stdin;
+        function clampSelection() {
+            selected = Math.max(0, Math.min(models.length - 1, selected));
+            if (selected < top)
+                top = selected;
+            if (selected >= top + visibleRows)
+                top = selected - visibleRows + 1;
+            top = Math.max(0, Math.min(top, Math.max(0, models.length - visibleRows)));
+        }
+        function move(delta) {
+            selected += delta;
+            clampSelection();
+            render();
+        }
+        function clearRender() {
+            if (renderedLines === 0)
+                return;
+            moveCursor(process.stderr, 0, -renderedLines);
+            cursorTo(process.stderr, 0);
+            clearScreenDown(process.stderr);
+            renderedLines = 0;
+        }
+        function line(text) {
+            const width = Math.max(40, (process.stderr.columns ?? 80) - 2);
+            return text.length > width ? text.slice(0, width - 1) + "…" : text;
+        }
+        function render() {
+            clearRender();
+            const shown = models.slice(top, top + visibleRows);
+            const title = `${models.length} model(s)${filter ? ` matching "${filter}"` : ""}`;
+            const help = "↑/↓ scroll  wheel scroll  Enter select  Esc cancel";
+            const lines = [
+                "",
+                opts.color ? chalk.bold.cyan(`  ${title}`) : `  ${title}`,
+                opts.color ? chalk.dim(`  ${help}`) : `  ${help}`,
+                "",
+            ];
+            for (let i = 0; i < shown.length; i++) {
+                const index = top + i;
+                const model = shown[i];
+                const active = model.id === state.model;
+                const focused = index === selected;
+                const marker = focused ? "›" : active ? "▶" : " ";
+                const owner = model.owned_by ? `  [${model.owned_by}]` : "";
+                let row = `  ${marker} ${model.id}${owner}`;
+                if (opts.color) {
+                    row = focused ? chalk.inverse(row) : active ? chalk.cyan(row) : row;
+                }
+                lines.push(line(row));
+            }
+            if (top + visibleRows < models.length)
+                lines.push(opts.color ? chalk.dim("  …") : "  …");
+            process.stderr.write(lines.join("\n") + "\n");
+            renderedLines = lines.length;
+        }
+        function finish(value) {
+            done = true;
+            result = value;
+            clearRender();
+        }
+        return await new Promise((resolve) => {
+            const wasRaw = input.isRaw;
+            const onData = (chunk) => {
+                const s = chunk.toString("utf8");
+                if (s === "\u0003") {
+                    finish(null);
+                    process.emit("SIGINT");
+                }
+                else if (s === "\r" || s === "\n") {
+                    finish(models[selected]?.id ?? null);
+                }
+                else if (s === "\u001b" || s === "\u001b[27~") {
+                    finish(null);
+                }
+                else if (s === "\u001b[A") {
+                    move(-1);
+                }
+                else if (s === "\u001b[B") {
+                    move(1);
+                }
+                else if (s === "\u001b[5~") {
+                    move(-visibleRows);
+                }
+                else if (s === "\u001b[6~") {
+                    move(visibleRows);
+                }
+                else if (/\u001b\[<64;\d+;\d+[mM]/u.test(s)) {
+                    move(-3);
+                }
+                else if (/\u001b\[<65;\d+;\d+[mM]/u.test(s)) {
+                    move(3);
+                }
+                if (done) {
+                    process.stderr.write("\x1b[?1000l\x1b[?1006l");
+                    input.off("data", onData);
+                    input.setRawMode(wasRaw);
+                    pickerActive = false;
+                    resolve(result);
+                }
+            };
+            pickerActive = true;
+            input.setRawMode(true);
+            input.resume();
+            process.stderr.write("\x1b[?1000h\x1b[?1006h");
+            input.on("data", onData);
+            render();
+        });
+    }
+    async function runModelsPicker(args) {
+        const filter = args.join(" ").trim();
+        const models = filterModels(await fetchModels(state), filter);
+        if (!models.length) {
+            process.stdout.write(`\n  (no models${filter ? ` matching "${filter}"` : ""})\n`);
+            return true;
+        }
+        const selected = await selectModel(models, filter);
+        if (!selected)
+            return true;
+        const prev = state.model;
+        state.model = selected;
+        process.stdout.write(`\n  switched: ${prev} → ${selected}\n`);
+        return true;
+    }
     refreshPrompt();
     let queue = Promise.resolve();
-    rl.on("line", (line) => {
-        clearSuggestions();
-        queue = queue.then(async () => {
-            const trimmed = line.trim();
-            if (!trimmed) {
+    async function processSubmittedInput(rawInput) {
+        const trimmed = rawInput.trim();
+        if (!trimmed) {
+            refreshPrompt();
+            return;
+        }
+        if (trimmed === "exit" || trimmed === "quit") {
+            process.exit(0);
+        }
+        if (trimmed.startsWith("/") && !trimmed.includes("\n")) {
+            const prevModel = state.model;
+            const parsed = parseSlash(trimmed);
+            if (parsed.cmd === "models") {
+                await runModelsPicker(parsed.args);
                 refreshPrompt();
                 return;
             }
-            if (trimmed === "exit" || trimmed === "quit") {
-                process.exit(0);
-            }
-            if (trimmed.startsWith("/")) {
-                const prevModel = state.model;
-                const result = await executeSlashCommand(trimmed, state);
-                if (result !== null) {
-                    process.stdout.write(result);
-                    if (state.model !== prevModel) {
-                        process.stderr.write(opts.color
-                            ? chalk.dim(`  (model changed — prompt updated)\n`)
-                            : `  (model changed — prompt updated)\n`);
-                    }
+            const result = await executeSlashCommand(trimmed, state);
+            if (result !== null) {
+                process.stdout.write(result);
+                if (state.model !== prevModel) {
+                    process.stderr.write(opts.color
+                        ? chalk.dim(`  (model changed — prompt updated)\n`)
+                        : `  (model changed — prompt updated)\n`);
                 }
-                refreshPrompt();
-                return;
-            }
-            const agent = makeAgent(state, tui);
-            try {
-                await agent.run(trimmed);
-            }
-            catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                process.stderr.write(opts.color ? chalk.red(`\n✗ ${msg}\n`) : `\n✗ ${msg}\n`);
             }
             refreshPrompt();
-        });
+            return;
+        }
+        const compressed = compressUserInput(trimmed);
+        if (compressed.notices.length > 0) {
+            const noticeText = compressed.notices.map((notice) => `  ⧉ ${notice}`).join("\n");
+            process.stderr.write((opts.color ? chalk.dim(noticeText) : noticeText) + "\n");
+        }
+        const agent = makeAgent(state, tui);
+        try {
+            await agent.run(compressed.text);
+        }
+        catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            process.stderr.write(opts.color ? chalk.red(`\n✗ ${msg}\n`) : `\n✗ ${msg}\n`);
+        }
+        refreshPrompt();
+    }
+    const inputCoalescer = new ReplInputCoalescer({
+        onSubmit: (input) => {
+            queue = queue.then(async () => {
+                await processSubmittedInput(input);
+            });
+        },
     });
-    rl.on("close", () => process.exit(0));
+    rl.on("line", (line) => {
+        clearSuggestions();
+        inputCoalescer.pushLine(line);
+    });
+    rl.on("close", () => {
+        inputCoalescer.flush();
+        void queue.finally(() => process.exit(0));
+    });
 }
 async function runDoctor(state) {
     const native = state.baseURL.replace(/\/v1\/?$/, "");
-    const userKey = state.apiKey;
-    const adminKey = "9router";
-    async function apiFetch(path, key) {
-        return fetch(`${native}${path}`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(3000) });
+    async function apiFetch(path) {
+        const token = getCliToken();
+        const cliHeaders = token ? { "x-9r-cli-token": token } : {};
+        const bearerHeaders = { Authorization: `Bearer ${effectiveKey}` };
+        const headers = Object.keys(cliHeaders).length ? cliHeaders : bearerHeaders;
+        return fetch(`${native}${path}`, { headers, signal: AbortSignal.timeout(3000) });
     }
     const storedKey = readFirstApiKey();
-    const effectiveKey = storedKey ?? userKey;
+    const effectiveKey = storedKey ?? state.apiKey;
     const results = await Promise.allSettled([
-        apiFetch("/api/health", effectiveKey),
-        apiFetch("/api/version", effectiveKey),
-        apiFetch("/api/keys", effectiveKey),
-        apiFetch("/api/providers", effectiveKey),
+        apiFetch("/api/health"),
+        apiFetch("/api/version"),
+        apiFetch("/api/keys"),
+        apiFetch("/api/providers"),
         fetch(`${state.baseURL}/models`, { headers: { Authorization: `Bearer ${effectiveKey}` }, signal: AbortSignal.timeout(3000) }),
     ]);
     const [health, version, keysData, providersData, modelsData] = results;
@@ -389,9 +587,6 @@ async function runDoctor(state) {
         if (active.length === 0)
             allOk = false;
     }
-    else if (storedKey) {
-        checks.push({ label: "providers", status: "ok", msg: "configured (key stored)" });
-    }
     else {
         checks.push({ label: "providers", status: "fail", msg: "no providers — visit http://localhost:20128/dashboard to connect one" });
         allOk = false;
@@ -400,8 +595,16 @@ async function runDoctor(state) {
     if (modelsData.status === "fulfilled" && modelsData.value.ok) {
         models = toArray((await modelsData.value.json().catch(() => ({}))).data ?? []).filter((m) => typeof m.id === "string");
     }
-    if (models.length > 0) {
+    if (models.length > 0 && keys.length > 0 && active.length > 0) {
         checks.push({ label: "models", status: "ok", msg: `${models.length} models available` });
+    }
+    else if (models.length > 0) {
+        checks.push({
+            label: "models",
+            status: "warn",
+            msg: `${models.length} catalog model(s) visible, but configure an API key and provider to use them`,
+        });
+        allOk = false;
     }
     else {
         checks.push({ label: "models", status: "fail", msg: "no models found" });

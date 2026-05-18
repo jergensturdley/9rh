@@ -3,6 +3,9 @@ import { TOOL_DEFINITIONS, executeTool } from "./tools.js";
 import { CircuitBreaker } from "./repair/circuitBreaker.js";
 import { withErrorInterception, captureSnapshot, runRepairAgent, logIncident, } from "./repair/index.js";
 import { EventLogger } from "./replay/eventLogger.js";
+import { Reasoner } from "./reasoner/reasoner.js";
+import { createExecutor, ObservabilityCollector } from "./sandbox/index.js";
+import { formatSpecDrivenPrompt, shouldUseSpecDrivenTesting } from "./spec/specDrivenTesting.js";
 const DEFAULT_SYSTEM = `You are a skilled coding agent. You help with coding tasks by reading, writing, and modifying files, running commands, and solving problems step by step.
 
 Guidelines:
@@ -25,6 +28,9 @@ export class Agent {
     compactCount = 0;
     replay;
     eventLogger = null;
+    reasoner;
+    executor;
+    observer;
     constructor(config) {
         this.config = config;
         this.client = new OpenAI({
@@ -34,6 +40,13 @@ export class Agent {
         this.compactThreshold = config.compactAfter ?? 20;
         this.circuitBreaker = new CircuitBreaker(3, 60_000);
         this.replay = config.replay ?? { enabled: false };
+        this.reasoner = new Reasoner({
+            emitPlans: true,
+            emitSummaries: true,
+            onReasoningEvent: (event) => this.eventLogger?.log(event),
+        });
+        this.executor = createExecutor(config.workDir, { useSandbox: true });
+        this.observer = new ObservabilityCollector();
     }
     emit(event) {
         this.config.onEvent?.(event);
@@ -184,10 +197,24 @@ export class Agent {
         return result;
     }
     async run(task) {
+        const useSpecDrivenTesting = this.config.specDrivenTesting !== false && shouldUseSpecDrivenTesting(task);
+        const taskForAgent = useSpecDrivenTesting ? formatSpecDrivenPrompt(task) : task;
         this.currentTask = task;
         this.stepIndex = 0;
         this.compactCount = 0;
+        this.reasoner.reset();
         await this.initReplay(task);
+        if (useSpecDrivenTesting) {
+            this.emit({ type: "spec_plan", summary: taskForAgent });
+            this.logReplay({
+                type: "spec_plan",
+                step: this.stepContext(),
+                payload: {
+                    originalTask: task,
+                    summary: taskForAgent,
+                },
+            });
+        }
         this.messages = [
             {
                 role: "system",
@@ -195,7 +222,7 @@ export class Agent {
             },
             {
                 role: "user",
-                content: task,
+                content: taskForAgent,
             },
         ];
         let finalResponse = "";
@@ -223,11 +250,12 @@ export class Agent {
                 },
             });
             this.emit({ type: "iteration", current: iteration, max: this.config.maxIterations });
+            this.emit({ type: "sandbox_health", ...this.observer.getSummary() });
             if (this.shouldCompact()) {
                 const summary = await this.compactContext();
                 this.compactCount++;
                 this.emit({ type: "compact", summary });
-                this.resetForContinuation(summary, task);
+                this.resetForContinuation(summary, taskForAgent);
                 this.logReplay({
                     type: "compact",
                     step: this.stepContext(),
@@ -290,6 +318,16 @@ export class Agent {
                     payload: { toolName: tc.name, args, callId: tc.id },
                 };
                 this.logReplay(tcEvent);
+                this.reasoner.plan({
+                    callId: tc.id,
+                    toolName: tc.name,
+                    args,
+                    goal: this.currentTask,
+                    currentStep: `Step ${this.stepIndex}: call ${tc.name}`,
+                    assumptions: [],
+                    expectedOutcome: `execute ${tc.name} with provided args`,
+                    stepContext: this.stepContext(),
+                });
                 const startMs = Date.now();
                 const result = await this.executeToolWithRepair(tc.name, args, tc.id);
                 const durationMs = Date.now() - startMs;
@@ -298,6 +336,13 @@ export class Agent {
                     name: tc.name,
                     output: result.output,
                     error: result.error,
+                });
+                this.reasoner.summarize({
+                    callId: tc.id,
+                    observedOutcome: result.error ? `ERROR: ${result.error}` : result.output,
+                    nextAction: `Continue to next step or finish`,
+                    corrected: false,
+                    stepContext: this.stepContext(),
                 });
                 const trEvent = {
                     type: "tool_result",

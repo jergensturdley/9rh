@@ -1,5 +1,6 @@
 declare function readFirstApiKey(): string | null;
 export { readFirstApiKey };
+export declare function getCliToken(): string;
 export interface InitResult {
     baseURL: string;
     apiKey: string;

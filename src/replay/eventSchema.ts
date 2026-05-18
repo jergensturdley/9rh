@@ -9,7 +9,10 @@ export type EventType =
   | "tool_result"
   | "checkpoint"
   | "branch_create"
-  | "compact";
+  | "compact"
+  | "spec_plan"
+  | "reasoning_plan"
+  | "reasoning_summary";
 
 export interface RunMetadata {
   runId: string;
@@ -123,6 +126,48 @@ export interface CompactEvent {
   };
 }
 
+export interface SpecPlanEvent {
+  type: "spec_plan";
+  seq: number;
+  ts: number;
+  step: StepContext;
+  payload: {
+    originalTask: string;
+    summary: string;
+  };
+}
+
+export interface ReasoningPlanEvent {
+  type: "reasoning_plan";
+  seq: number;
+  ts: number;
+  step: StepContext;
+  payload: {
+    callId: string;
+    goal: string;
+    currentStep: string;
+    assumptions: string[];
+    chosenTool: string;
+    expectedOutcome: string;
+    alternativesConsidered: string[];
+  };
+}
+
+export interface ReasoningSummaryEvent {
+  type: "reasoning_summary";
+  seq: number;
+  ts: number;
+  step: StepContext;
+  payload: {
+    callId: string;
+    expectedOutcome: string;
+    observedOutcome: string;
+    deviations: string[];
+    nextAction: string;
+    corrected: boolean;
+  };
+}
+
 export type ReplayEvent =
   | { type: "run_start"; seq: number; ts: number; payload: RunMetadata }
   | { type: "run_end"; seq: number; ts: number; payload: { runId: string; reason: string } }
@@ -134,7 +179,10 @@ export type ReplayEvent =
   | ToolResultEvent
   | CheckpointEvent
   | BranchCreateEvent
-  | CompactEvent;
+  | CompactEvent
+  | SpecPlanEvent
+  | ReasoningPlanEvent
+  | ReasoningSummaryEvent;
 
 export interface EventLog {
   version: 1;

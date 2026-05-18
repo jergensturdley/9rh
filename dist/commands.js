@@ -1,19 +1,64 @@
 import chalk from "chalk";
 import { resolve } from "path";
 import { stat } from "fs/promises";
+import { getCliToken } from "./init.js";
+class HTTPError extends Error {
+    status;
+    constructor(status, statusText) {
+        super(`HTTP ${status} ${statusText}`);
+        this.status = status;
+    }
+}
 async function fetchJSON(url, apiKey) {
     const res = await fetch(url, {
         headers: { Authorization: `Bearer ${apiKey}` },
     });
     if (!res.ok)
-        throw new Error(`HTTP ${res.status} ${res.statusText}`);
+        throw new HTTPError(res.status, res.statusText);
+    return res.json();
+}
+async function fetchJSONWithHeaders(url, headers) {
+    const res = await fetch(url, { headers });
+    if (!res.ok)
+        throw new HTTPError(res.status, res.statusText);
     return res.json();
 }
 function base(state) {
     return state.baseURL.replace(/\/v1\/?$/, "");
 }
+async function fetchNativeJSON(state, path) {
+    const token = getCliToken();
+    const headers = token
+        ? { "x-9r-cli-token": token }
+        : { Authorization: `Bearer ${state.apiKey}` };
+    return fetchJSONWithHeaders(`${base(state)}${path}`, headers);
+}
 export function toArray(val) {
     return Array.isArray(val) ? val : [];
+}
+export async function fetchModels(state) {
+    const raw = await fetchJSON(`${state.baseURL}/models`, state.apiKey);
+    return toArray(raw?.data).filter((m) => typeof m.id === "string");
+}
+export function filterModels(models, filter) {
+    const normalized = filter.toLowerCase();
+    return normalized ? models.filter((m) => m.id.toLowerCase().includes(normalized)) : models;
+}
+export function formatModelsList(models, state, filter = "") {
+    if (!models.length)
+        return `\n  (no models${filter ? ` matching "${filter}"` : ""})\n`;
+    const lines = [`\n  ${models.length} model(s)${filter ? ` matching "${filter}"` : ""}:\n`];
+    for (const m of models) {
+        const active = m.id === state.model;
+        const marker = active ? (state.useColor ? chalk.green("▶ ") : "▶ ") : "  ";
+        const id = state.useColor
+            ? (active ? chalk.bold.cyan(m.id) : chalk.white(m.id))
+            : m.id;
+        const owner = m.owned_by ? (state.useColor ? chalk.dim(`  [${m.owned_by}]`) : `  [${m.owned_by}]`) : "";
+        lines.push(`  ${marker}${id}${owner}`);
+    }
+    lines.push("");
+    return lines.join("\n");
 }
 const COMMANDS = {
     help: {
@@ -37,8 +82,8 @@ const COMMANDS = {
         handler: async (_args, state) => {
             const b = base(state);
             const [health, version] = await Promise.allSettled([
-                fetchJSON(`${b}/api/health`, state.apiKey),
-                fetchJSON(`${b}/api/version`, state.apiKey),
+                fetchNativeJSON(state, "/api/health"),
+                fetchNativeJSON(state, "/api/version"),
             ]);
             const lines = [""];
             if (health.status === "fulfilled") {
@@ -70,31 +115,15 @@ const COMMANDS = {
         usage: "/models [filter]",
         description: "List available models (optional substring filter)",
         handler: async (args, state) => {
-            const raw = await fetchJSON(`${state.baseURL}/models`, state.apiKey);
-            const models = toArray(raw?.data).filter((m) => typeof m.id === "string");
-            const filter = args[0]?.toLowerCase() ?? "";
-            const filtered = filter ? models.filter((m) => m.id.toLowerCase().includes(filter)) : models;
-            if (!filtered.length)
-                return `\n  (no models${filter ? ` matching "${filter}"` : ""})\n`;
-            const lines = [`\n  ${filtered.length} model(s)${filter ? ` matching "${filter}"` : ""}:\n`];
-            for (const m of filtered) {
-                const active = m.id === state.model;
-                const marker = active ? (state.useColor ? chalk.green("▶ ") : "▶ ") : "  ";
-                const id = state.useColor
-                    ? (active ? chalk.bold.cyan(m.id) : chalk.white(m.id))
-                    : m.id;
-                const owner = m.owned_by ? (state.useColor ? chalk.dim(`  [${m.owned_by}]`) : `  [${m.owned_by}]`) : "";
-                lines.push(`  ${marker}${id}${owner}`);
-            }
-            lines.push("");
-            return lines.join("\n");
+            const filter = args.join(" ").trim();
+            return formatModelsList(filterModels(await fetchModels(state), filter), state, filter);
         },
     },
     providers: {
         usage: "/providers",
         description: "List configured provider connections",
         handler: async (_args, state) => {
-            const raw = await fetchJSON(`${base(state)}/api/providers`, state.apiKey);
+            const raw = await fetchNativeJSON(state, "/api/providers");
             const connections = toArray(raw?.connections);
             if (!connections.length)
                 return "\n  (no providers configured)\n";
@@ -125,7 +154,7 @@ const COMMANDS = {
         usage: "/combos",
         description: "List model combos (fallback chains)",
         handler: async (_args, state) => {
-            const raw = await fetchJSON(`${base(state)}/api/combos`, state.apiKey);
+            const raw = await fetchNativeJSON(state, "/api/combos");
             const combos = toArray(raw?.combos);
             if (!combos.length)
                 return "\n  (no combos configured)\n";
@@ -151,7 +180,7 @@ const COMMANDS = {
         usage: "/keys",
         description: "List 9router API keys",
         handler: async (_args, state) => {
-            const raw = await fetchJSON(`${base(state)}/api/keys`, "9router");
+            const raw = await fetchNativeJSON(state, "/api/keys");
             const keys = toArray(raw?.keys);
             if (!keys.length)
                 return "\n  (no API keys)\n";
@@ -238,19 +267,18 @@ const COMMANDS = {
         description: "Diagnose 9router connectivity and configuration",
         handler: async (_args, state) => {
             const b = base(state);
-            const adminKey = "9router";
             const checks = [];
             let allOk = true;
             const [health, version, keysData, providersData, modelsData] = await Promise.allSettled([
-                fetchJSON(`${b}/api/health`, state.apiKey),
-                fetchJSON(`${b}/api/version`, state.apiKey),
-                fetchJSON(`${b}/api/keys`, state.apiKey),
-                fetchJSON(`${b}/api/providers`, state.apiKey),
+                fetchNativeJSON(state, "/api/health"),
+                fetchNativeJSON(state, "/api/version"),
+                fetchNativeJSON(state, "/api/keys"),
+                fetchNativeJSON(state, "/api/providers"),
                 fetchJSON(`${state.baseURL}/models`, state.apiKey),
             ]);
             let keysResult = keysData;
             if (keysData.status === "rejected" || !keysData.value.ok) {
-                const fallback = await fetchJSON(`${b}/api/keys`, adminKey).catch(() => null);
+                const fallback = await fetchNativeJSON(state, "/api/keys").catch(() => null);
                 if (fallback)
                     keysResult = { status: "fulfilled", value: fallback };
             }
@@ -312,8 +340,17 @@ const COMMANDS = {
                 allOk = false;
             }
             const models = toArray((modelsData.status === "fulfilled" ? modelsData.value?.data : undefined) ?? []).filter((m) => typeof m.id === "string");
-            if (models.length > 0) {
+            const activeConnections = connections.filter((c) => c.isActive !== false);
+            if (models.length > 0 && keys.length > 0 && activeConnections.length > 0) {
                 checks.push({ label: "models", status: "ok", msg: `${models.length} models available` });
+            }
+            else if (models.length > 0) {
+                checks.push({
+                    label: "models",
+                    status: "warn",
+                    msg: `${models.length} catalog model(s) visible, but configure an API key and provider to use them`,
+                });
+                allOk = false;
             }
             else {
                 checks.push({ label: "models", status: "fail", msg: "no models found" });
