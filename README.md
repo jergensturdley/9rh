@@ -136,7 +136,11 @@ The agent can call five sandboxed tools within the selected working directory:
 | `list_files` | List files and directories |
 | `search_files` | Search files with grep |
 
-Paths are sandboxed to the active work directory and cannot escape it.
+Paths are sandboxed to the active work directory and cannot escape it. File tools also refuse to read or write through symlinks.
+
+### Sandbox limitations
+
+The default tool path checks are cross-platform, but OS-level process sandboxing is currently only enabled when macOS `sandbox-exec` is available. On Linux and other platforms, `run_bash` falls back to direct execution unless you provide a custom `SandboxProvider` through the programmatic API. Treat shell commands as trusted on those platforms and use container-level isolation if you need hard process boundaries.
 
 ## Programmatic API
 
@@ -203,22 +207,16 @@ The REPL splash uses an original bounded ASCII plasma intro that completes in un
 
 | Component | File | Responsibility |
 |-----------|------|----------------|
-| **Sandbox** | `src/sandbox/sandboxer.ts` | Core sandbox class — generates OS-native sandbox profiles (macOS `sandbox-exec`, Linux cgroup) and executes commands through them |
+| **Sandbox** | `src/sandbox/sandboxer.ts` | Core sandbox class — validates workspace paths and executes through macOS `sandbox-exec` when available |
 | **Executor** | `src/sandbox/executor.ts` | `SandboxExecutor` (uses sandbox) vs `DirectExecutor` (no sandbox) — both implement `SandboxProvider` interface |
 | **Index** | `src/sandbox/index.ts` | Re-exports all sandbox types and `createExecutor()` factory |
 | **Observability** | `src/sandbox/executor.ts` | `ObservabilityCollector` records every execution (stdout, stderr, exitCode, timedOut, durationMs, sandboxUsed) and exposes a summary |
 
 ### How it works
 
-On macOS, the `Sandbox` class generates an `sandbox-exec` profile (Apple's sandboxing mechanism) that:
-- Denies all file access by default
-- Allows read/write only within `workDir` and `/tmp`
-- Denies access to SSH keys (`~/.ssh/**`), shell configs, home directories, and sensitive system paths
-- Allows execution of specific binaries: `node`, `sh`, `git`, `grep`, `find`, `xargs`, `npx`
-- Blocks network outbound unless explicitly enabled via `networkEnabled: true`
-- Enforces resource limits (timeout, max buffer)
+On macOS, the `Sandbox` class uses `sandbox-exec` when it is installed. On Linux and other platforms, no built-in OS-level sandbox is currently available, so `createExecutor(workDir, { useSandbox: true })` returns `DirectExecutor` instead. Direct `Sandbox.exec()` calls fail closed with a clear "sandbox execution is unavailable" error when the platform sandbox is missing.
 
-On Linux, the sandbox uses cgroup-based profiles — fallback is to `DirectExecutor` (no sandbox) until cgroup support is implemented.
+The built-in isolation guarantees are path-level checks around the selected `workDir`, symlink blocking for file reads/writes, command timeouts, and output limits. If you need hard Linux process isolation, run 9rh inside a container or provide a custom `SandboxProvider`.
 
 ### Sandbox provisioning
 
@@ -231,7 +229,7 @@ Each agent run creates a `Sandbox` instance configured with:
 - `maxCPUMs` — CPU time cap (default 30s)
 - `timeoutMs` — per-command timeout (default 60s)
 
-The sandbox profile is generated as a string and passed to `sandbox-exec` on each command invocation.
+When macOS `sandbox-exec` is available, the sandbox profile is generated as a string and passed to `sandbox-exec` on each command invocation.
 
 ### Observability
 
@@ -251,7 +249,7 @@ This lets operators see:
 ```ts
 import { createExecutor } from "./sandbox/index.js";
 
-// Use sandbox (macOS sandbox-exec, Linux fallback to direct)
+// Use sandbox when available, otherwise fall back to direct execution
 const executor = createExecutor(workDir, { useSandbox: true });
 
 // Bypass sandbox for trusted environments

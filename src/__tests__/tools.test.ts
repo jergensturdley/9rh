@@ -1,4 +1,7 @@
 import { describe, expect, it, jest } from "@jest/globals";
+import { mkdtemp, rm, symlink, writeFile } from "fs/promises";
+import { join } from "path";
+import { tmpdir } from "os";
 import { executeTool } from "../tools.js";
 import type { ExecutionResult, SandboxProvider } from "../sandbox/index.js";
 
@@ -117,5 +120,35 @@ describe("executeTool non-bash tools", () => {
   it("returns unknown tool error for unrecognised names", async () => {
     const result = await executeTool("unknown_tool", {}, process.cwd());
     expect(result.error).toBe("Unknown tool: unknown_tool");
+  });
+
+  it("refuses to read through a symlink", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "9rh-tools-"));
+    try {
+      await writeFile(join(dir, "target.txt"), "secret", "utf-8");
+      await symlink(join(dir, "target.txt"), join(dir, "link.txt"));
+
+      const result = await executeTool("read_file", { path: "link.txt" }, dir);
+
+      expect(result.error).toContain("Cannot read through symlink");
+      expect(result.output).toBe("");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to write through a symlink", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "9rh-tools-"));
+    try {
+      await writeFile(join(dir, "target.txt"), "before", "utf-8");
+      await symlink(join(dir, "target.txt"), join(dir, "link.txt"));
+
+      const result = await executeTool("write_file", { path: "link.txt", content: "after" }, dir);
+
+      expect(result.error).toContain("Cannot write through symlink");
+      expect(result.output).toBe("");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
