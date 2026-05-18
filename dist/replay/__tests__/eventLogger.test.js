@@ -31,7 +31,7 @@ describe("EventLogger", () => {
     it("writes .meta.json on finalize", async () => {
         const logger = new EventLogger({ runId: "run2", branchId: "b2", logDir: TEST_DIR });
         await logger.init();
-        logger.log({ type: "run_start", payload: {} });
+        logger.log({ type: "run_start", payload: { runId: "run2", model: "test", workDir: TEST_DIR, timestamp: new Date().toISOString() } });
         const path = await logger.finalize("run2", "completed");
         expect(path).toMatch(/run-run2\.jsonl$/);
         const metaPath = path.replace(/\.jsonl$/, ".meta.json");

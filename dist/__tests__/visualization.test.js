@@ -44,5 +44,15 @@ describe("run visualization", () => {
         expect(visibleSteps(view, { file: "src/new.ts" })).toHaveLength(1);
         expect(exportRunVisualization(view, { tool: "write_file" })).toContain("src/new.ts");
     });
+    it("shows continuation compaction and model switching", () => {
+        const view = createRunVisualization();
+        applyAgentEvent(view, { type: "model_switch", from: "fast-default", to: "continuation-heavy", reason: "continuation" });
+        applyAgentEvent(view, { type: "compact", summary: "resume summary" });
+        applyAgentEvent(view, { type: "continuation", count: 1, max: 2 });
+        const rendered = renderRunVisualization(view);
+        expect(rendered).toContain("model switch fast-default → continuation-heavy");
+        expect(rendered).toContain("compact context");
+        expect(rendered).toContain("continuation 1/2");
+    });
 });
 //# sourceMappingURL=visualization.test.js.map

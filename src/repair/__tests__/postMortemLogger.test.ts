@@ -1,8 +1,8 @@
 import { describe, it, expect } from "@jest/globals";
-import { logIncident, generatePlaybookEntry } from "../postMortemLogger.js";
+import { logIncident, generatePlaybookEntry, type IncidentReport } from "../postMortemLogger.js";
 import { readFile, readdir, rm } from "fs/promises";
 import { join } from "path";
-import { ErrorClass } from "../errorTaxonomy.js";
+import { ErrorClass, type TaggedError } from "../errorTaxonomy.js";
 
 const INCIDENT_DIR = "./logs/incidents";
 
@@ -24,7 +24,7 @@ describe("postMortemLogger", () => {
       errorClass: ErrorClass.AGENT_ERROR,
       timestamp: Date.now(),
     };
-    await logIncident(errorContext as any, 2, "ESCALATED", 500, "Something went wrong");
+    await logIncident(errorContext as TaggedError, 2, "ESCALATED", 500, "Something went wrong");
     const files = (await readdir(INCIDENT_DIR)).filter((f) => f.startsWith("incident-"));
     expect(files.length).toBe(1);
     const raw = await readFile(join(INCIDENT_DIR, files[0]), "utf-8");
@@ -47,7 +47,7 @@ describe("postMortemLogger", () => {
       sourceLayer: "llm",
       errorClass: "RECOVERABLE",
     };
-    const entry = await generatePlaybookEntry(incident as any);
+    const entry = await generatePlaybookEntry(incident as IncidentReport);
     expect(entry.id).toMatch(/^pb-auto-/);
     expect(entry.errorClass).toBe("RECOVERABLE");
     expect(entry.autoApply).toBe(false);

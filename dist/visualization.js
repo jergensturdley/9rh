@@ -141,6 +141,34 @@ export function applyAgentEvent(view, event) {
                 timedOut: event.timedOut,
             };
             break;
+        case "compact":
+            upsertStep(view, {
+                id: `compact-${view.steps.length + 1}`,
+                label: "compact context",
+                stage: "planning",
+                status: "done",
+                severity: "info",
+                output: event.summary,
+            });
+            break;
+        case "continuation":
+            upsertStep(view, {
+                id: `continuation-${event.count}`,
+                label: `continuation ${event.count}/${event.max}`,
+                stage: "planning",
+                status: "running",
+                severity: "info",
+            });
+            break;
+        case "model_switch":
+            upsertStep(view, {
+                id: `model-switch-${view.steps.length + 1}`,
+                label: `model switch ${event.from} → ${event.to}`,
+                stage: "planning",
+                status: "done",
+                severity: "info",
+            });
+            break;
         case "replay_event":
             applyReplayEvent(view, event.event);
             break;

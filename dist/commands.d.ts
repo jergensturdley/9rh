@@ -1,3 +1,4 @@
+import type { ContinuationPolicy } from "./agent.js";
 export interface SessionState {
     baseURL: string;
     apiKey: string;
@@ -5,6 +6,7 @@ export interface SessionState {
     workDir: string;
     useColor: boolean;
     wasStarted?: boolean;
+    continuationPolicy?: ContinuationPolicy;
 }
 export interface ModelInfo {
     id: string;

@@ -39,7 +39,6 @@ export class Orchestrator {
                         { role: "system", content: roleDef.systemPrompt },
                         { role: "user", content: prompt },
                     ],
-                    temperature: 0.3,
                 });
                 return response.choices[0]?.message?.content ?? "";
             };

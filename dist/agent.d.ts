@@ -10,6 +10,16 @@ export interface AgentConfig {
     compactAfter?: number;
     replay?: ReplayConfig;
     specDrivenTesting?: boolean;
+    continuationPolicy?: ContinuationPolicy;
+}
+export interface ContinuationPolicy {
+    maxContinuations: number;
+    iterationsPerContinuation?: number;
+    modelSwitch?: ContinuationModelSwitch;
+}
+export interface ContinuationModelSwitch {
+    toModel: string;
+    afterContinuations?: number;
 }
 export interface ReplayConfig {
     enabled: boolean;
@@ -44,6 +54,15 @@ export type AgentEvent = {
 } | {
     type: "compact";
     summary: string;
+} | {
+    type: "continuation";
+    count: number;
+    max: number;
+} | {
+    type: "model_switch";
+    from: string;
+    to: string;
+    reason: "continuation";
 } | {
     type: "repair_start";
     message: string;
@@ -83,11 +102,14 @@ export declare class Agent {
     private reasoner;
     private executor;
     private observer;
+    private activeModel;
     constructor(config: AgentConfig);
     private emit;
+    private currentModel;
     private shouldCompact;
     private compactContext;
     private resetForContinuation;
+    private applyContinuationModelSwitch;
     private buildAgentState;
     private stepContext;
     private initReplay;

@@ -113,7 +113,7 @@ const COMMANDS = {
     },
     models: {
         usage: "/models [filter]",
-        description: "List available models (optional substring filter)",
+        description: "List available models",
         handler: async (args, state) => {
             const filter = args.join(" ").trim();
             return formatModelsList(filterModels(await fetchModels(state), filter), state, filter);
@@ -238,9 +238,9 @@ const COMMANDS = {
     clear: {
         usage: "/clear",
         description: "Clear screen",
-        handler: async (_args, _state) => {
-            process.stdout.write("\x1Bc");
-            return "";
+        handler: async (_args, state) => {
+            const clear = state.useColor ? "\x1b[2J\x1b[H" : "\x1b[2J\x1b[H";
+            return clear;
         },
     },
     setup: {
