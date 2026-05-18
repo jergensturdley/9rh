@@ -161,6 +161,99 @@ The package exports:
 - `TOOL_DEFINITIONS`
 - `executeTool`
 - `ensureRouter`
+- `parseTaskSpecification`
+- `synthesizeTestPlan`
+- `formatSpecDrivenPrompt`
+- `shouldUseSpecDrivenTesting`
+- `createRunVisualization`
+- `applyAgentEvent`
+- `applyReplayEvent`
+- `renderRunVisualization`
+- `exportRunVisualization`
+- `visibleSteps`
+
+## Spec-driven testing mode
+
+For implementation-like tasks, 9rh wraps the raw request with a generated specification and test-plan artifact before the agent loop begins. The artifact preserves the original wording, extracts functional behavior, edge cases, constraints, non-goals, explicit bug reports, and ambiguities, then maps those statements to reviewable unit, integration, edge-case, failure-path, or regression test targets.
+
+The harness emits a `spec_plan` event before major code changes. That event is shown in the TUI and written to replay logs when replay is enabled, so reviewers can inspect which assumptions, coverage entries, gaps, and baseline-failure expectations guided the implementation. Set `specDrivenTesting: false` in `AgentConfig` to opt out for custom embeddings.
+
+## Live run visualization
+
+The terminal renderer maintains a live run map during each agent run. It projects streamed `AgentEvent` and `ReplayEvent` data into a timeline plus dependency graph, showing planning, execution, review, repair, and completion stages with statuses such as running, failed, repaired, blocked, and done. Tool calls are linked to outputs and file paths when available; checkpoints, circuit-breaker events, repair attempts, and sandbox health are surfaced alongside the current step.
+
+Embedders can build exportable audit or handoff views with `createRunVisualization()`, `applyAgentEvent()`, `applyReplayEvent()`, `visibleSteps()`, `renderRunVisualization()`, and `exportRunVisualization()`. These helpers support filtering by stage, status, severity, tool, file, branch, and collapsed-noise views.
+
+The REPL splash uses an original bounded ASCII plasma intro that completes in under one second, briefly collapses into a compact `9RH ▸` mark, then clears itself before the interactive prompt starts. All characters and structure are own-design; the style is inspired by classic ASCII plasma effects (e.g. Joacim Wejdin/Injosoft), but all code and assets are original. The animation runs only in interactive color terminals (TTY + no CI) with a width of at least 72 columns. It is skipped entirely in CI, non-TTY/piped output, `--no-color`/`NO_COLOR` environments, or narrow terminals.
+
+## Sandbox System
+
+9rh uses an isolation layer to execute tool calls (particularly `run_bash`) in a restricted environment that limits filesystem access, network connectivity, and process privileges.
+
+### Architecture
+
+| Component | File | Responsibility |
+|-----------|------|----------------|
+| **Sandbox** | `src/sandbox/sandboxer.ts` | Core sandbox class — generates OS-native sandbox profiles (macOS `sandbox-exec`, Linux cgroup) and executes commands through them |
+| **Executor** | `src/sandbox/executor.ts` | `SandboxExecutor` (uses sandbox) vs `DirectExecutor` (no sandbox) — both implement `SandboxProvider` interface |
+| **Index** | `src/sandbox/index.ts` | Re-exports all sandbox types and `createExecutor()` factory |
+| **Observability** | `src/sandbox/executor.ts` | `ObservabilityCollector` records every execution (stdout, stderr, exitCode, timedOut, durationMs, sandboxUsed) and exposes a summary |
+
+### How it works
+
+On macOS, the `Sandbox` class generates an `sandbox-exec` profile (Apple's sandboxing mechanism) that:
+- Denies all file access by default
+- Allows read/write only within `workDir` and `/tmp`
+- Denies access to SSH keys (`~/.ssh/**`), shell configs, home directories, and sensitive system paths
+- Allows execution of specific binaries: `node`, `sh`, `git`, `grep`, `find`, `xargs`, `npx`
+- Blocks network outbound unless explicitly enabled via `networkEnabled: true`
+- Enforces resource limits (timeout, max buffer)
+
+On Linux, the sandbox uses cgroup-based profiles — fallback is to `DirectExecutor` (no sandbox) until cgroup support is implemented.
+
+### Sandbox provisioning
+
+Each agent run creates a `Sandbox` instance configured with:
+- `workDir` — the project workspace (read/write allowed here only)
+- `allowedPaths` — extra directories to permit access to
+- `deniedPaths` — always-blocked paths (home dirs, SSH, etc.)
+- `networkEnabled` — default false; enable only when needed
+- `maxMemoryMB` — memory cap (default 512 MB)
+- `maxCPUMs` — CPU time cap (default 30s)
+- `timeoutMs` — per-command timeout (default 60s)
+
+The sandbox profile is generated as a string and passed to `sandbox-exec` on each command invocation.
+
+### Observability
+
+The `ObservabilityCollector` tracks every tool execution and emits a `sandbox_health` event on each agent iteration:
+
+```ts
+{ type: "sandbox_health", total, sandboxed, direct, timedOut }
+```
+
+This lets operators see:
+- How many commands ran in sandboxed vs direct mode
+- Which commands timed out
+- Whether the sandbox is active and healthy
+
+### Configuration
+
+```ts
+import { createExecutor } from "./sandbox/index.js";
+
+// Use sandbox (macOS sandbox-exec, Linux fallback to direct)
+const executor = createExecutor(workDir, { useSandbox: true });
+
+// Bypass sandbox for trusted environments
+const executor = createExecutor(workDir, { useSandbox: false });
+```
+
+The agent automatically uses sandboxed execution when available. If `sandbox-exec` is not present on the host, it falls back to `DirectExecutor`.
+
+### Path isolation
+
+All file-based tools (`read_file`, `write_file`, `list_files`, `search_files`) use `sandboxPath()` to resolve and validate that paths stay within `workDir`. Symlinks are explicitly blocked for write operations. `read_file` also blocks reading through symlinks to prevent exfiltration via crafted symlinks inside the workspace.
 
 ## Replay System
 
@@ -193,6 +286,7 @@ The event log records these types (each with monotonic `seq` and `ts`):
 | `checkpoint` | Named snapshot (periodic, pre-compact, pre-repair, manual) |
 | `branch_create` | Branch fork with parentRunId, parentStep, reason |
 | `compact` | Message summarization with before/after counts |
+| `spec_plan` | Generated specification/test-plan artifact for implementation-like tasks |
 | `run_end` | Final run reason and summary |
 
 ### Recording a Run

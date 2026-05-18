@@ -1,5 +1,6 @@
 import { createConnection } from "net";
 import { execFile, execFileSync, spawn } from "child_process";
+import { createHash } from "crypto";
 import { promisify } from "util";
 import { existsSync } from "fs";
 import chalk from "chalk";
@@ -9,6 +10,7 @@ const execFileAsync = promisify(execFile);
 const NINE_ROUTER_PORT = 20128;
 const NINE_ROUTER_NATIVE = `http://localhost:${NINE_ROUTER_PORT}`;
 const NINE_ROUTER_OPENAI = `${NINE_ROUTER_NATIVE}/v1`;
+const CLI_TOKEN_SALT = "9r-cli-auth";
 
 async function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,6 +28,33 @@ function readFirstApiKey(): string | null {
 }
 
 export { readFirstApiKey };
+
+function machineIdHash(): string {
+  try {
+    let id: string;
+    if (process.platform === "darwin") {
+      const raw = execFileSync("ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"], { encoding: "utf8", timeout: 5000 });
+      id = raw.split("IOPlatformUUID")[1]?.split("\n")[0]?.replace(/=|\s+|"/g, "").toLowerCase() ?? "";
+    } else if (process.platform === "linux") {
+      const raw = execFileSync("sh", ["-c", "( cat /var/lib/dbus/machine-id /etc/machine-id 2> /dev/null || hostname ) | head -n 1 || :"], { encoding: "utf8", timeout: 5000 });
+      id = raw.replace(/\r+|\n+|\s+/g, "").toLowerCase();
+    } else if (process.platform === "win32") {
+      const raw = execFileSync("REG", ["QUERY", "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Cryptography", "/v", "MachineGuid"], { encoding: "utf8", timeout: 5000 });
+      id = raw.split("REG_SZ")[1]?.replace(/\r+|\n+|\s+/g, "").toLowerCase() ?? "";
+    } else {
+      id = "";
+    }
+    return id ? createHash("sha256").update(id).digest("hex") : "";
+  } catch {
+    return "";
+  }
+}
+
+export function getCliToken(): string {
+  const mid = machineIdHash();
+  if (!mid) return "";
+  return createHash("sha256").update(mid + CLI_TOKEN_SALT).digest("hex").substring(0, 16);
+}
 
 async function isPortOpen(port: number): Promise<boolean> {
   return new Promise((resolve) => {

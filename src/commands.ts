@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import { resolve } from "path";
 import { stat } from "fs/promises";
+import { getCliToken } from "./init.js";
 
 export interface SessionState {
   baseURL: string;
@@ -17,11 +18,31 @@ interface CommandDef {
   handler: (args: string[], state: SessionState) => Promise<string>;
 }
 
+export interface ModelInfo {
+  id: string;
+  owned_by?: string;
+}
+
+class HTTPError extends Error {
+  status: number;
+
+  constructor(status: number, statusText: string) {
+    super(`HTTP ${status} ${statusText}`);
+    this.status = status;
+  }
+}
+
 async function fetchJSON(url: string, apiKey: string): Promise<unknown> {
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${apiKey}` },
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+  if (!res.ok) throw new HTTPError(res.status, res.statusText);
+  return res.json();
+}
+
+async function fetchJSONWithHeaders(url: string, headers: Record<string, string>): Promise<unknown> {
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new HTTPError(res.status, res.statusText);
   return res.json();
 }
 
@@ -29,8 +50,45 @@ function base(state: SessionState): string {
   return state.baseURL.replace(/\/v1\/?$/, "");
 }
 
+async function fetchNativeJSON(state: SessionState, path: string): Promise<unknown> {
+  const token = getCliToken();
+  const headers: Record<string, string> = token
+    ? { "x-9r-cli-token": token }
+    : { Authorization: `Bearer ${state.apiKey}` };
+  return fetchJSONWithHeaders(`${base(state)}${path}`, headers);
+}
+
 export function toArray<T>(val: unknown): T[] {
   return Array.isArray(val) ? (val as T[]) : [];
+}
+
+export async function fetchModels(state: SessionState): Promise<ModelInfo[]> {
+  const raw = await fetchJSON(`${state.baseURL}/models`, state.apiKey);
+  return toArray<{ id?: unknown; owned_by?: unknown }>(
+    (raw as { data?: unknown })?.data
+  ).filter((m) => typeof m.id === "string") as ModelInfo[];
+}
+
+export function filterModels(models: ModelInfo[], filter: string): ModelInfo[] {
+  const normalized = filter.toLowerCase();
+  return normalized ? models.filter((m) => m.id.toLowerCase().includes(normalized)) : models;
+}
+
+export function formatModelsList(models: ModelInfo[], state: SessionState, filter = ""): string {
+  if (!models.length) return `\n  (no models${filter ? ` matching "${filter}"` : ""})\n`;
+
+  const lines = [`\n  ${models.length} model(s)${filter ? ` matching "${filter}"` : ""}:\n`];
+  for (const m of models) {
+    const active = m.id === state.model;
+    const marker = active ? (state.useColor ? chalk.green("▶ ") : "▶ ") : "  ";
+    const id = state.useColor
+      ? (active ? chalk.bold.cyan(m.id) : chalk.white(m.id))
+      : m.id;
+    const owner = m.owned_by ? (state.useColor ? chalk.dim(`  [${m.owned_by}]`) : `  [${m.owned_by}]`) : "";
+    lines.push(`  ${marker}${id}${owner}`);
+  }
+  lines.push("");
+  return lines.join("\n");
 }
 
 const COMMANDS: Record<string, CommandDef> = {
@@ -56,8 +114,8 @@ const COMMANDS: Record<string, CommandDef> = {
     handler: async (_args, state) => {
       const b = base(state);
       const [health, version] = await Promise.allSettled([
-        fetchJSON(`${b}/api/health`, state.apiKey),
-        fetchJSON(`${b}/api/version`, state.apiKey),
+        fetchNativeJSON(state, "/api/health"),
+        fetchNativeJSON(state, "/api/version"),
       ]);
 
       const lines: string[] = [""];
@@ -93,28 +151,8 @@ const COMMANDS: Record<string, CommandDef> = {
     usage: "/models [filter]",
     description: "List available models (optional substring filter)",
     handler: async (args, state) => {
-      const raw = await fetchJSON(`${state.baseURL}/models`, state.apiKey);
-      const models = toArray<{ id?: unknown; owned_by?: unknown }>(
-        (raw as { data?: unknown })?.data
-      ).filter((m) => typeof m.id === "string") as Array<{ id: string; owned_by?: string }>;
-
-      const filter = args[0]?.toLowerCase() ?? "";
-      const filtered = filter ? models.filter((m) => m.id.toLowerCase().includes(filter)) : models;
-
-      if (!filtered.length) return `\n  (no models${filter ? ` matching "${filter}"` : ""})\n`;
-
-      const lines = [`\n  ${filtered.length} model(s)${filter ? ` matching "${filter}"` : ""}:\n`];
-      for (const m of filtered) {
-        const active = m.id === state.model;
-        const marker = active ? (state.useColor ? chalk.green("▶ ") : "▶ ") : "  ";
-        const id = state.useColor
-          ? (active ? chalk.bold.cyan(m.id) : chalk.white(m.id))
-          : m.id;
-        const owner = m.owned_by ? (state.useColor ? chalk.dim(`  [${m.owned_by}]`) : `  [${m.owned_by}]`) : "";
-        lines.push(`  ${marker}${id}${owner}`);
-      }
-      lines.push("");
-      return lines.join("\n");
+      const filter = args.join(" ").trim();
+      return formatModelsList(filterModels(await fetchModels(state), filter), state, filter);
     },
   },
 
@@ -122,7 +160,7 @@ const COMMANDS: Record<string, CommandDef> = {
     usage: "/providers",
     description: "List configured provider connections",
     handler: async (_args, state) => {
-      const raw = await fetchJSON(`${base(state)}/api/providers`, state.apiKey);
+      const raw = await fetchNativeJSON(state, "/api/providers");
       const connections = toArray<{
         id?: unknown;
         provider?: unknown;
@@ -163,7 +201,7 @@ const COMMANDS: Record<string, CommandDef> = {
     usage: "/combos",
     description: "List model combos (fallback chains)",
     handler: async (_args, state) => {
-      const raw = await fetchJSON(`${base(state)}/api/combos`, state.apiKey);
+      const raw = await fetchNativeJSON(state, "/api/combos");
       const combos = toArray<{
         id?: unknown;
         name?: unknown;
@@ -196,7 +234,7 @@ const COMMANDS: Record<string, CommandDef> = {
     usage: "/keys",
     description: "List 9router API keys",
     handler: async (_args, state) => {
-      const raw = await fetchJSON(`${base(state)}/api/keys`, "9router");
+      const raw = await fetchNativeJSON(state, "/api/keys");
       const keys = toArray<{ id?: unknown; name?: unknown; key?: unknown }>(
         (raw as { keys?: unknown })?.keys
       );
@@ -290,21 +328,20 @@ const COMMANDS: Record<string, CommandDef> = {
     description: "Diagnose 9router connectivity and configuration",
     handler: async (_args, state) => {
       const b = base(state);
-      const adminKey = "9router";
       const checks: Array<{ label: string; status: "ok" | "fail" | "warn"; msg: string }> = [];
       let allOk = true;
 
       const [health, version, keysData, providersData, modelsData] = await Promise.allSettled([
-        fetchJSON(`${b}/api/health`, state.apiKey),
-        fetchJSON(`${b}/api/version`, state.apiKey),
-        fetchJSON(`${b}/api/keys`, state.apiKey),
-        fetchJSON(`${b}/api/providers`, state.apiKey),
+        fetchNativeJSON(state, "/api/health"),
+        fetchNativeJSON(state, "/api/version"),
+        fetchNativeJSON(state, "/api/keys"),
+        fetchNativeJSON(state, "/api/providers"),
         fetchJSON(`${state.baseURL}/models`, state.apiKey),
       ]);
 
       let keysResult: PromiseSettledResult<unknown> = keysData;
       if (keysData.status === "rejected" || !(keysData.value as { ok?: boolean }).ok) {
-        const fallback = await fetchJSON(`${b}/api/keys`, adminKey).catch(() => null);
+        const fallback = await fetchNativeJSON(state, "/api/keys").catch(() => null);
         if (fallback) keysResult = { status: "fulfilled", value: fallback } as PromiseSettledResult<unknown>;
       }
 
@@ -371,8 +408,16 @@ const COMMANDS: Record<string, CommandDef> = {
         (modelsData.status === "fulfilled" ? (modelsData.value as { data?: unknown })?.data : undefined) ?? []
       ).filter((m) => typeof m.id === "string");
 
-      if (models.length > 0) {
+      const activeConnections = connections.filter((c) => c.isActive !== false);
+      if (models.length > 0 && keys.length > 0 && activeConnections.length > 0) {
         checks.push({ label: "models", status: "ok", msg: `${models.length} models available` });
+      } else if (models.length > 0) {
+        checks.push({
+          label: "models",
+          status: "warn",
+          msg: `${models.length} catalog model(s) visible, but configure an API key and provider to use them`,
+        });
+        allOk = false;
       } else {
         checks.push({ label: "models", status: "fail", msg: "no models found" });
         allOk = false;

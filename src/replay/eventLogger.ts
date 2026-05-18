@@ -2,6 +2,8 @@ import { writeFile, mkdir, readFile } from "fs/promises";
 import { createWriteStream } from "fs";
 import { join, dirname } from "path";
 import type { ReplayEvent } from "./eventSchema.js";
+import { redactEvent } from "../reasoner/redactor.js";
+import { validateAndRepair } from "../reasoner/validation.js";
 
 export interface EventLoggerConfig {
   runId: string;
@@ -38,7 +40,9 @@ export class EventLogger {
     if (this.finalized) return;
     this.seq++;
     const full = { ...event, seq: this.seq, ts: Date.now() } as ReplayEvent;
-    this.pending.push(JSON.stringify(full));
+    const { event: safe } = validateAndRepair(full);
+    const redacted = redactEvent(safe) as ReplayEvent;
+    this.pending.push(JSON.stringify(redacted));
     if (this.pending.length >= this.flushEvery) this.flush();
   }
 

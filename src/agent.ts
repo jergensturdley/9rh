@@ -25,6 +25,10 @@ import type {
   ToolResultEvent,
   LLMResponseEvent,
 } from "./replay/eventSchema.js";
+import { Reasoner } from "./reasoner/reasoner.js";
+import { createExecutor, ObservabilityCollector, isSandboxAvailable } from "./sandbox/index.js";
+import type { SandboxProvider } from "./sandbox/index.js";
+import { formatSpecDrivenPrompt, shouldUseSpecDrivenTesting } from "./spec/specDrivenTesting.js";
 
 export interface AgentConfig {
   baseURL: string;
@@ -36,6 +40,7 @@ export interface AgentConfig {
   onEvent?: (event: AgentEvent) => void;
   compactAfter?: number;
   replay?: ReplayConfig;
+  specDrivenTesting?: boolean;
 }
 
 export interface ReplayConfig {
@@ -59,7 +64,9 @@ export type AgentEvent =
   | { type: "repair_success"; message: string }
   | { type: "escalate"; message: string }
   | { type: "circuit_open" }
-  | { type: "replay_event"; event: ReplayEvent };
+  | { type: "replay_event"; event: ReplayEvent }
+  | { type: "spec_plan"; summary: string }
+  | { type: "sandbox_health"; total: number; sandboxed: number; direct: number; timedOut: number };
 
 const DEFAULT_SYSTEM = `You are a skilled coding agent. You help with coding tasks by reading, writing, and modifying files, running commands, and solving problems step by step.
 
@@ -85,6 +92,9 @@ export class Agent {
   private compactCount: number = 0;
   private replay: ReplayConfig;
   private eventLogger: EventLogger | null = null;
+  private reasoner: Reasoner;
+  private executor: SandboxProvider;
+  private observer: ObservabilityCollector;
 
   constructor(config: AgentConfig) {
     this.config = config;
@@ -95,6 +105,13 @@ export class Agent {
     this.compactThreshold = config.compactAfter ?? 20;
     this.circuitBreaker = new CircuitBreaker(3, 60_000);
     this.replay = config.replay ?? { enabled: false };
+    this.reasoner = new Reasoner({
+      emitPlans: true,
+      emitSummaries: true,
+      onReasoningEvent: (event) => this.eventLogger?.log(event as Omit<ReplayEvent, "seq" | "ts">),
+    });
+    this.executor = createExecutor(config.workDir, { useSandbox: true });
+    this.observer = new ObservabilityCollector();
   }
 
   private emit(event: AgentEvent): void {
@@ -281,11 +298,27 @@ export class Agent {
   }
 
   async run(task: string): Promise<string> {
+    const useSpecDrivenTesting = this.config.specDrivenTesting !== false && shouldUseSpecDrivenTesting(task);
+    const taskForAgent = useSpecDrivenTesting ? formatSpecDrivenPrompt(task) : task;
+
     this.currentTask = task;
     this.stepIndex = 0;
     this.compactCount = 0;
+    this.reasoner.reset();
 
     await this.initReplay(task);
+
+    if (useSpecDrivenTesting) {
+      this.emit({ type: "spec_plan", summary: taskForAgent });
+      this.logReplay({
+        type: "spec_plan",
+        step: this.stepContext(),
+        payload: {
+          originalTask: task,
+          summary: taskForAgent,
+        },
+      });
+    }
 
     this.messages = [
       {
@@ -294,7 +327,7 @@ export class Agent {
       },
       {
         role: "user",
-        content: task,
+        content: taskForAgent,
       },
     ];
 
@@ -328,12 +361,13 @@ export class Agent {
       });
 
       this.emit({ type: "iteration", current: iteration, max: this.config.maxIterations });
+      this.emit({ type: "sandbox_health", ...this.observer.getSummary() });
 
       if (this.shouldCompact()) {
         const summary = await this.compactContext();
         this.compactCount++;
         this.emit({ type: "compact", summary });
-        this.resetForContinuation(summary, task);
+        this.resetForContinuation(summary, taskForAgent);
         this.logReplay({
           type: "compact",
           step: this.stepContext(),
@@ -403,6 +437,17 @@ export class Agent {
         };
         this.logReplay(tcEvent as ToolCallEvent);
 
+        this.reasoner.plan({
+          callId: tc.id,
+          toolName: tc.name,
+          args,
+          goal: this.currentTask,
+          currentStep: `Step ${this.stepIndex}: call ${tc.name}`,
+          assumptions: [],
+          expectedOutcome: `execute ${tc.name} with provided args`,
+          stepContext: this.stepContext(),
+        });
+
         const startMs = Date.now();
         const result = await this.executeToolWithRepair(tc.name, args, tc.id);
         const durationMs = Date.now() - startMs;
@@ -412,6 +457,14 @@ export class Agent {
           name: tc.name,
           output: result.output,
           error: result.error,
+        });
+
+        this.reasoner.summarize({
+          callId: tc.id,
+          observedOutcome: result.error ? `ERROR: ${result.error}` : result.output,
+          nextAction: `Continue to next step or finish`,
+          corrected: false,
+          stepContext: this.stepContext(),
         });
 
         const trEvent: Omit<ToolResultEvent, "seq" | "ts"> = {

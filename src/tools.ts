@@ -208,6 +208,11 @@ async function toolReadFile(
   workDir: string
 ): Promise<ToolResult> {
   const filePath = await sandboxPath(String(args.path), workDir);
+  const realPath = await sandboxRealPath(String(args.path), workDir);
+  const s = await lstat(realPath).catch(() => null);
+  if (s?.isSymbolicLink()) {
+    return { output: "", error: `Cannot read through symlink: ${String(args.path)}` };
+  }
   const raw = await readFile(filePath, "utf-8");
   const lines = raw.split("\n");
   const start = typeof args.start_line === "number" ? args.start_line - 1 : 0;
