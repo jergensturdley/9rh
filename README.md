@@ -86,6 +86,7 @@ Use environment variables instead of flags:
 export NINE_ROUTER_URL=http://localhost:20128/v1
 export NINE_ROUTER_KEY=your-key-from-dashboard
 export NINE_ROUTER_MODEL=kr/claude-sonnet-4.5
+export NINE_ROUTER_CONTINUATION_MODEL=continuation-heavy
 
 9rh "fix the failing tests"
 ```
@@ -99,6 +100,10 @@ export NINE_ROUTER_MODEL=kr/claude-sonnet-4.5
 | `-k, --key <key>` | `NINE_ROUTER_KEY` | `9router` | 9router API key |
 | `-d, --dir <dir>` | — | current working directory | Target directory for agent tools |
 | `-i, --max-iter <n>` | — | `100` | Maximum agent iterations |
+| `--continue-model <model>` | `NINE_ROUTER_CONTINUATION_MODEL` | — | Model or 9router combo to switch to after max iterations |
+| `--continue-max <n>` | `NINE_ROUTER_CONTINUATION_MAX` | `1` when continuation config is present | Maximum continuation rounds |
+| `--continue-iter <n>` | `NINE_ROUTER_CONTINUATION_ITER` | same as `--max-iter` | Iterations per continuation round |
+| `--continue-switch-after <n>` | `NINE_ROUTER_CONTINUATION_SWITCH_AFTER` | `1` | Continuation round that triggers model switch |
 | `--repl` | — | — | Start an interactive REPL |
 | `--doctor` | — | — | Run diagnostics and exit |
 | `--no-color` | — | — | Disable colored output |
@@ -145,6 +150,10 @@ const agent = new Agent({
   apiKey: "9router",
   model: "kr/claude-sonnet-4.5",
   maxIterations: 20,
+  continuationPolicy: {
+    maxContinuations: 1,
+    modelSwitch: { toModel: "continuation-heavy" },
+  },
   workDir: process.cwd(),
   onEvent: (event) => {
     if (event.type === "thinking") process.stdout.write(event.text);

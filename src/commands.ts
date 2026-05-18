@@ -2,6 +2,7 @@ import chalk from "chalk";
 import { resolve } from "path";
 import { stat } from "fs/promises";
 import { getCliToken } from "./init.js";
+import type { ContinuationPolicy } from "./agent.js";
 
 export interface SessionState {
   baseURL: string;
@@ -10,6 +11,7 @@ export interface SessionState {
   workDir: string;
   useColor: boolean;
   wasStarted?: boolean; // true if 9router was auto-started by this session
+  continuationPolicy?: ContinuationPolicy;
 }
 
 interface CommandDef {
@@ -149,7 +151,7 @@ const COMMANDS: Record<string, CommandDef> = {
 
   models: {
     usage: "/models [filter]",
-    description: "List available models (optional substring filter)",
+    description: "List available models",
     handler: async (args, state) => {
       const filter = args.join(" ").trim();
       return formatModelsList(filterModels(await fetchModels(state), filter), state, filter);
@@ -297,9 +299,9 @@ const COMMANDS: Record<string, CommandDef> = {
   clear: {
     usage: "/clear",
     description: "Clear screen",
-    handler: async (_args, _state) => {
-      process.stdout.write("\x1Bc");
-      return "";
+    handler: async (_args, state) => {
+      const clear = state.useColor ? "\x1b[2J\x1b[H" : "\x1b[2J\x1b[H";
+      return clear;
     },
   },
 

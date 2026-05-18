@@ -41,6 +41,18 @@ export interface AgentConfig {
   compactAfter?: number;
   replay?: ReplayConfig;
   specDrivenTesting?: boolean;
+  continuationPolicy?: ContinuationPolicy;
+}
+
+export interface ContinuationPolicy {
+  maxContinuations: number;
+  iterationsPerContinuation?: number;
+  modelSwitch?: ContinuationModelSwitch;
+}
+
+export interface ContinuationModelSwitch {
+  toModel: string;
+  afterContinuations?: number;
 }
 
 export interface ReplayConfig {
@@ -60,6 +72,8 @@ export type AgentEvent =
   | { type: "error"; message: string }
   | { type: "iteration"; current: number; max: number }
   | { type: "compact"; summary: string }
+  | { type: "continuation"; count: number; max: number }
+  | { type: "model_switch"; from: string; to: string; reason: "continuation" }
   | { type: "repair_start"; message: string; attempt: number }
   | { type: "repair_success"; message: string }
   | { type: "escalate"; message: string }
@@ -95,6 +109,7 @@ export class Agent {
   private reasoner: Reasoner;
   private executor: SandboxProvider;
   private observer: ObservabilityCollector;
+  private activeModel: string | undefined;
 
   constructor(config: AgentConfig) {
     this.config = config;
@@ -116,6 +131,10 @@ export class Agent {
 
   private emit(event: AgentEvent): void {
     this.config.onEvent?.(event);
+  }
+
+  private currentModel(): string {
+    return this.activeModel ?? this.config.model;
   }
 
   private shouldCompact(): boolean {
@@ -143,9 +162,8 @@ export class Agent {
       `Summarize the conversation in 2-3 sentences. What task, what done, what next.\n\n${historyText}\n\nSummary:`;
 
     const response = await this.client.chat.completions.create({
-      model: this.config.model,
+      model: this.currentModel(),
       messages: [{ role: "user", content: compactPrompt }],
-      temperature: 0.3,
     });
 
     return response.choices[0]?.message?.content ?? "Work in progress";
@@ -162,6 +180,17 @@ export class Agent {
         content: `RESUME: ${summary}\n\nOriginal task: ${originalTask}`,
       },
     ];
+  }
+
+  private applyContinuationModelSwitch(continuationCount: number): void {
+    const modelSwitch = this.config.continuationPolicy?.modelSwitch;
+    if (!modelSwitch) return;
+    const triggerCount = modelSwitch.afterContinuations ?? 1;
+    if (continuationCount < triggerCount) return;
+    const from = this.currentModel();
+    if (from === modelSwitch.toModel) return;
+    this.activeModel = modelSwitch.toModel;
+    this.emit({ type: "model_switch", from, to: modelSwitch.toModel, reason: "continuation" });
   }
 
   private buildAgentState(): AgentState {
@@ -192,7 +221,7 @@ export class Agent {
     const meta: RunMetadata = {
       runId,
       branchId,
-      model: this.config.model,
+      model: this.currentModel(),
       modelParams: { temperature: 0.3 },
       workDir: this.config.workDir,
       environmentVars: {},
@@ -236,7 +265,7 @@ export class Agent {
       lastSuccessfulStep: this.stepIndex,
       previousAttempts: [],
       openaiClient: this.client,
-      model: this.config.model,
+      model: this.currentModel(),
     };
 
     const startMs = Date.now();
@@ -260,8 +289,14 @@ export class Agent {
     args: Record<string, unknown>,
     callId: string
   ): Promise<{ output: string; error?: string }> {
+    const executor = this.executor;
+    const observer = this.observer;
+
     const wrapped = async () => {
-      return executeTool(name, args, this.config.workDir);
+      return executeTool(name, args, this.config.workDir, {
+        executor,
+        onBashResult: (result, command) => observer.record(result, command),
+      });
     };
 
     const result = await withErrorInterception(wrapped, {
@@ -302,8 +337,10 @@ export class Agent {
     const taskForAgent = useSpecDrivenTesting ? formatSpecDrivenPrompt(task) : task;
 
     this.currentTask = task;
+    this.activeModel = this.config.model;
     this.stepIndex = 0;
     this.compactCount = 0;
+    this.messages = [];
     this.reasoner.reset();
 
     await this.initReplay(task);
@@ -332,178 +369,214 @@ export class Agent {
     ];
 
     let finalResponse = "";
+    let continuationCount = 0;
+    const maxContinuations = this.config.continuationPolicy?.maxContinuations ?? 0;
 
-    for (let iteration = 1; iteration <= this.config.maxIterations; iteration++) {
-      if (this.circuitBreaker.isOpen()) {
-        this.emit({ type: "circuit_open" });
-        throw new Error("Circuit breaker is OPEN — halting agent loop");
-      }
+    while (true) {
+      const iterLimit =
+        continuationCount === 0
+          ? this.config.maxIterations
+          : (this.config.continuationPolicy?.iterationsPerContinuation ?? this.config.maxIterations);
 
-      this.stepIndex = iteration;
+      for (let iteration = 1; iteration <= iterLimit; iteration++) {
+        if (this.circuitBreaker.isOpen()) {
+          this.emit({ type: "circuit_open" });
+          throw new Error("Circuit breaker is OPEN — halting agent loop");
+        }
 
-      this.logReplay({
-        type: "step_start",
-        step: this.stepContext(),
-        payload: {},
-      });
+        this.stepIndex++;
 
-      const snapshotId = await captureSnapshot(this.buildAgentState());
-      this.logReplay({
-        type: "checkpoint",
-        step: this.stepContext(),
-        payload: {
-          snapshotId,
-          workDirGitCommit: "",
-          workDirGitHash: "",
-          messageCount: this.messages.length,
-          reason: "periodic",
-        },
-      });
-
-      this.emit({ type: "iteration", current: iteration, max: this.config.maxIterations });
-      this.emit({ type: "sandbox_health", ...this.observer.getSummary() });
-
-      if (this.shouldCompact()) {
-        const summary = await this.compactContext();
-        this.compactCount++;
-        this.emit({ type: "compact", summary });
-        this.resetForContinuation(summary, taskForAgent);
         this.logReplay({
-          type: "compact",
+          type: "step_start",
+          step: this.stepContext(),
+          payload: {},
+        });
+
+        const snapshotId = await captureSnapshot(this.buildAgentState());
+        this.logReplay({
+          type: "checkpoint",
           step: this.stepContext(),
           payload: {
-            messageCountBefore: this.messages.length + 1,
-            messageCountAfter: 2,
-            summary,
+            snapshotId,
+            workDirGitCommit: "",
+            workDirGitHash: "",
+            messageCount: this.messages.length,
+            reason: "periodic",
           },
         });
-      }
 
-      const { text, toolCalls } = await this.streamCompletionWithReplay();
+        this.emit({ type: "iteration", current: iteration, max: iterLimit });
+        this.emit({ type: "sandbox_health", ...this.observer.getSummary() });
 
-      if (text) finalResponse = text;
+        if (this.shouldCompact()) {
+          const summary = await this.compactContext();
+          this.compactCount++;
+          this.emit({ type: "compact", summary });
+          this.resetForContinuation(summary, taskForAgent);
+          this.logReplay({
+            type: "compact",
+            step: this.stepContext(),
+            payload: {
+              messageCountBefore: this.messages.length + 1,
+              messageCountAfter: 2,
+              summary,
+            },
+          });
+        }
 
-      if (!toolCalls || toolCalls.length === 0) {
-        this.emit({ type: "done", text });
+        const { text, toolCalls } = await this.streamCompletionWithReplay();
+
+        if (text) finalResponse = text;
+
+        if (!toolCalls || toolCalls.length === 0) {
+          this.emit({ type: "done", text });
+          this.logReplay({
+            type: "step_end",
+            step: this.stepContext(),
+            payload: { stepIndex: this.stepIndex },
+          });
+          this.logReplay({
+            type: "run_end",
+            payload: { runId: this.replay.runId ?? "", reason: "completed" },
+          });
+          await this.finalizeReplay("completed");
+          return text;
+        }
+
+        const parsedToolCalls = toolCalls.map((tc) => {
+          let args: Record<string, unknown> = {};
+          let parseError: string | undefined;
+          try {
+            const parsed = JSON.parse(tc.argsRaw) as unknown;
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+              args = parsed as Record<string, unknown>;
+            } else {
+              parseError = `Tool arguments must be a JSON object: ${tc.argsRaw}`;
+            }
+          } catch {
+            parseError = `Invalid tool arguments JSON: ${tc.argsRaw}`;
+          }
+          return { ...tc, args, parseError };
+        });
+
+        this.messages.push({
+          role: "assistant",
+          content: text || null,
+          tool_calls: parsedToolCalls.map((tc) => ({
+            id: tc.id,
+            type: "function" as const,
+            function: { name: tc.name, arguments: tc.parseError ? "{}" : JSON.stringify(tc.args) },
+          })),
+        });
+
+        for (const tc of parsedToolCalls) {
+          if (tc.parseError) {
+            this.emit({ type: "tool_result", name: tc.name, output: "", error: tc.parseError });
+            this.messages.push({
+              role: "tool",
+              tool_call_id: tc.id,
+              content: `ERROR: ${tc.parseError}`,
+            });
+            continue;
+          }
+
+          this.emit({ type: "tool_call", name: tc.name, args: tc.args });
+
+          const tcEvent: Omit<ToolCallEvent, "seq" | "ts"> = {
+            type: "tool_call",
+            step: this.stepContext(),
+            payload: { toolName: tc.name, args: tc.args, callId: tc.id },
+          };
+          this.logReplay(tcEvent as ToolCallEvent);
+
+          this.reasoner.plan({
+            callId: tc.id,
+            toolName: tc.name,
+            args: tc.args,
+            goal: this.currentTask,
+            currentStep: `Step ${this.stepIndex}: call ${tc.name}`,
+            assumptions: [],
+            expectedOutcome: `execute ${tc.name} with provided args`,
+            stepContext: this.stepContext(),
+          });
+
+          const startMs = Date.now();
+          const result = await this.executeToolWithRepair(tc.name, tc.args, tc.id);
+          const durationMs = Date.now() - startMs;
+
+          this.emit({
+            type: "tool_result",
+            name: tc.name,
+            output: result.output,
+            error: result.error,
+          });
+
+          this.reasoner.summarize({
+            callId: tc.id,
+            observedOutcome: result.error ? `ERROR: ${result.error}` : result.output,
+            nextAction: `Continue to next step or finish`,
+            corrected: false,
+            stepContext: this.stepContext(),
+          });
+
+          const trEvent: Omit<ToolResultEvent, "seq" | "ts"> = {
+            type: "tool_result",
+            step: this.stepContext(),
+            payload: {
+              toolName: tc.name,
+              callId: tc.id,
+              output: result.output,
+              error: result.error,
+              durationMs,
+            },
+          };
+          this.logReplay(trEvent as ToolResultEvent);
+
+          this.messages.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content: result.error
+              ? `ERROR: ${result.error}\n${result.output}`
+              : result.output,
+          });
+        }
+
         this.logReplay({
           type: "step_end",
           step: this.stepContext(),
           payload: { stepIndex: this.stepIndex },
         });
+      }
+
+      if (continuationCount >= maxContinuations) {
+        const suffix = continuationCount > 0 ? ` after ${continuationCount} continuation(s)` : "";
+        const exhaustedMsg = `Reached max iterations (${this.config.maxIterations})${suffix}`;
+        this.emit({ type: "error", message: exhaustedMsg });
         this.logReplay({
           type: "run_end",
-          payload: { runId: this.replay.runId ?? "", reason: "completed" },
+          payload: { runId: this.replay.runId ?? "", reason: "max_iterations" },
         });
-        await this.finalizeReplay("completed");
-        return text;
+        await this.finalizeReplay("max_iterations");
+        throw new Error(exhaustedMsg);
       }
 
-      this.messages.push({
-        role: "assistant",
-        content: text || null,
-        tool_calls: toolCalls.map((tc) => ({
-          id: tc.id,
-          type: "function" as const,
-          function: { name: tc.name, arguments: tc.argsRaw },
-        })),
-      });
-
-      for (const tc of toolCalls) {
-        let args: Record<string, unknown>;
-        let parseError: string | undefined;
-        try {
-          args = JSON.parse(tc.argsRaw) as Record<string, unknown>;
-        } catch {
-          parseError = `Invalid tool arguments JSON: ${tc.argsRaw}`;
-          args = {};
-        }
-
-        if (parseError) {
-          this.emit({ type: "tool_result", name: tc.name, output: "", error: parseError });
-          this.messages.push({
-            role: "tool",
-            tool_call_id: tc.id,
-            content: `ERROR: ${parseError}`,
-          });
-          continue;
-        }
-
-        this.emit({ type: "tool_call", name: tc.name, args });
-
-        const tcEvent: Omit<ToolCallEvent, "seq" | "ts"> = {
-          type: "tool_call",
-          step: this.stepContext(),
-          payload: { toolName: tc.name, args, callId: tc.id },
-        };
-        this.logReplay(tcEvent as ToolCallEvent);
-
-        this.reasoner.plan({
-          callId: tc.id,
-          toolName: tc.name,
-          args,
-          goal: this.currentTask,
-          currentStep: `Step ${this.stepIndex}: call ${tc.name}`,
-          assumptions: [],
-          expectedOutcome: `execute ${tc.name} with provided args`,
-          stepContext: this.stepContext(),
-        });
-
-        const startMs = Date.now();
-        const result = await this.executeToolWithRepair(tc.name, args, tc.id);
-        const durationMs = Date.now() - startMs;
-
-        this.emit({
-          type: "tool_result",
-          name: tc.name,
-          output: result.output,
-          error: result.error,
-        });
-
-        this.reasoner.summarize({
-          callId: tc.id,
-          observedOutcome: result.error ? `ERROR: ${result.error}` : result.output,
-          nextAction: `Continue to next step or finish`,
-          corrected: false,
-          stepContext: this.stepContext(),
-        });
-
-        const trEvent: Omit<ToolResultEvent, "seq" | "ts"> = {
-          type: "tool_result",
-          step: this.stepContext(),
-          payload: {
-            toolName: tc.name,
-            callId: tc.id,
-            output: result.output,
-            error: result.error,
-            durationMs,
-          },
-        };
-        this.logReplay(trEvent as ToolResultEvent);
-
-        this.messages.push({
-          role: "tool",
-          tool_call_id: tc.id,
-          content: result.error
-            ? `ERROR: ${result.error}\n${result.output}`
-            : result.output,
-        });
-      }
-
+      continuationCount++;
+      this.applyContinuationModelSwitch(continuationCount);
+      const contSummary = await this.compactContext();
+      this.compactCount++;
+      this.emit({ type: "compact", summary: contSummary });
+      this.emit({ type: "continuation", count: continuationCount, max: maxContinuations });
+      this.resetForContinuation(contSummary, taskForAgent);
       this.logReplay({
-        type: "step_end",
+        type: "compact",
         step: this.stepContext(),
-        payload: { stepIndex: this.stepIndex },
+        payload: {
+          messageCountBefore: this.messages.length + 1,
+          messageCountAfter: 2,
+          summary: contSummary,
+        },
       });
     }
-
-    const exhaustedMsg = `Reached max iterations (${this.config.maxIterations})`;
-    this.emit({ type: "error", message: exhaustedMsg });
-    this.logReplay({
-      type: "run_end",
-      payload: { runId: this.replay.runId ?? "", reason: "max_iterations" },
-    });
-    await this.finalizeReplay("max_iterations");
-    throw new Error(exhaustedMsg);
   }
 
   private async streamCompletionWithReplay(): Promise<{
@@ -517,11 +590,12 @@ export class Agent {
       try {
         const stream: Stream<ChatCompletionChunk> =
           await this.client.chat.completions.create({
-            model: this.config.model,
+            model: this.currentModel(),
             messages: this.messages,
             tools: TOOL_DEFINITIONS as ChatCompletionTool[],
             tool_choice: "auto",
             stream: true,
+            stream_options: { include_usage: true },
           });
 
         let text = "";
@@ -531,7 +605,7 @@ export class Agent {
         > = new Map();
 
         for await (const chunk of stream) {
-          const delta = chunk.choices[0]?.delta;
+          const delta = chunk.choices?.[0]?.delta;
           if (!delta) continue;
 
           if (delta.content) {
@@ -595,6 +669,17 @@ export class Agent {
           errorMsg.includes("premature close") ||
           errorMsg.includes("other side closed") ||
           errorMsg.includes("UND_ERR_PRE_CLOSE");
+
+        const isProviderFunctionGone =
+          errorMsg.includes("function") && (errorMsg.includes("not found") || errorMsg.includes("404"));
+
+        if (isProviderFunctionGone) {
+          this.emit({
+            type: "error",
+            message: `Provider function registry error: ${errorMsg}. The tool definition may be stale — try removing and re-adding the provider in 9router.`,
+          });
+          throw new Error(`Provider function error: ${errorMsg}`);
+        }
 
         if (isRetryable && attempt < maxRetries) {
           const delayMs = attempt * 1000;
