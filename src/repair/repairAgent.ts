@@ -129,7 +129,6 @@ export async function runRepairAgent(ctx: RepairContext): Promise<RepairResult> 
     const response = await ctx.openaiClient.chat.completions.create({
       model: ctx.model,
       messages,
-      temperature: 0.3,
     });
 
     const raw = response.choices[0]?.message?.content ?? "";

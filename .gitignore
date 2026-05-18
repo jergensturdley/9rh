@@ -33,6 +33,7 @@ coverage/
 tmp/
 temp/
 .DS_Store
+dist/
 
 # Generated test artifacts (snapshots, fixtures, output — not source test files)
 test-bed/

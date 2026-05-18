@@ -516,6 +516,32 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         printLiveMap();
         break;
 
+      case "continuation":
+        stopSpinner();
+        process.stdout.write(
+          "\n" +
+            (opts.useColor
+              ? chalk.yellow(`  ⟳  continuing ${event.count}/${event.max}`)
+              : `  continuing ${event.count}/${event.max}`) +
+            "\n\n",
+        );
+        printLiveMap();
+        startSpinner(thinkingLabel());
+        break;
+
+      case "model_switch":
+        stopSpinner();
+        process.stdout.write(
+          "\n" +
+            (opts.useColor
+              ? chalk.cyan(`  ⇄  switching model ${event.from} → ${event.to}`)
+              : `  switching model ${event.from} → ${event.to}`) +
+            "\n\n",
+        );
+        printLiveMap();
+        startSpinner(thinkingLabel());
+        break;
+
       case "spec_plan": {
         stopSpinner();
         const borderFn = opts.useColor ? chalk.magentaBright : (s: string) => s;

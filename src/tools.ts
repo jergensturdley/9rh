@@ -3,6 +3,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { join, resolve, normalize } from "path";
 import type { ChatCompletionTool } from "openai/resources/chat/completions.js";
+import type { SandboxProvider, ExecutionResult } from "./sandbox/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -175,10 +176,16 @@ export interface ToolResult {
   error?: string;
 }
 
+export interface ExecuteToolOptions {
+  executor?: SandboxProvider;
+  onBashResult?: (result: ExecutionResult, command: string) => void;
+}
+
 export async function executeTool(
   name: string,
   args: Record<string, unknown>,
-  workDir: string
+  workDir: string,
+  options?: ExecuteToolOptions
 ): Promise<ToolResult> {
   try {
     switch (name) {
@@ -187,7 +194,7 @@ export async function executeTool(
       case "write_file":
         return await toolWriteFile(args, workDir);
       case "run_bash":
-        return await toolRunBash(args, workDir);
+        return await toolRunBash(args, workDir, options?.executor, options?.onBashResult);
       case "list_files":
         return await toolListFiles(args, workDir);
       case "search_files":
@@ -241,11 +248,19 @@ async function toolWriteFile(
 
 async function toolRunBash(
   args: Record<string, unknown>,
-  workDir: string
+  workDir: string,
+  executor?: SandboxProvider,
+  onResult?: (result: ExecutionResult, command: string) => void,
 ): Promise<ToolResult> {
   const command = String(args.command);
   const rawTimeout = typeof args.timeout_ms === "number" ? args.timeout_ms : 30000;
   const timeoutMs = clampTimeout(rawTimeout);
+
+  if (executor) {
+    const result = await executor.exec(command, { timeoutMs });
+    onResult?.(result, command);
+    return { output: truncateOutput(result.output), error: result.error };
+  }
 
   try {
     const { stdout, stderr } = await execFileAsync("sh", ["-c", command], {

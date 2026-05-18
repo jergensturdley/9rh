@@ -3,7 +3,7 @@ import { createInterface, cursorTo, emitKeypressEvents, moveCursor, clearScreenD
 import { resolve } from "path";
 import { program } from "commander";
 import chalk from "chalk";
-import { Agent, type AgentEvent } from "./agent.js";
+import { Agent, type AgentEvent, type ContinuationPolicy } from "./agent.js";
 import { executeSlashCommand, fetchModels, filterModels, type ModelInfo, type SessionState, toArray, getSlashCommands } from "./commands.js";
 import { ensureRouter, readFirstApiKey, getCliToken } from "./init.js";
 import { createTuiRenderer, printSplash } from "./tui.js";
@@ -14,6 +14,10 @@ const DEFAULTS = {
   url: process.env.NINE_ROUTER_URL ?? "http://localhost:20128/v1",
   key: process.env.NINE_ROUTER_KEY ?? "9router",
   model: process.env.NINE_ROUTER_MODEL ?? "kr/claude-sonnet-4.5",
+  continuationModel: process.env.NINE_ROUTER_CONTINUATION_MODEL,
+  continuationMax: process.env.NINE_ROUTER_CONTINUATION_MAX ?? process.env.NINE_ROUTER_MAX_CONTINUATIONS,
+  continuationIter: process.env.NINE_ROUTER_CONTINUATION_ITER,
+  continuationSwitchAfter: process.env.NINE_ROUTER_CONTINUATION_SWITCH_AFTER,
   maxIter: 100,
 };
 
@@ -27,6 +31,10 @@ program
   .option("-k, --key <key>", "9router API key", DEFAULTS.key)
   .option("-d, --dir <dir>", "Working directory", process.cwd())
   .option("-i, --max-iter <n>", "Max agent iterations", String(DEFAULTS.maxIter))
+  .option("--continue-model <model>", "Model or 9router combo to use after max iterations", DEFAULTS.continuationModel)
+  .option("--continue-max <n>", "Maximum continuation rounds", DEFAULTS.continuationMax)
+  .option("--continue-iter <n>", "Iterations per continuation round", DEFAULTS.continuationIter)
+  .option("--continue-switch-after <n>", "Continuation round that triggers model switch", DEFAULTS.continuationSwitchAfter)
   .option("--repl", "Start interactive REPL session")
   .option("--no-color", "Disable colored output")
   .option("--doctor", "Run pre-flight diagnostics and exit");
@@ -44,6 +52,10 @@ const opts = program.opts<{
   key: string;
   dir: string;
   maxIter: string;
+  continueModel?: string;
+  continueMax?: string;
+  continueIter?: string;
+  continueSwitchAfter?: string;
   repl: boolean;
   color: boolean;
   doctor: boolean;
@@ -96,13 +108,34 @@ if (isInit) {
   }
 }
 
-function parseMaxIter(): number {
-  const n = parseInt(opts.maxIter, 10);
+function parsePositiveInt(raw: string | undefined, label: string): number | undefined {
+  if (raw === undefined || raw === "") return undefined;
+  const n = parseInt(raw, 10);
   if (!Number.isInteger(n) || n < 1) {
-    process.stderr.write(`--max-iter must be a positive integer, got: ${opts.maxIter}\n`);
+    process.stderr.write(`${label} must be a positive integer, got: ${raw}\n`);
     process.exit(1);
   }
   return n;
+}
+
+function parseMaxIter(): number {
+  return parsePositiveInt(opts.maxIter, "--max-iter") ?? DEFAULTS.maxIter;
+}
+
+function parseContinuationPolicy(): ContinuationPolicy | undefined {
+  const hasContinuationConfig = Boolean(
+    opts.continueModel || opts.continueMax || opts.continueIter || opts.continueSwitchAfter,
+  );
+  if (!hasContinuationConfig) return undefined;
+  const maxContinuations = parsePositiveInt(opts.continueMax, "--continue-max") ?? 1;
+  const iterationsPerContinuation = parsePositiveInt(opts.continueIter, "--continue-iter");
+  const switchAfter = parsePositiveInt(opts.continueSwitchAfter, "--continue-switch-after") ?? 1;
+  const policy: ContinuationPolicy = { maxContinuations };
+  if (iterationsPerContinuation !== undefined) policy.iterationsPerContinuation = iterationsPerContinuation;
+  if (opts.continueModel) {
+    policy.modelSwitch = { toModel: opts.continueModel, afterContinuations: switchAfter };
+  }
+  return policy;
 }
 
 function makeAgent(state: SessionState, onEvent: (e: AgentEvent) => void) {
@@ -113,6 +146,7 @@ function makeAgent(state: SessionState, onEvent: (e: AgentEvent) => void) {
     maxIterations: parseMaxIter(),
     workDir: state.workDir,
     onEvent,
+    continuationPolicy: state.continuationPolicy,
   });
 }
 
@@ -192,10 +226,14 @@ async function runRepl(state: SessionState): Promise<void> {
   let renderQueued = false;
   let pickerActive = false;
 
+  function stripAnsi(text: string): string {
+    return text.replace(/\x1B\[[0-9;]*m/g, "");
+  }
+
   function promptColumns(): number {
-    const cols = process.stdout.columns ?? 80;
-    const modelLen = state.model.length;
-    return Math.min(cols - 1, opts.color ? 2 + modelLen + 3 : modelLen + 4);
+    const cols = process.stderr.columns ?? process.stdout.columns ?? 80;
+    const visible = stripAnsi(prompt());
+    return Math.min(cols - 1, visible.length + 4);
   }
 
   function redrawLine(): void {
@@ -505,7 +543,7 @@ async function runRepl(state: SessionState): Promise<void> {
       }
       const result = await executeSlashCommand(trimmed, state);
       if (result !== null) {
-        process.stdout.write(result);
+        process.stderr.write(result);
         if (state.model !== prevModel) {
           process.stderr.write(
             opts.color
@@ -666,6 +704,7 @@ const state: SessionState = {
   workDir: resolve(opts.dir),
   useColor: opts.color,
   wasStarted: false,
+  continuationPolicy: parseContinuationPolicy(),
 };
 
 async function main() {
