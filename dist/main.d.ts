@@ -8,3 +8,8 @@ export type { ToolResult } from "./tools.js";
 export type { InitResult } from "./init.js";
 export type { CoverageEntry, ParsedSpecification, RequirementKind, RequirementStatement, SynthesizedTest, SynthesizedTestPlan, TestPath, TestType, } from "./spec/specDrivenTesting.js";
 export type { RunStage, RunVisualization, Severity, StepStatus, VisualEdge, VisualizationFilter, VisualStep, } from "./visualization.js";
+export { Orchestrator } from "./orchestrator/index.js";
+export type { OrchestratorConfig, OrchestratorEvent, OrchestratorResult, RoleInvoker, } from "./orchestrator/index.js";
+export type { RoleName, RiskLevel, RoleDefinition, } from "./orchestrator/index.js";
+export type { TaskState, TaskStatus, ProjectMemory, ArchitectPlan, ImplementationResult, ReviewResult, SecurityAuditResult, TestStrategyResult, } from "./orchestrator/index.js";
+export type { Conflict, ConflictLog, ConflictParty, ConflictResolution, } from "./orchestrator/index.js";

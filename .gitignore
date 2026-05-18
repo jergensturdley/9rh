@@ -1,5 +1,5 @@
 node_modules/
-dist/
+examples/
 
 # Environment, secrets, and local identity
 .env
@@ -34,12 +34,7 @@ tmp/
 temp/
 .DS_Store
 
-# Tests, fixtures, and generated test artifacts
-__tests__/
-*.test.*
-*.spec.*
-test/
-tests/
+# Generated test artifacts (snapshots, fixtures, output — not source test files)
 test-bed/
 test-snapshots/
 snapshots/
