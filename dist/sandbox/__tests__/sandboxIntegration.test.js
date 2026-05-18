@@ -75,16 +75,26 @@ describe("Sandbox exec basic behavior", () => {
         catch { }
     });
     it("executes a simple command and returns output", async () => {
-        const { Sandbox } = await import("../sandboxer.js");
+        const { Sandbox, isSandboxAvailable } = await import("../sandboxer.js");
         const sb = new Sandbox({ workDir });
         const result = await sb.exec("echo hello");
+        if (!isSandboxAvailable()) {
+            expect(result.exitCode).toBe(-1);
+            expect(result.stderr).toContain("sandbox execution is unavailable");
+            return;
+        }
         expect(result.stdout).toContain("hello");
         expect(result.exitCode).toBe(0);
     });
     it("returns non-zero exit code on failure", async () => {
-        const { Sandbox } = await import("../sandboxer.js");
+        const { Sandbox, isSandboxAvailable } = await import("../sandboxer.js");
         const sb = new Sandbox({ workDir });
         const result = await sb.exec("exit 1");
+        if (!isSandboxAvailable()) {
+            expect(result.exitCode).toBe(-1);
+            expect(result.stderr).toContain("sandbox execution is unavailable");
+            return;
+        }
         expect(result.exitCode).toBe(1);
     });
 });

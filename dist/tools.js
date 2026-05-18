@@ -1,4 +1,4 @@
-import { readFile, writeFile, readdir, lstat, readlink } from "fs/promises";
+import { readFile, writeFile, readdir, lstat, readlink, realpath } from "fs/promises";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { join, resolve, normalize } from "path";
@@ -7,20 +7,48 @@ const MAX_OUTPUT_CHARS = 40_000;
 const MIN_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 120_000;
 async function realworkDir(workDir) {
-    return normalize(await readlink(workDir).catch(() => workDir));
+    return normalize(await realpath(workDir).catch(async () => readlink(workDir).catch(() => workDir)));
 }
 async function sandboxPath(rawPath, workDir) {
-    const abs = resolve(workDir, rawPath);
-    const normalized = normalize(abs);
     const realWorkDir = await realworkDir(workDir);
+    const abs = resolve(realWorkDir, rawPath);
+    const normalized = normalize(await realpath(abs).catch(() => abs));
     if (!normalized.startsWith(realWorkDir + "/") && normalized !== realWorkDir) {
         throw new Error(`Path escapes workDir: ${rawPath}`);
     }
-    return normalized;
+    return abs;
 }
-async function sandboxRealPath(rawPath, workDir) {
+async function assertExistingPathIsNotSymlink(rawPath, workDir, operation) {
     const sandboxed = await sandboxPath(rawPath, workDir);
-    return normalize(await readlink(sandboxed).catch(() => sandboxed));
+    const linkStat = await lstat(sandboxed).catch(() => null);
+    if (linkStat?.isSymbolicLink()) {
+        throw new Error(`Cannot ${operation} through symlink: ${rawPath}`);
+    }
+    if (linkStat) {
+        const realTarget = normalize(await realpath(sandboxed));
+        const realWorkDir = await realworkDir(workDir);
+        if (!realTarget.startsWith(realWorkDir + "/") && realTarget !== realWorkDir) {
+            throw new Error(`Path escapes workDir: ${rawPath}`);
+        }
+    }
+    return sandboxed;
+}
+async function assertWritablePath(rawPath, workDir) {
+    const sandboxed = await sandboxPath(rawPath, workDir);
+    const linkStat = await lstat(sandboxed).catch(() => null);
+    if (linkStat?.isSymbolicLink()) {
+        throw new Error(`Cannot write through symlink: ${rawPath}`);
+    }
+    const parentRealPath = normalize(await realpath(join(sandboxed, "..")).catch(() => dirnameFallback(sandboxed)));
+    const realWorkDir = await realworkDir(workDir);
+    if (!parentRealPath.startsWith(realWorkDir + "/") && parentRealPath !== realWorkDir) {
+        throw new Error(`Path escapes workDir: ${rawPath}`);
+    }
+    return sandboxed;
+}
+function dirnameFallback(path) {
+    const i = path.lastIndexOf("/");
+    return i <= 0 ? "/" : path.slice(0, i);
 }
 function clampTimeout(timeoutMs) {
     if (!Number.isFinite(timeoutMs) || timeoutMs < MIN_TIMEOUT_MS)
@@ -154,7 +182,7 @@ export const TOOL_DEFINITIONS = [
         },
     },
 ];
-export async function executeTool(name, args, workDir) {
+export async function executeTool(name, args, workDir, options) {
     try {
         switch (name) {
             case "read_file":
@@ -162,7 +190,7 @@ export async function executeTool(name, args, workDir) {
             case "write_file":
                 return await toolWriteFile(args, workDir);
             case "run_bash":
-                return await toolRunBash(args, workDir);
+                return await toolRunBash(args, workDir, options?.executor, options?.onBashResult);
             case "list_files":
                 return await toolListFiles(args, workDir);
             case "search_files":
@@ -180,11 +208,7 @@ export async function executeTool(name, args, workDir) {
 }
 async function toolReadFile(args, workDir) {
     const filePath = await sandboxPath(String(args.path), workDir);
-    const realPath = await sandboxRealPath(String(args.path), workDir);
-    const s = await lstat(realPath).catch(() => null);
-    if (s?.isSymbolicLink()) {
-        return { output: "", error: `Cannot read through symlink: ${String(args.path)}` };
-    }
+    await assertExistingPathIsNotSymlink(String(args.path), workDir, "read");
     const raw = await readFile(filePath, "utf-8");
     const lines = raw.split("\n");
     const start = typeof args.start_line === "number" ? args.start_line - 1 : 0;
@@ -196,20 +220,20 @@ async function toolReadFile(args, workDir) {
 async function toolWriteFile(args, workDir) {
     const { mkdir } = await import("fs/promises");
     const { dirname } = await import("path");
-    const filePath = await sandboxPath(String(args.path), workDir);
-    const realPath = await sandboxRealPath(String(args.path), workDir);
-    const s = await lstat(realPath).catch(() => null);
-    if (s && s.isSymbolicLink()) {
-        return { output: "", error: `Cannot write through symlink: ${String(args.path)}` };
-    }
+    const filePath = await assertWritablePath(String(args.path), workDir);
     await mkdir(dirname(filePath), { recursive: true });
     await writeFile(filePath, String(args.content), "utf-8");
     return { output: `Written ${filePath}` };
 }
-async function toolRunBash(args, workDir) {
+async function toolRunBash(args, workDir, executor, onResult) {
     const command = String(args.command);
     const rawTimeout = typeof args.timeout_ms === "number" ? args.timeout_ms : 30000;
     const timeoutMs = clampTimeout(rawTimeout);
+    if (executor) {
+        const result = await executor.exec(command, { timeoutMs });
+        onResult?.(result, command);
+        return { output: truncateOutput(result.output), error: result.error };
+    }
     try {
         const { stdout, stderr } = await execFileAsync("sh", ["-c", command], {
             cwd: workDir,

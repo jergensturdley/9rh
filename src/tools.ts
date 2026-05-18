@@ -1,4 +1,4 @@
-import { readFile, writeFile, readdir, stat, lstat, readlink } from "fs/promises";
+import { readFile, writeFile, readdir, lstat, readlink, realpath } from "fs/promises";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { join, resolve, normalize } from "path";
@@ -12,22 +12,52 @@ const MIN_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 120_000;
 
 async function realworkDir(workDir: string): Promise<string> {
-  return normalize(await readlink(workDir).catch(() => workDir));
+  return normalize(await realpath(workDir).catch(async () => readlink(workDir).catch(() => workDir)));
 }
 
 async function sandboxPath(rawPath: string, workDir: string): Promise<string> {
-  const abs = resolve(workDir, rawPath);
-  const normalized = normalize(abs);
   const realWorkDir = await realworkDir(workDir);
+  const abs = resolve(realWorkDir, rawPath);
+  const normalized = normalize(await realpath(abs).catch(() => abs));
   if (!normalized.startsWith(realWorkDir + "/") && normalized !== realWorkDir) {
     throw new Error(`Path escapes workDir: ${rawPath}`);
   }
-  return normalized;
+  return abs;
 }
 
-async function sandboxRealPath(rawPath: string, workDir: string): Promise<string> {
+async function assertExistingPathIsNotSymlink(rawPath: string, workDir: string, operation: string): Promise<string> {
   const sandboxed = await sandboxPath(rawPath, workDir);
-  return normalize(await readlink(sandboxed).catch(() => sandboxed));
+  const linkStat = await lstat(sandboxed).catch(() => null);
+  if (linkStat?.isSymbolicLink()) {
+    throw new Error(`Cannot ${operation} through symlink: ${rawPath}`);
+  }
+  if (linkStat) {
+    const realTarget = normalize(await realpath(sandboxed));
+    const realWorkDir = await realworkDir(workDir);
+    if (!realTarget.startsWith(realWorkDir + "/") && realTarget !== realWorkDir) {
+      throw new Error(`Path escapes workDir: ${rawPath}`);
+    }
+  }
+  return sandboxed;
+}
+
+async function assertWritablePath(rawPath: string, workDir: string): Promise<string> {
+  const sandboxed = await sandboxPath(rawPath, workDir);
+  const linkStat = await lstat(sandboxed).catch(() => null);
+  if (linkStat?.isSymbolicLink()) {
+    throw new Error(`Cannot write through symlink: ${rawPath}`);
+  }
+  const parentRealPath = normalize(await realpath(join(sandboxed, "..")).catch(() => dirnameFallback(sandboxed)));
+  const realWorkDir = await realworkDir(workDir);
+  if (!parentRealPath.startsWith(realWorkDir + "/") && parentRealPath !== realWorkDir) {
+    throw new Error(`Path escapes workDir: ${rawPath}`);
+  }
+  return sandboxed;
+}
+
+function dirnameFallback(path: string): string {
+  const i = path.lastIndexOf("/");
+  return i <= 0 ? "/" : path.slice(0, i);
 }
 
 function clampTimeout(timeoutMs: number): number {
@@ -215,11 +245,7 @@ async function toolReadFile(
   workDir: string
 ): Promise<ToolResult> {
   const filePath = await sandboxPath(String(args.path), workDir);
-  const realPath = await sandboxRealPath(String(args.path), workDir);
-  const s = await lstat(realPath).catch(() => null);
-  if (s?.isSymbolicLink()) {
-    return { output: "", error: `Cannot read through symlink: ${String(args.path)}` };
-  }
+  await assertExistingPathIsNotSymlink(String(args.path), workDir, "read");
   const raw = await readFile(filePath, "utf-8");
   const lines = raw.split("\n");
   const start = typeof args.start_line === "number" ? args.start_line - 1 : 0;
@@ -235,12 +261,7 @@ async function toolWriteFile(
 ): Promise<ToolResult> {
   const { mkdir } = await import("fs/promises");
   const { dirname } = await import("path");
-  const filePath = await sandboxPath(String(args.path), workDir);
-  const realPath = await sandboxRealPath(String(args.path), workDir);
-  const s = await lstat(realPath).catch(() => null);
-  if (s && s.isSymbolicLink()) {
-    return { output: "", error: `Cannot write through symlink: ${String(args.path)}` };
-  }
+  const filePath = await assertWritablePath(String(args.path), workDir);
   await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, String(args.content), "utf-8");
   return { output: `Written ${filePath}` };

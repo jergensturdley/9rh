@@ -1,17 +1,15 @@
 import { spawn } from "child_process";
 import { unlinkSync } from "fs";
-import { promisify } from "util";
-import { readlink, writeFile, lstat } from "fs/promises";
+import { readlink, writeFile, lstat, realpath } from "fs/promises";
 import { resolve, normalize, dirname } from "path";
-const execAsync = promisify(spawn);
 const SBMAXOUTPUT = 1024 * 1024 * 4;
 async function realworkDir(workDir) {
-    return normalize(await readlink(workDir).catch(() => workDir));
+    return normalize(await realpath(workDir).catch(async () => readlink(workDir).catch(() => workDir)));
 }
 async function sandboxPath(rawPath, workDir) {
-    const abs = resolve(workDir, rawPath);
-    let normalized = normalize(abs);
     const realWorkDir = await realworkDir(workDir);
+    const abs = resolve(realWorkDir, rawPath);
+    let normalized = normalize(abs);
     try {
         const stat = await lstat(normalized);
         if (stat.isSymbolicLink()) {
@@ -44,11 +42,6 @@ class DarwinSandboxProfile {
         return `(version 1)(allow default)`;
     }
 }
-class LinuxCgroupSandboxProfile {
-    create(_workDir, _allowedPaths, _networkEnabled) {
-        return ``;
-    }
-}
 export class Sandbox {
     config;
     profile;
@@ -65,9 +58,7 @@ export class Sandbox {
             user: config.user ?? "nobody",
         };
         this.platform = process.platform;
-        const profileBuilder = this.platform === "darwin"
-            ? new DarwinSandboxProfile()
-            : new LinuxCgroupSandboxProfile();
+        const profileBuilder = new DarwinSandboxProfile();
         this.profile = profileBuilder.create(this.config.workDir, this.config.allowedPaths, this.config.networkEnabled);
     }
     async validatePath(filePath) {
@@ -98,6 +89,15 @@ export class Sandbox {
         const timeoutMs = clampTimeout(options?.timeoutMs ?? this.config.timeoutMs);
         const startMs = Date.now();
         let timedOut = false;
+        if (!isSandboxAvailable()) {
+            return {
+                stdout: "",
+                stderr: `sandbox execution is unavailable on ${this.platform}; use createExecutor() to fall back to direct execution explicitly`,
+                exitCode: -1,
+                timedOut: false,
+                durationMs: Date.now() - startMs,
+            };
+        }
         const profilePath = `/tmp/9rh-sandbox-${Date.now()}.sb`;
         try {
             await writeFile(profilePath, this.profile, "utf-8");
