@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "@jest/globals";
-import { captureSnapshot, restoreSnapshot, listSnapshots } from "../snapshotManager.js";
+import { captureSnapshot, restoreSnapshot, listSnapshots, type AgentState } from "../snapshotManager.js";
 import { readFile, readdir, mkdir, rm } from "fs/promises";
 import { join } from "path";
 
@@ -18,8 +18,8 @@ describe("snapshotManager", () => {
   });
 
   it("captureSnapshot returns an id and writes a json file", async () => {
-    const state = { currentTask: "test task", memory: {}, toolCallHistory: [], stepIndex: 1, environmentVars: {} };
-    const id = await captureSnapshot(state as any);
+    const state: AgentState = { currentTask: "test task", memory: {}, toolCallHistory: [], stepIndex: 1, environmentVars: {} };
+    const id = await captureSnapshot(state);
     expect(id).toMatch(/^snap-/);
     const raw = await readFile(join("./snapshots", `${id}.json`), "utf-8");
     const parsed = JSON.parse(raw);
@@ -28,8 +28,8 @@ describe("snapshotManager", () => {
   });
 
   it("restoreSnapshot returns the saved state", async () => {
-    const state = { currentTask: "restore test", memory: { foo: "bar" }, toolCallHistory: [], stepIndex: 5, environmentVars: { PATH: "/usr/bin" } };
-    const id = await captureSnapshot(state as any);
+    const state: AgentState = { currentTask: "restore test", memory: { foo: "bar" }, toolCallHistory: [], stepIndex: 5, environmentVars: { PATH: "/usr/bin" } };
+    const id = await captureSnapshot(state);
     const restored = await restoreSnapshot(id);
     expect(restored?.currentTask).toBe("restore test");
     expect(restored?.stepIndex).toBe(5);
@@ -41,11 +41,11 @@ describe("snapshotManager", () => {
   });
 
   it("listSnapshots returns snapshots sorted newest-first", async () => {
-    const s1 = { currentTask: "old", memory: {}, toolCallHistory: [], stepIndex: 1, environmentVars: {} };
-    const s2 = { currentTask: "new", memory: {}, toolCallHistory: [], stepIndex: 2, environmentVars: {} };
-    await captureSnapshot(s1 as any);
+    const s1: AgentState = { currentTask: "old", memory: {}, toolCallHistory: [], stepIndex: 1, environmentVars: {} };
+    const s2: AgentState = { currentTask: "new", memory: {}, toolCallHistory: [], stepIndex: 2, environmentVars: {} };
+    await captureSnapshot(s1);
     await new Promise((r) => setTimeout(r, 10));
-    await captureSnapshot(s2 as any);
+    await captureSnapshot(s2);
     const snaps = await listSnapshots();
     expect(snaps.length).toBeGreaterThanOrEqual(2);
     expect(snaps[0].state.currentTask).toBe("new");
