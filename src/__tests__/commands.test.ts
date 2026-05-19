@@ -141,6 +141,35 @@ describe("model command helpers", () => {
     ]);
   });
 
+  it("adds fallback catalog models for active providers without configured models", async () => {
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).endsWith("/v1/models")) return jsonResponse({ data: [] });
+      if (String(url).endsWith("/api/providers")) {
+        return jsonResponse({ connections: [{ provider: "kilocode", isActive: true, providerSpecificData: {} }] });
+      }
+      return jsonResponse({ error: "not found" }, { status: 404 });
+    });
+
+    const models = await fetchModels(state("model-key"));
+
+    expect(models).toContainEqual({ id: "kc/anthropic/claude-sonnet-4-20250514", owned_by: "kc" });
+    expect(models).toContainEqual({ id: "kc/openai/gpt-4.1", owned_by: "kc" });
+  });
+
+  it("rejects arbitrary model names in /switch", async () => {
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).endsWith("/v1/models")) return jsonResponse({ data: [{ id: "kr/claude-sonnet-4.5" }] });
+      if (String(url).endsWith("/api/providers")) return jsonResponse({ connections: [] });
+      return jsonResponse({ error: "not found" }, { status: 404 });
+    });
+    const current = state("model-key");
+
+    const output = await executeSlashCommand("/switch made-up-model", current);
+
+    expect(output).toContain("Unknown model");
+    expect(current.model).toBe("kr/test-model");
+  });
+
   it("filters and formats models consistently for static fallback output", () => {
     const models: ModelInfo[] = [
       { id: "kr/claude-sonnet-4.5", owned_by: "9router" },

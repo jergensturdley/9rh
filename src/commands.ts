@@ -33,6 +33,38 @@ interface ProviderConnectionInfo {
   providerSpecificData?: unknown;
 }
 
+const PROVIDER_ALIASES: Record<string, string> = {
+  claude: "cc",
+  codex: "cx",
+  "gemini-cli": "gc",
+  qwen: "qw",
+  iflow: "if",
+  antigravity: "ag",
+  github: "gh",
+  kiro: "kr",
+  cursor: "cu",
+  "kimi-coding": "kmc",
+  kilocode: "kc",
+  cline: "cl",
+  opencode: "oc",
+};
+
+const PROVIDER_FALLBACK_MODELS: Record<string, string[]> = {
+  kr: ["claude-sonnet-4.5", "claude-haiku-4.5", "deepseek-3.2", "qwen3-coder-next", "glm-5", "MiniMax-M2.5", "claude-sonnet-4.5-thinking", "claude-sonnet-4.5-agentic"],
+  kc: ["anthropic/claude-sonnet-4-20250514", "anthropic/claude-opus-4-20250514", "google/gemini-2.5-pro", "google/gemini-2.5-flash", "openai/gpt-4.1", "openai/o3", "deepseek/deepseek-chat", "deepseek/deepseek-reasoner"],
+  cc: ["claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6", "claude-sonnet-4-5-20250929"],
+  cx: ["gpt-5.5", "gpt-5.4", "gpt-5.3-codex", "gpt-5.3-codex-high", "gpt-5.2-codex", "gpt-5.1-codex"],
+  gc: ["gemini-3-flash-preview", "gemini-3-pro-preview"],
+  qw: ["qwen3-coder-plus", "qwen3-coder-flash", "vision-model", "coder-model"],
+  if: ["qwen3-coder-plus", "qwen3-max", "deepseek-v3.2", "glm-4.7", "iflow-rome-30ba3b"],
+  ag: ["gemini-3.1-pro-high", "gemini-3.1-pro-low", "gemini-3-flash", "claude-sonnet-4-6"],
+  gh: ["gpt-4o", "gpt-5.2", "gpt-5.3-codex", "claude-sonnet-4.6", "gemini-3-flash-preview"],
+  cu: ["default", "claude-4.5-sonnet", "claude-4.5-sonnet-thinking", "gpt-5.2-codex", "gemini-3-flash-preview"],
+  kmc: ["kimi-k2.6", "kimi-k2.5", "kimi-k2.5-thinking", "kimi-latest"],
+  cl: ["anthropic/claude-opus-4.7", "anthropic/claude-sonnet-4.6", "openai/gpt-5.3-codex", "google/gemini-3.1-pro-preview"],
+  oc: ["auto"],
+};
+
 class HTTPError extends Error {
   status: number;
 
@@ -98,7 +130,8 @@ function providerData(conn: ProviderConnectionInfo): Record<string, unknown> {
 
 function connectionAlias(conn: ProviderConnectionInfo): string | null {
   const data = providerData(conn);
-  const candidates = [data.prefix, conn.provider, conn.name];
+  const providerAlias = typeof conn.provider === "string" ? PROVIDER_ALIASES[conn.provider] : undefined;
+  const candidates = [data.prefix, providerAlias, conn.provider, conn.name];
   for (const candidate of candidates) {
     if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
   }
@@ -110,6 +143,11 @@ function connectionModelIds(conn: ProviderConnectionInfo): string[] {
   const enabled = Array.isArray(data.enabledModels) ? data.enabledModels : [];
   const ids = enabled.filter((m): m is string => typeof m === "string" && m.trim() !== "");
   if (typeof conn.defaultModel === "string" && conn.defaultModel.trim()) ids.push(conn.defaultModel.trim());
+  if (ids.length === 0) {
+    const alias = connectionAlias(conn);
+    if (alias) ids.push(...(PROVIDER_FALLBACK_MODELS[alias] ?? []));
+    if (typeof conn.provider === "string") ids.push(...(PROVIDER_FALLBACK_MODELS[conn.provider] ?? []));
+  }
   return Array.from(new Set(ids));
 }
 
@@ -347,6 +385,11 @@ const COMMANDS: Record<string, CommandDef> = {
     handler: async (args, state) => {
       const model = args[0];
       if (!model) return state.useColor ? chalk.red("\n  Usage: /switch <model>\n") : "\n  Usage: /switch <model>\n";
+      const models = await fetchModels(state);
+      if (!models.some((m) => m.id === model)) {
+        const msg = `  Unknown model: ${model}. Use /models or /switch with no argument to choose.`;
+        return "\n" + (state.useColor ? chalk.red(msg) : msg) + "\n";
+      }
       const prev = state.model;
       state.model = model;
       const msg = `  switched: ${prev} → ${model}`;

@@ -506,6 +506,28 @@ async function runRepl(state) {
         process.stdout.write(`\n  switched: ${prev} → ${selected}\n`);
         return true;
     }
+    async function runSwitchPicker(args) {
+        const filterOrModel = args.join(" ").trim();
+        const allModels = await fetchModels(state);
+        if (filterOrModel && allModels.some((m) => m.id === filterOrModel)) {
+            const prev = state.model;
+            state.model = filterOrModel;
+            process.stdout.write(`\n  switched: ${prev} → ${filterOrModel}\n`);
+            return true;
+        }
+        const models = filterModels(allModels, filterOrModel);
+        if (!models.length) {
+            process.stdout.write(`\n  (no models${filterOrModel ? ` matching "${filterOrModel}"` : ""})\n`);
+            return true;
+        }
+        const selected = await selectModelFromList(models, filterOrModel, state.model, opts.color, (active) => { pickerActive = active; });
+        if (!selected)
+            return true;
+        const prev = state.model;
+        state.model = selected;
+        process.stdout.write(`\n  switched: ${prev} → ${selected}\n`);
+        return true;
+    }
     refreshPrompt();
     let queue = Promise.resolve();
     async function processSubmittedInput(rawInput) {
@@ -522,6 +544,11 @@ async function runRepl(state) {
             const parsed = parseSlash(trimmed);
             if (parsed.cmd === "models") {
                 await runModelsPicker(parsed.args);
+                refreshPrompt();
+                return;
+            }
+            if (parsed.cmd === "switch") {
+                await runSwitchPicker(parsed.args);
                 refreshPrompt();
                 return;
             }
