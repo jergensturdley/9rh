@@ -20,10 +20,11 @@ npm install
 npm run build
 ```
 
-Start 9router in another terminal. If it is not installed globally, `npx` is fine:
+Install and start 9router in another terminal:
 
 ```sh
-npx -y 9router --no-browser
+npm install -g 9router
+9router
 ```
 
 Then open the dashboard and connect at least one provider/API key:
