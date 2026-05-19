@@ -130,6 +130,7 @@ Persistent defaults are used when `--model` and `NINE_ROUTER_MODEL` are not set.
 | `/dir [path]` | Show or change the working directory |
 | `/setup` | Install and start 9router if needed |
 | `/doctor` | Diagnose router connectivity and configuration |
+| `/sandbox` | Show command sandbox/isolation backend status |
 | `/clear` | Clear the terminal |
 
 9router configuration reads for `/models`, `/providers`, `/combos`, `/keys`, `/router`, and the model picker are cached briefly within the current REPL session. Run `/refresh` after changing providers, API keys, combos, or model settings in the 9router dashboard.
@@ -150,7 +151,7 @@ Paths are sandboxed to the active work directory and cannot escape it. File tool
 
 ### Sandbox limitations
 
-The default tool path checks are cross-platform, but OS-level process sandboxing is currently only enabled when macOS `sandbox-exec` is available. On Linux and other platforms, `run_bash` falls back to direct execution unless you provide a custom `SandboxProvider` through the programmatic API. Treat shell commands as trusted on those platforms and use container-level isolation if you need hard process boundaries.
+The default tool path checks are cross-platform, but OS-level process sandboxing is currently only enabled when macOS `sandbox-exec` is available. Use `/sandbox` in the REPL to see whether shell commands are using `macos-sandbox` or direct fallback. On Linux and other platforms, `run_bash` falls back to direct execution unless you provide a custom `SandboxProvider` through the programmatic API. Treat shell commands as trusted on those platforms and use container-level isolation if you need hard process boundaries.
 
 ## Programmatic API
 

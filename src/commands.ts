@@ -2,6 +2,7 @@ import chalk from "chalk";
 import { resolve } from "path";
 import { stat } from "fs/promises";
 import { getCliToken } from "./init.js";
+import { createExecutor, isSandboxAvailable } from "./sandbox/index.js";
 import type { ContinuationPolicy } from "./agent.js";
 
 export interface SessionState {
@@ -77,6 +78,11 @@ const PROVIDER_FALLBACK_MODELS: Record<string, string[]> = {
 };
 
 const ROUTER_CONFIG_CACHE_TTL_MS = 5_000;
+
+function sandboxBackendName(workDir: string): "macos-sandbox" | "direct" {
+  const executor = createExecutor(workDir, { useSandbox: true });
+  return executor.constructor.name === "SandboxExecutor" ? "macos-sandbox" : "direct";
+}
 
 class HTTPError extends Error {
   status: number;
@@ -283,6 +289,7 @@ const COMMANDS: Record<string, CommandDef> = {
         `  ${c ? chalk.cyan("/clear") : "/clear"}        Clear the screen`,
         `  ${c ? chalk.cyan("/setup") : "/setup"}        Install & start 9router`,
         `  ${c ? chalk.cyan("/doctor") : "/doctor"}       Diagnose connectivity & config`,
+        `  ${c ? chalk.cyan("/sandbox") : "/sandbox"}      Show command isolation status`,
         "",
         c ? chalk.dim("━━ router ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") : "━━ router ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         `  ${c ? chalk.cyan("/status") : "/status"}       9router health, version, updates`,
@@ -572,6 +579,34 @@ const COMMANDS: Record<string, CommandDef> = {
         ? "  9router installed and started"
         : "  9router is already running";
       return "\n" + (state.useColor ? chalk.green(msg) : msg) + "\n";
+    },
+  },
+
+  sandbox: {
+    usage: "/sandbox",
+    description: "Show command sandbox and isolation status",
+    handler: async (_args, state) => {
+      const available = isSandboxAvailable();
+      const backend = sandboxBackendName(state.workDir);
+      const sandboxed = backend !== "direct";
+      const status = sandboxed
+        ? state.useColor ? chalk.green("enabled") : "enabled"
+        : state.useColor ? chalk.yellow("direct fallback") : "direct fallback";
+      const lines = [
+        "",
+        `  sandbox: ${status}`,
+        `  backend: ${backend}`,
+        `  platform support: ${available ? "macOS sandbox-exec available" : `unavailable on ${process.platform}`}`,
+        `  workDir: ${state.workDir}`,
+        "  network policy: backend default is disabled, strict enforcement pending roadmap phase 2",
+        "  fail-closed: not yet configurable; direct fallback is used when sandbox is unavailable",
+        "",
+      ];
+      if (!sandboxed) {
+        lines.push("  Warning: shell commands are currently running without OS-level isolation.");
+        lines.push("");
+      }
+      return lines.join("\n");
     },
   },
 
