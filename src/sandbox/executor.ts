@@ -22,6 +22,7 @@ export interface SandboxProvider {
 export class SandboxExecutor implements SandboxProvider {
   private sandbox: Sandbox;
   private config: Required<SandboxConfig>;
+  private pathValidationCache = new Map<string, string>();
 
   constructor(workDir: string, sandboxConfig?: Partial<SandboxConfig>) {
     const cfg = getDefaultSandboxConfig(workDir);
@@ -43,7 +44,11 @@ export class SandboxExecutor implements SandboxProvider {
   }
 
   async validatePath(filePath: string): Promise<string> {
-    return this.sandbox.validatePath(filePath);
+    const cached = this.pathValidationCache.get(filePath);
+    if (cached) return cached;
+    const validated = await this.sandbox.validatePath(filePath);
+    this.pathValidationCache.set(filePath, validated);
+    return validated;
   }
 
   getProfile(): string {
@@ -53,6 +58,7 @@ export class SandboxExecutor implements SandboxProvider {
 
 export class DirectExecutor implements SandboxProvider {
   private workDir: string;
+  private pathValidationCache = new Map<string, string>();
 
   constructor(workDir: string) {
     this.workDir = workDir;
@@ -90,6 +96,9 @@ export class DirectExecutor implements SandboxProvider {
   }
 
   async validatePath(_filePath: string): Promise<string> {
+    const cached = this.pathValidationCache.get(_filePath);
+    if (cached) return cached;
+    this.pathValidationCache.set(_filePath, _filePath);
     return _filePath;
   }
 
