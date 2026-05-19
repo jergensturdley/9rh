@@ -3,6 +3,8 @@ import type { AgentEvent } from "./agent.js";
 import {
   applyAgentEvent,
   createRunVisualization,
+  inspectStep,
+  exportRunVisualizationGraphviz,
   renderRunVisualization,
 } from "./visualization.js";
 import { colorizeFrame, generatePlasmaFrame, shouldShowSplash, SPLASH_ROWS } from "./splash.js";
@@ -639,10 +641,35 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
       case "escalate":
       case "circuit_open":
       case "sandbox_health":
+      case "branch_create":
+      case "incident":
         stopSpinner();
         printLiveMap();
         startSpinner(backgroundLabel());
         break;
+      case "step_inspect": {
+        stopSpinner();
+        const step = inspectStep(visualization, event.stepId);
+        if (!step) break;
+        const details: string[] = [];
+        if (event.params) details.push(`params:\n${event.params}`);
+        if (event.output) details.push(`output:\n${event.output}`);
+        if (event.diff) details.push(`diff:\n${event.diff}`);
+        if (event.trace) details.push(`trace:\n${event.trace}`);
+        if (event.policy) details.push(`policy:\n${event.policy}`);
+        if (!details.length) break;
+        const borderFn = opts.useColor ? chalk.blueBright : (s: string) => s;
+        process.stdout.write("\n" + drawBox(`▸ inspect ${event.stepId}`, details.join("\n\n"), borderFn, opts.useColor) + "\n");
+        break;
+      }
+      case "partial_output": {
+        const step = visualization.steps.find((s) => s.id === event.stepId);
+        if (step) {
+          if (opts.useColor) process.stdout.write(chalk.dim(event.text));
+          else process.stdout.write(event.text);
+        }
+        break;
+      }
     }
   };
 }

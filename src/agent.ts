@@ -80,6 +80,10 @@ export type AgentEvent =
   | { type: "circuit_open" }
   | { type: "replay_event"; event: ReplayEvent }
   | { type: "spec_plan"; summary: string }
+  | { type: "step_inspect"; stepId: string; params?: string; output?: string; diff?: string; trace?: string; policy?: string }
+  | { type: "partial_output"; stepId: string; text: string }
+  | { type: "incident"; stepId: string; cause: string; repairAttempt?: number; circuitOpen?: boolean }
+  | { type: "branch_create"; stepId: string; branchId: string; reason: string }
   | { type: "sandbox_health"; total: number; sandboxed: number; direct: number; timedOut: number };
 
 const DEFAULT_SYSTEM = `You are a skilled coding agent. You help with coding tasks by reading, writing, and modifying files, running commands, and solving problems step by step.
