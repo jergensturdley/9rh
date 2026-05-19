@@ -16,6 +16,7 @@ export interface SandboxProvider {
 export declare class SandboxExecutor implements SandboxProvider {
     private sandbox;
     private config;
+    private pathValidationCache;
     constructor(workDir: string, sandboxConfig?: Partial<SandboxConfig>);
     exec(command: string, options?: {
         timeoutMs?: number;
@@ -25,6 +26,7 @@ export declare class SandboxExecutor implements SandboxProvider {
 }
 export declare class DirectExecutor implements SandboxProvider {
     private workDir;
+    private pathValidationCache;
     constructor(workDir: string);
     exec(command: string, options?: {
         timeoutMs?: number;

@@ -34,6 +34,7 @@ export class Agent {
     executor;
     observer;
     activeModel;
+    toolArgsJsonCache = new WeakMap();
     constructor(config) {
         this.config = config;
         this.client = new OpenAI({
@@ -124,6 +125,14 @@ export class Agent {
     }
     stepContext() {
         return { stepIndex: this.stepIndex, iteration: this.stepIndex, compactCount: this.compactCount };
+    }
+    stringifyToolArgs(args) {
+        const cached = this.toolArgsJsonCache.get(args);
+        if (cached)
+            return cached;
+        const value = JSON.stringify(args);
+        this.toolArgsJsonCache.set(args, value);
+        return value;
     }
     async initReplay(task) {
         if (!this.replay.enabled)
@@ -340,7 +349,7 @@ export class Agent {
                     tool_calls: parsedToolCalls.map((tc) => ({
                         id: tc.id,
                         type: "function",
-                        function: { name: tc.name, arguments: tc.parseError ? "{}" : JSON.stringify(tc.args) },
+                        function: { name: tc.name, arguments: tc.parseError ? "{}" : this.stringifyToolArgs(tc.args) },
                     })),
                 });
                 for (const tc of parsedToolCalls) {

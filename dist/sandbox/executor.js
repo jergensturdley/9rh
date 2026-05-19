@@ -5,6 +5,7 @@ const execFileAsync = promisify(execFile);
 export class SandboxExecutor {
     sandbox;
     config;
+    pathValidationCache = new Map();
     constructor(workDir, sandboxConfig) {
         const cfg = getDefaultSandboxConfig(workDir);
         if (sandboxConfig)
@@ -24,7 +25,12 @@ export class SandboxExecutor {
         };
     }
     async validatePath(filePath) {
-        return this.sandbox.validatePath(filePath);
+        const cached = this.pathValidationCache.get(filePath);
+        if (cached)
+            return cached;
+        const validated = await this.sandbox.validatePath(filePath);
+        this.pathValidationCache.set(filePath, validated);
+        return validated;
     }
     getProfile() {
         return this.sandbox.getProfile();
@@ -32,6 +38,7 @@ export class SandboxExecutor {
 }
 export class DirectExecutor {
     workDir;
+    pathValidationCache = new Map();
     constructor(workDir) {
         this.workDir = workDir;
     }
@@ -67,6 +74,10 @@ export class DirectExecutor {
         }
     }
     async validatePath(_filePath) {
+        const cached = this.pathValidationCache.get(_filePath);
+        if (cached)
+            return cached;
+        this.pathValidationCache.set(_filePath, _filePath);
         return _filePath;
     }
     getProfile() {

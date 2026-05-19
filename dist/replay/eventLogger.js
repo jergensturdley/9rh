@@ -12,6 +12,9 @@ export class EventLogger {
     pending = [];
     flushEvery;
     finalized = false;
+    drainScheduled = false;
+    drainPromise = null;
+    drainResolve = null;
     constructor(config) {
         this.runId = config.runId;
         this.branchId = config.branchId;
@@ -32,22 +35,50 @@ export class EventLogger {
         const full = { ...event, seq: this.seq, ts: Date.now() };
         const { event: safe } = validateAndRepair(full);
         const redacted = redactEvent(safe);
-        this.pending.push(JSON.stringify(redacted));
+        this.pending.push(redacted);
         if (this.pending.length >= this.flushEvery)
-            this.flush();
+            this.scheduleDrain();
     }
     flush() {
         if (!this.writer || this.pending.length === 0)
             return;
-        for (const line of this.pending) {
-            this.writer.write(line + "\n");
+        this.scheduleDrain();
+    }
+    scheduleDrain() {
+        if (this.drainScheduled)
+            return;
+        this.drainScheduled = true;
+        this.drainPromise ??= new Promise((resolve) => {
+            this.drainResolve = resolve;
+        });
+        setImmediate(() => this.drainPending());
+    }
+    drainPending() {
+        this.drainScheduled = false;
+        const writer = this.writer;
+        const batch = this.pending.splice(0);
+        if (writer && batch.length > 0) {
+            const payload = batch.map((event) => JSON.stringify(event)).join("\n") + "\n";
+            writer.write(payload);
         }
-        this.pending = [];
+        const resolve = this.drainResolve;
+        this.drainPromise = null;
+        this.drainResolve = null;
+        resolve?.();
+        if (this.pending.length >= this.flushEvery)
+            this.scheduleDrain();
+    }
+    async waitForDrain() {
+        if (this.pending.length > 0)
+            this.scheduleDrain();
+        await this.drainPromise;
     }
     async finalize(runId, reason) {
         this.finalized = true;
-        this.flush();
-        this.writer?.end();
+        await this.waitForDrain();
+        const writer = this.writer;
+        if (writer)
+            await new Promise((resolve) => writer.end(resolve));
         this.writer = null;
         const summary = {
             version: 1,

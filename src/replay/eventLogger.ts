@@ -18,9 +18,12 @@ export class EventLogger {
   private logPath: string;
   private writer: ReturnType<typeof createWriteStream> | null = null;
   private seq = 0;
-  private pending: string[] = [];
+  private pending: ReplayEvent[] = [];
   private flushEvery: number;
   private finalized = false;
+  private drainScheduled = false;
+  private drainPromise: Promise<void> | null = null;
+  private drainResolve: (() => void) | null = null;
 
   constructor(config: EventLoggerConfig) {
     this.runId = config.runId;
@@ -42,22 +45,49 @@ export class EventLogger {
     const full = { ...event, seq: this.seq, ts: Date.now() } as ReplayEvent;
     const { event: safe } = validateAndRepair(full);
     const redacted = redactEvent(safe) as ReplayEvent;
-    this.pending.push(JSON.stringify(redacted));
-    if (this.pending.length >= this.flushEvery) this.flush();
+    this.pending.push(redacted);
+    if (this.pending.length >= this.flushEvery) this.scheduleDrain();
   }
 
   flush(): void {
     if (!this.writer || this.pending.length === 0) return;
-    for (const line of this.pending) {
-      this.writer.write(line + "\n");
+    this.scheduleDrain();
+  }
+
+  private scheduleDrain(): void {
+    if (this.drainScheduled) return;
+    this.drainScheduled = true;
+    this.drainPromise ??= new Promise((resolve) => {
+      this.drainResolve = resolve;
+    });
+    setImmediate(() => this.drainPending());
+  }
+
+  private drainPending(): void {
+    this.drainScheduled = false;
+    const writer = this.writer;
+    const batch = this.pending.splice(0);
+    if (writer && batch.length > 0) {
+      const payload = batch.map((event) => JSON.stringify(event)).join("\n") + "\n";
+      writer.write(payload);
     }
-    this.pending = [];
+    const resolve = this.drainResolve;
+    this.drainPromise = null;
+    this.drainResolve = null;
+    resolve?.();
+    if (this.pending.length >= this.flushEvery) this.scheduleDrain();
+  }
+
+  private async waitForDrain(): Promise<void> {
+    if (this.pending.length > 0) this.scheduleDrain();
+    await this.drainPromise;
   }
 
   async finalize(runId: string, reason: string): Promise<string> {
     this.finalized = true;
-    this.flush();
-    this.writer?.end();
+    await this.waitForDrain();
+    const writer = this.writer;
+    if (writer) await new Promise<void>((resolve) => writer.end(resolve));
     this.writer = null;
     const summary = {
       version: 1 as const,

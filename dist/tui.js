@@ -327,6 +327,7 @@ export async function printSplash(useColor) {
 }
 export function createTuiRenderer(opts) {
     let spinnerTimer = null;
+    let liveMapTimer = null;
     let spinnerFrame = 0;
     let spinnerLabelIndex = 0;
     let spinnerActive = false;
@@ -336,9 +337,28 @@ export function createTuiRenderer(opts) {
     let iterMax = 0;
     const sessionStartedAt = new Date();
     const visualization = createRunVisualization();
-    function printLiveMap() {
+    const argsStringCache = new WeakMap();
+    function printLiveMapNow() {
+        if (liveMapTimer !== null) {
+            clearTimeout(liveMapTimer);
+            liveMapTimer = null;
+        }
         const borderFn = opts.useColor ? chalk.blueBright : (s) => s;
         process.stdout.write("\n" + drawBox("▣  live run map", renderRunVisualization(visualization, { collapseNoise: true }), borderFn, opts.useColor) + "\n");
+    }
+    function printLiveMap() {
+        if (liveMapTimer !== null)
+            return;
+        liveMapTimer = setTimeout(printLiveMapNow, 200);
+        liveMapTimer.unref?.();
+    }
+    function stringifyArgs(args) {
+        const cached = argsStringCache.get(args);
+        if (cached)
+            return cached;
+        const value = JSON.stringify(args, null, 2);
+        argsStringCache.set(args, value);
+        return value;
     }
     function startSpinner(label) {
         if (spinnerActive)
@@ -352,7 +372,7 @@ export function createTuiRenderer(opts) {
                 : `  ${frame} ${label}`;
             process.stdout.write(`\r${line}`);
             spinnerFrame++;
-        }, 80);
+        }, 160);
     }
     function oddLabel(labels, replacements = {}) {
         const template = labels[spinnerLabelIndex++ % labels.length];
@@ -446,14 +466,14 @@ export function createTuiRenderer(opts) {
                 break;
             case "tool_call": {
                 stopSpinner();
-                const argsStr = JSON.stringify(event.args, null, 2);
+                const argsStr = stringifyArgs(event.args);
                 const insight = summarizeLiveModelInsight(recentThinking, event.name, event.args);
                 const panelBody = [`model insight:\n${insight}`, `args:\n${argsStr}`].join("\n\n");
                 const label = `⚙  ${event.name}`;
                 const borderFn = opts.useColor ? chalk.cyan : (s) => s;
                 process.stdout.write("\n\n");
                 process.stdout.write(drawBox(label, panelBody, borderFn, opts.useColor) + "\n");
-                printLiveMap();
+                printLiveMapNow();
                 thinkingActive = false;
                 recentThinking = [];
                 startSpinner(toolLabel(event.name));
@@ -477,7 +497,7 @@ export function createTuiRenderer(opts) {
                     const tick = opts.useColor ? chalk.green("✓") : "✓";
                     process.stdout.write(`\n  ${tick}  ${opts.useColor ? chalk.dim(preview) : preview}${moreHint}\n`);
                 }
-                printLiveMap();
+                printLiveMapNow();
                 thinkingActive = false;
                 startSpinner(thinkingLabel());
                 break;
@@ -489,7 +509,7 @@ export function createTuiRenderer(opts) {
                         ? chalk.yellow(`  ⟳  compacting context — ${event.summary}`)
                         : `  compacting context — ${event.summary}`) +
                     "\n\n");
-                printLiveMap();
+                printLiveMapNow();
                 break;
             case "continuation":
                 stopSpinner();
@@ -498,7 +518,7 @@ export function createTuiRenderer(opts) {
                         ? chalk.yellow(`  ⟳  continuing ${event.count}/${event.max}`)
                         : `  continuing ${event.count}/${event.max}`) +
                     "\n\n");
-                printLiveMap();
+                printLiveMapNow();
                 startSpinner(thinkingLabel());
                 break;
             case "model_switch":
@@ -508,14 +528,14 @@ export function createTuiRenderer(opts) {
                         ? chalk.cyan(`  ⇄  switching model ${event.from} → ${event.to}`)
                         : `  switching model ${event.from} → ${event.to}`) +
                     "\n\n");
-                printLiveMap();
+                printLiveMapNow();
                 startSpinner(thinkingLabel());
                 break;
             case "spec_plan": {
                 stopSpinner();
                 const borderFn = opts.useColor ? chalk.magentaBright : (s) => s;
                 process.stdout.write("\n" + drawBox("☑  generated test plan", event.summary, borderFn, opts.useColor) + "\n");
-                printLiveMap();
+                printLiveMapNow();
                 thinkingActive = false;
                 break;
             }

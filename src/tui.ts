@@ -383,6 +383,7 @@ export async function printSplash(useColor: boolean): Promise<void> {
 
 export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void {
   let spinnerTimer: ReturnType<typeof setInterval> | null = null;
+  let liveMapTimer: ReturnType<typeof setTimeout> | null = null;
   let spinnerFrame = 0;
   let spinnerLabelIndex = 0;
   let spinnerActive = false;
@@ -392,10 +393,29 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
   let iterMax = 0;
   const sessionStartedAt = new Date();
   const visualization = createRunVisualization();
+  const argsStringCache = new WeakMap<Record<string, unknown>, string>();
 
-  function printLiveMap(): void {
+  function printLiveMapNow(): void {
+    if (liveMapTimer !== null) {
+      clearTimeout(liveMapTimer);
+      liveMapTimer = null;
+    }
     const borderFn = opts.useColor ? chalk.blueBright : (s: string) => s;
     process.stdout.write("\n" + drawBox("▣  live run map", renderRunVisualization(visualization, { collapseNoise: true }), borderFn, opts.useColor) + "\n");
+  }
+
+  function printLiveMap(): void {
+    if (liveMapTimer !== null) return;
+    liveMapTimer = setTimeout(printLiveMapNow, 200);
+    liveMapTimer.unref?.();
+  }
+
+  function stringifyArgs(args: Record<string, unknown>): string {
+    const cached = argsStringCache.get(args);
+    if (cached) return cached;
+    const value = JSON.stringify(args, null, 2);
+    argsStringCache.set(args, value);
+    return value;
   }
 
   function startSpinner(label: string): void {
@@ -409,7 +429,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         : `  ${frame} ${label}`;
       process.stdout.write(`\r${line}`);
       spinnerFrame++;
-    }, 80);
+    }, 160);
   }
 
   function oddLabel(labels: string[], replacements: Record<string, string> = {}): string {
@@ -516,14 +536,14 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
 
       case "tool_call": {
         stopSpinner();
-        const argsStr = JSON.stringify(event.args, null, 2);
+        const argsStr = stringifyArgs(event.args);
         const insight = summarizeLiveModelInsight(recentThinking, event.name, event.args);
         const panelBody = [`model insight:\n${insight}`, `args:\n${argsStr}`].join("\n\n");
         const label = `⚙  ${event.name}`;
         const borderFn = opts.useColor ? chalk.cyan : (s: string) => s;
         process.stdout.write("\n\n");
         process.stdout.write(drawBox(label, panelBody, borderFn, opts.useColor) + "\n");
-        printLiveMap();
+        printLiveMapNow();
         thinkingActive = false;
         recentThinking = [];
         startSpinner(toolLabel(event.name));
@@ -552,7 +572,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
             `\n  ${tick}  ${opts.useColor ? chalk.dim(preview) : preview}${moreHint}\n`,
           );
         }
-        printLiveMap();
+        printLiveMapNow();
         thinkingActive = false;
         startSpinner(thinkingLabel());
         break;
@@ -567,7 +587,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
               : `  compacting context — ${event.summary}`) +
             "\n\n",
         );
-        printLiveMap();
+        printLiveMapNow();
         break;
 
       case "continuation":
@@ -579,7 +599,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
               : `  continuing ${event.count}/${event.max}`) +
             "\n\n",
         );
-        printLiveMap();
+        printLiveMapNow();
         startSpinner(thinkingLabel());
         break;
 
@@ -592,7 +612,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
               : `  switching model ${event.from} → ${event.to}`) +
             "\n\n",
         );
-        printLiveMap();
+        printLiveMapNow();
         startSpinner(thinkingLabel());
         break;
 
@@ -600,7 +620,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         stopSpinner();
         const borderFn = opts.useColor ? chalk.magentaBright : (s: string) => s;
         process.stdout.write("\n" + drawBox("☑  generated test plan", event.summary, borderFn, opts.useColor) + "\n");
-        printLiveMap();
+        printLiveMapNow();
         thinkingActive = false;
         break;
       }

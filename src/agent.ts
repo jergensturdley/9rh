@@ -116,6 +116,7 @@ export class Agent {
   private executor: SandboxProvider;
   private observer: ObservabilityCollector;
   private activeModel: string | undefined;
+  private toolArgsJsonCache = new WeakMap<Record<string, unknown>, string>();
 
   constructor(config: AgentConfig) {
     this.config = config;
@@ -215,6 +216,14 @@ export class Agent {
 
   private stepContext() {
     return { stepIndex: this.stepIndex, iteration: this.stepIndex, compactCount: this.compactCount };
+  }
+
+  private stringifyToolArgs(args: Record<string, unknown>): string {
+    const cached = this.toolArgsJsonCache.get(args);
+    if (cached) return cached;
+    const value = JSON.stringify(args);
+    this.toolArgsJsonCache.set(args, value);
+    return value;
   }
 
   private async initReplay(task: string): Promise<void> {
@@ -475,7 +484,7 @@ export class Agent {
           tool_calls: parsedToolCalls.map((tc) => ({
             id: tc.id,
             type: "function" as const,
-            function: { name: tc.name, arguments: tc.parseError ? "{}" : JSON.stringify(tc.args) },
+            function: { name: tc.name, arguments: tc.parseError ? "{}" : this.stringifyToolArgs(tc.args) },
           })),
         });
 

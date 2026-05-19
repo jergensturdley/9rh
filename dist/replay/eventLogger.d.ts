@@ -14,10 +14,16 @@ export declare class EventLogger {
     private pending;
     private flushEvery;
     private finalized;
+    private drainScheduled;
+    private drainPromise;
+    private drainResolve;
     constructor(config: EventLoggerConfig);
     init(): Promise<void>;
     log(event: Omit<ReplayEvent, "seq" | "ts">): void;
     flush(): void;
+    private scheduleDrain;
+    private drainPending;
+    private waitForDrain;
     finalize(runId: string, reason: string): Promise<string>;
     getLogPath(): string;
 }

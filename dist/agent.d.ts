@@ -126,6 +126,7 @@ export declare class Agent {
     private executor;
     private observer;
     private activeModel;
+    private toolArgsJsonCache;
     constructor(config: AgentConfig);
     private emit;
     private currentModel;
@@ -135,6 +136,7 @@ export declare class Agent {
     private applyContinuationModelSwitch;
     private buildAgentState;
     private stepContext;
+    private stringifyToolArgs;
     private initReplay;
     private logReplay;
     private finalizeReplay;
