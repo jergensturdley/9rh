@@ -36,7 +36,7 @@ program
     .option("--continue-switch-after <n>", "Continuation round that triggers model switch", DEFAULTS.continuationSwitchAfter)
     .option("--repl", "Start interactive REPL session")
     .option("--no-color", "Disable colored output")
-    .option("--set-default-model <model>", "Persist a default model for future runs")
+    .option("--set-default-model [model]", "Persist a default model for future runs; omit model to pick from the model list")
     .option("--set-default-provider <provider>", "Persist a default provider/prefix for future runs")
     .option("--show-config", "Show persisted 9rh defaults and exit")
     .option("--doctor", "Run pre-flight diagnostics and exit");
@@ -157,6 +157,127 @@ async function runTask(state, t) {
     }
     await agent.run(compressed.text);
 }
+async function selectModelFromList(models, filter, currentModel, useColor, onActiveChange) {
+    if (!process.stdin.isTTY || !process.stderr.isTTY || models.length === 0)
+        return null;
+    const visibleRows = Math.max(6, Math.min(14, (process.stderr.rows ?? 24) - 8));
+    let selected = Math.max(0, models.findIndex((model) => model.id === currentModel));
+    if (selected < 0)
+        selected = 0;
+    let top = Math.max(0, Math.min(selected - Math.floor(visibleRows / 2), Math.max(0, models.length - visibleRows)));
+    let renderedLines = 0;
+    let done = false;
+    let result = null;
+    const input = process.stdin;
+    function clampSelection() {
+        selected = Math.max(0, Math.min(models.length - 1, selected));
+        if (selected < top)
+            top = selected;
+        if (selected >= top + visibleRows)
+            top = selected - visibleRows + 1;
+        top = Math.max(0, Math.min(top, Math.max(0, models.length - visibleRows)));
+    }
+    function clearRender() {
+        if (renderedLines === 0)
+            return;
+        moveCursor(process.stderr, 0, -renderedLines);
+        cursorTo(process.stderr, 0);
+        clearScreenDown(process.stderr);
+        renderedLines = 0;
+    }
+    function line(text) {
+        const width = Math.max(40, (process.stderr.columns ?? 80) - 2);
+        return text.length > width ? text.slice(0, width - 1) + "…" : text;
+    }
+    function render() {
+        clearRender();
+        const shown = models.slice(top, top + visibleRows);
+        const title = `${models.length} model(s)${filter ? ` matching "${filter}"` : ""}`;
+        const help = "↑/↓ scroll  PgUp/PgDn jump  wheel scroll  Enter select  Esc cancel";
+        const lines = [
+            "",
+            useColor ? chalk.bold.cyan(`  ${title}`) : `  ${title}`,
+            useColor ? chalk.dim(`  ${help}`) : `  ${help}`,
+            "",
+        ];
+        for (let i = 0; i < shown.length; i++) {
+            const index = top + i;
+            const model = shown[i];
+            const active = model.id === currentModel;
+            const focused = index === selected;
+            const marker = focused ? "›" : active ? "▶" : " ";
+            const owner = model.owned_by ? `  [${model.owned_by}]` : "";
+            let row = `  ${marker} ${model.id}${owner}`;
+            if (useColor)
+                row = focused ? chalk.inverse(row) : active ? chalk.cyan(row) : row;
+            lines.push(line(row));
+        }
+        const hiddenBefore = top;
+        const hiddenAfter = Math.max(0, models.length - top - shown.length);
+        if (hiddenBefore || hiddenAfter) {
+            lines.push(useColor ? chalk.dim(`  ${hiddenBefore} above, ${hiddenAfter} below`) : `  ${hiddenBefore} above, ${hiddenAfter} below`);
+        }
+        process.stderr.write(lines.join("\n") + "\n");
+        renderedLines = lines.length;
+    }
+    function move(delta) {
+        selected += delta;
+        clampSelection();
+        render();
+    }
+    function finish(value) {
+        done = true;
+        result = value;
+        clearRender();
+    }
+    return await new Promise((resolve) => {
+        const wasRaw = input.isRaw;
+        const onData = (chunk) => {
+            const s = chunk.toString("utf8");
+            if (s === "\u0003") {
+                finish(null);
+                process.emit("SIGINT");
+            }
+            else if (s === "\r" || s === "\n") {
+                finish(models[selected]?.id ?? null);
+            }
+            else if (s === "\u001b" || s === "\u001b[27~") {
+                finish(null);
+            }
+            else if (s === "\u001b[A") {
+                move(-1);
+            }
+            else if (s === "\u001b[B") {
+                move(1);
+            }
+            else if (s === "\u001b[5~") {
+                move(-visibleRows);
+            }
+            else if (s === "\u001b[6~") {
+                move(visibleRows);
+            }
+            else if (/\u001b\[<64;\d+;\d+[mM]/u.test(s)) {
+                move(-3);
+            }
+            else if (/\u001b\[<65;\d+;\d+[mM]/u.test(s)) {
+                move(3);
+            }
+            if (done) {
+                process.stderr.write("\x1b[?1000l\x1b[?1006l");
+                input.off("data", onData);
+                input.setRawMode(wasRaw);
+                onActiveChange?.(false);
+                resolve(result);
+            }
+        };
+        onActiveChange?.(true);
+        input.setRawMode(true);
+        input.resume();
+        process.stderr.write("\x1b[?1000h\x1b[?1006h");
+        input.on("data", onData);
+        render();
+    });
+}
 async function runRepl(state) {
     const tui = createTuiRenderer({
         getModel: () => state.model,
@@ -255,7 +376,7 @@ async function runRepl(state) {
             return `  /${hi}${pad}${desc}`;
         });
         if (hasOverflow) {
-            const more = `  ↑/↓ scroll${hiddenBefore ? `  ${hiddenBefore} above` : ""}${hiddenAfter ? `  ${hiddenAfter} below` : ""}`;
+            const more = `  ↑/↓ scroll  PgUp/PgDn jump${hiddenBefore ? `  ${hiddenBefore} above` : ""}${hiddenAfter ? `  ${hiddenAfter} below` : ""}`;
             lines.push(opts.color ? chalk.dim(more) : more);
         }
         cursorTo(process.stderr, 0);
@@ -348,7 +469,11 @@ async function runRepl(state) {
                 return;
             if (key?.name === "up" && scrollSuggestions(-1))
                 return;
-            const navKeys = new Set(["up", "down", "left", "right", "tab"]);
+            if ((key?.name === "pagedown" || key?.sequence === "\u001b[6~") && scrollSuggestions(8))
+                return;
+            if ((key?.name === "pageup" || key?.sequence === "\u001b[5~") && scrollSuggestions(-8))
+                return;
+            const navKeys = new Set(["up", "down", "pageup", "pagedown", "left", "right", "tab"]);
             if (key?.name && navKeys.has(key.name))
                 return;
             const changedLine = typeof input === "string" && input.length > 0;
@@ -366,125 +491,6 @@ async function runRepl(state) {
         const [rawCmd, ...args] = line.slice(1).trim().split(/\s+/);
         return { cmd: rawCmd?.toLowerCase() ?? "", args };
     }
-    async function selectModel(models, filter) {
-        if (!process.stdin.isTTY || !process.stderr.isTTY || models.length === 0)
-            return null;
-        const visibleRows = Math.max(6, Math.min(14, (process.stderr.rows ?? 24) - 8));
-        let selected = Math.max(0, models.findIndex((model) => model.id === state.model));
-        if (selected < 0)
-            selected = 0;
-        let top = Math.max(0, Math.min(selected - Math.floor(visibleRows / 2), Math.max(0, models.length - visibleRows)));
-        let renderedLines = 0;
-        let done = false;
-        let result = null;
-        const input = process.stdin;
-        function clampSelection() {
-            selected = Math.max(0, Math.min(models.length - 1, selected));
-            if (selected < top)
-                top = selected;
-            if (selected >= top + visibleRows)
-                top = selected - visibleRows + 1;
-            top = Math.max(0, Math.min(top, Math.max(0, models.length - visibleRows)));
-        }
-        function move(delta) {
-            selected += delta;
-            clampSelection();
-            render();
-        }
-        function clearRender() {
-            if (renderedLines === 0)
-                return;
-            moveCursor(process.stderr, 0, -renderedLines);
-            cursorTo(process.stderr, 0);
-            clearScreenDown(process.stderr);
-            renderedLines = 0;
-        }
-        function line(text) {
-            const width = Math.max(40, (process.stderr.columns ?? 80) - 2);
-            return text.length > width ? text.slice(0, width - 1) + "…" : text;
-        }
-        function render() {
-            clearRender();
-            const shown = models.slice(top, top + visibleRows);
-            const title = `${models.length} model(s)${filter ? ` matching "${filter}"` : ""}`;
-            const help = "↑/↓ scroll  wheel scroll  Enter select  Esc cancel";
-            const lines = [
-                "",
-                opts.color ? chalk.bold.cyan(`  ${title}`) : `  ${title}`,
-                opts.color ? chalk.dim(`  ${help}`) : `  ${help}`,
-                "",
-            ];
-            for (let i = 0; i < shown.length; i++) {
-                const index = top + i;
-                const model = shown[i];
-                const active = model.id === state.model;
-                const focused = index === selected;
-                const marker = focused ? "›" : active ? "▶" : " ";
-                const owner = model.owned_by ? `  [${model.owned_by}]` : "";
-                let row = `  ${marker} ${model.id}${owner}`;
-                if (opts.color) {
-                    row = focused ? chalk.inverse(row) : active ? chalk.cyan(row) : row;
-                }
-                lines.push(line(row));
-            }
-            if (top + visibleRows < models.length)
-                lines.push(opts.color ? chalk.dim("  …") : "  …");
-            process.stderr.write(lines.join("\n") + "\n");
-            renderedLines = lines.length;
-        }
-        function finish(value) {
-            done = true;
-            result = value;
-            clearRender();
-        }
-        return await new Promise((resolve) => {
-            const wasRaw = input.isRaw;
-            const onData = (chunk) => {
-                const s = chunk.toString("utf8");
-                if (s === "\u0003") {
-                    finish(null);
-                    process.emit("SIGINT");
-                }
-                else if (s === "\r" || s === "\n") {
-                    finish(models[selected]?.id ?? null);
-                }
-                else if (s === "\u001b" || s === "\u001b[27~") {
-                    finish(null);
-                }
-                else if (s === "\u001b[A") {
-                    move(-1);
-                }
-                else if (s === "\u001b[B") {
-                    move(1);
-                }
-                else if (s === "\u001b[5~") {
-                    move(-visibleRows);
-                }
-                else if (s === "\u001b[6~") {
-                    move(visibleRows);
-                }
-                else if (/\u001b\[<64;\d+;\d+[mM]/u.test(s)) {
-                    move(-3);
-                }
-                else if (/\u001b\[<65;\d+;\d+[mM]/u.test(s)) {
-                    move(3);
-                }
-                if (done) {
-                    process.stderr.write("\x1b[?1000l\x1b[?1006l");
-                    input.off("data", onData);
-                    input.setRawMode(wasRaw);
-                    pickerActive = false;
-                    resolve(result);
-                }
-            };
-            pickerActive = true;
-            input.setRawMode(true);
-            input.resume();
-            process.stderr.write("\x1b[?1000h\x1b[?1006h");
-            input.on("data", onData);
-            render();
-        });
-    }
     async function runModelsPicker(args) {
         const filter = args.join(" ").trim();
         const models = filterModels(await fetchModels(state), filter);
@@ -492,7 +498,7 @@ async function runRepl(state) {
             process.stdout.write(`\n  (no models${filter ? ` matching "${filter}"` : ""})\n`);
             return true;
         }
-        const selected = await selectModel(models, filter);
+        const selected = await selectModelFromList(models, filter, state.model, opts.color, (active) => { pickerActive = active; });
         if (!selected)
             return true;
         const prev = state.model;
@@ -686,8 +692,28 @@ async function main() {
         return;
     }
     if (opts.setDefaultModel || opts.setDefaultProvider) {
+        let defaultModel = typeof opts.setDefaultModel === "string" ? opts.setDefaultModel.trim() : userConfig.defaultModel;
+        if (opts.setDefaultModel === true) {
+            const init = await ensureRouter(opts.url, opts.key);
+            state.baseURL = init.baseURL;
+            state.apiKey = init.apiKey;
+            state.wasStarted = init.wasStarted;
+            if (init.error) {
+                process.stderr.write(opts.color ? chalk.red(`  ✗ ${init.error}\n`) : `  ✗ ${init.error}\n`);
+            }
+            const models = filterModels(await fetchModels(state), "");
+            if (!models.length) {
+                process.stderr.write("  no models available to choose from\n");
+                return;
+            }
+            defaultModel = await selectModelFromList(models, "", state.model, opts.color) ?? defaultModel;
+            if (!defaultModel) {
+                process.stderr.write("  default model unchanged\n");
+                return;
+            }
+        }
         const next = await updateUserConfig({
-            defaultModel: opts.setDefaultModel?.trim() || userConfig.defaultModel,
+            defaultModel: defaultModel || userConfig.defaultModel,
             defaultProvider: opts.setDefaultProvider?.trim() || userConfig.defaultProvider,
         });
         const effectiveModel = resolveConfiguredModel(undefined, next);
