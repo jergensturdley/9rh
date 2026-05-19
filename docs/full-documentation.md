@@ -58,6 +58,8 @@ You still need at least one provider connected in the 9router dashboard:
 http://localhost:20128/dashboard
 ```
 
+Most first-time users should expect to finish setup in the browser: run `node dist/index.js --doctor` or `/setup`, open the dashboard, add an API key/provider, then re-run `/doctor` or `/refresh`.
+
 ## Quick start
 
 One-shot task:
