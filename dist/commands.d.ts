@@ -7,11 +7,21 @@ export interface SessionState {
     useColor: boolean;
     wasStarted?: boolean;
     continuationPolicy?: ContinuationPolicy;
+    routerCache?: RouterConfigCache;
+}
+export interface RouterCacheEntry<T> {
+    value: T;
+    expiresAt: number;
+}
+export interface RouterConfigCache {
+    models?: RouterCacheEntry<ModelInfo[]>;
+    native: Map<string, RouterCacheEntry<unknown>>;
 }
 export interface ModelInfo {
     id: string;
     owned_by?: string;
 }
+export declare function clearRouterConfigCache(state: SessionState): void;
 export declare function toArray<T>(val: unknown): T[];
 export declare function fetchModels(state: SessionState): Promise<ModelInfo[]>;
 export declare function filterModels(models: ModelInfo[], filter: string): ModelInfo[];

@@ -32,6 +32,7 @@ const PROVIDER_FALLBACK_MODELS = {
     cl: ["anthropic/claude-opus-4.7", "anthropic/claude-sonnet-4.6", "openai/gpt-5.3-codex", "google/gemini-3.1-pro-preview"],
     oc: ["auto"],
 };
+const ROUTER_CONFIG_CACHE_TTL_MS = 5_000;
 class HTTPError extends Error {
     status;
     constructor(status, statusText) {
@@ -56,6 +57,22 @@ async function fetchJSONWithHeaders(url, headers) {
 function base(state) {
     return state.baseURL.replace(/\/v1\/?$/, "");
 }
+function routerCache(state) {
+    state.routerCache ??= { native: new Map() };
+    return state.routerCache;
+}
+export function clearRouterConfigCache(state) {
+    state.routerCache = { native: new Map() };
+}
+function cacheKey(state, path) {
+    return `${base(state)}\0${state.apiKey}\0${path}`;
+}
+function getFreshCached(entry, now = Date.now()) {
+    return entry && entry.expiresAt > now ? entry.value : null;
+}
+function setCached(value) {
+    return { value, expiresAt: Date.now() + ROUTER_CONFIG_CACHE_TTL_MS };
+}
 async function fetchNativeJSON(state, path) {
     const token = getCliToken();
     const headers = token
@@ -63,21 +80,37 @@ async function fetchNativeJSON(state, path) {
         : { Authorization: `Bearer ${state.apiKey}` };
     return fetchJSONWithHeaders(`${base(state)}${path}`, headers);
 }
+async function fetchCachedNativeJSON(state, path) {
+    const cache = routerCache(state);
+    const key = cacheKey(state, path);
+    const cached = getFreshCached(cache.native.get(key));
+    if (cached !== null)
+        return cached;
+    const raw = await fetchNativeJSON(state, path);
+    cache.native.set(key, setCached(raw));
+    return raw;
+}
 export function toArray(val) {
     return Array.isArray(val) ? val : [];
 }
 export async function fetchModels(state) {
+    const cached = getFreshCached(routerCache(state).models);
+    if (cached)
+        return cached;
     const raw = await fetchJSON(`${state.baseURL}/models`, state.apiKey);
     const models = toArray(raw?.data).filter((m) => typeof m.id === "string");
     try {
-        return reconcileConnectionModels(models, await fetchProviderConnections(state));
+        const reconciled = reconcileConnectionModels(models, await fetchProviderConnections(state));
+        routerCache(state).models = setCached(reconciled);
+        return reconciled;
     }
     catch {
+        routerCache(state).models = setCached(models);
         return models;
     }
 }
 async function fetchProviderConnections(state) {
-    const raw = await fetchNativeJSON(state, "/api/providers");
+    const raw = await fetchCachedNativeJSON(state, "/api/providers");
     return toArray(raw?.connections);
 }
 function providerData(conn) {
@@ -257,7 +290,7 @@ const COMMANDS = {
         usage: "/providers",
         description: "List configured provider connections",
         handler: async (_args, state) => {
-            const raw = await fetchNativeJSON(state, "/api/providers");
+            const raw = await fetchCachedNativeJSON(state, "/api/providers");
             const connections = toArray(raw?.connections);
             if (!connections.length)
                 return "\n  (no providers configured)\n";
@@ -288,7 +321,7 @@ const COMMANDS = {
         usage: "/combos",
         description: "List model combos (fallback chains)",
         handler: async (_args, state) => {
-            const raw = await fetchNativeJSON(state, "/api/combos");
+            const raw = await fetchCachedNativeJSON(state, "/api/combos");
             const combos = toArray(raw?.combos);
             if (!combos.length)
                 return "\n  (no combos configured)\n";
@@ -314,7 +347,7 @@ const COMMANDS = {
         usage: "/keys",
         description: "List 9router API keys",
         handler: async (_args, state) => {
-            const raw = await fetchNativeJSON(state, "/api/keys");
+            const raw = await fetchCachedNativeJSON(state, "/api/keys");
             const keys = toArray(raw?.keys);
             if (!keys.length)
                 return "\n  (no API keys)\n";
@@ -347,6 +380,54 @@ const COMMANDS = {
             state.model = model;
             const msg = `  switched: ${prev} → ${model}`;
             return "\n" + (state.useColor ? chalk.cyan(msg) : msg) + "\n";
+        },
+    },
+    router: {
+        usage: "/router",
+        description: "Show cached 9router configuration summary",
+        handler: async (_args, state) => {
+            const [providersRaw, combosRaw, keysRaw, models] = await Promise.all([
+                fetchCachedNativeJSON(state, "/api/providers").catch(() => null),
+                fetchCachedNativeJSON(state, "/api/combos").catch(() => null),
+                fetchCachedNativeJSON(state, "/api/keys").catch(() => null),
+                fetchModels(state).catch(() => []),
+            ]);
+            const connections = toArray(providersRaw?.connections);
+            const combos = toArray(combosRaw?.combos);
+            const keys = toArray(keysRaw?.keys);
+            const active = connections.filter((c) => c.isActive !== false);
+            const activeNames = active
+                .map((c) => (typeof c.name === "string" ? c.name : typeof c.provider === "string" ? c.provider : "?"))
+                .slice(0, 8);
+            const lines = [
+                "",
+                `  9router: ${base(state)}`,
+                `  active model: ${state.useColor ? chalk.cyan(state.model) : state.model}`,
+                `  models: ${models.length}`,
+                `  providers: ${connections.length} configured, ${active.length} active${activeNames.length ? ` (${activeNames.join(", ")})` : ""}`,
+                `  combos: ${combos.length}`,
+                `  API keys: ${keys.length}`,
+                `  cache: ${routerCache(state).native.size} native endpoint(s), ${routerCache(state).models ? "models cached" : "models uncached"}`,
+                "",
+                `  Use /models, /providers, /combos, /keys for details; /refresh to reload 9router config.`,
+                "",
+            ];
+            return lines.join("\n");
+        },
+    },
+    refresh: {
+        usage: "/refresh",
+        description: "Refresh cached 9router models/providers/combos/keys",
+        handler: async (_args, state) => {
+            clearRouterConfigCache(state);
+            const [models, providersRaw] = await Promise.all([
+                fetchModels(state).catch(() => []),
+                fetchCachedNativeJSON(state, "/api/providers").catch(() => null),
+            ]);
+            const providers = toArray(providersRaw?.connections);
+            const active = providers.filter((p) => p.isActive !== false).length;
+            const msg = `  refreshed 9router config: ${models.length} models, ${active}/${providers.length} active providers`;
+            return "\n" + (state.useColor ? chalk.green(msg) : msg) + "\n";
         },
     },
     dir: {

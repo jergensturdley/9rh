@@ -185,4 +185,55 @@ describe("model command helpers", () => {
     expect(output).toContain('1 model(s) matching "qwen"');
     expect(output).toContain("▶ openrouter/qwen");
   });
+
+  it("caches model and provider config for repeated slash menu lookups", async () => {
+    const current = state("model-key");
+    const fetchMock = jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).endsWith("/v1/models")) return jsonResponse({ data: [{ id: "kr/model-a", owned_by: "kr" }] });
+      if (String(url).endsWith("/api/providers")) return jsonResponse({ connections: [{ provider: "kiro", name: "Kiro", isActive: true }] });
+      return jsonResponse({ error: "not found" }, { status: 404 });
+    });
+
+    await expect(fetchModels(current)).resolves.toEqual([{ id: "kr/model-a", owned_by: "kr" }]);
+    await expect(fetchModels(current)).resolves.toEqual([{ id: "kr/model-a", owned_by: "kr" }]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:20128/v1/models", expect.any(Object));
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:20128/api/providers", expect.any(Object));
+  });
+
+  it("/router summarizes cached 9router configuration", async () => {
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).endsWith("/v1/models")) return jsonResponse({ data: [{ id: "kr/model-a", owned_by: "kr" }] });
+      if (String(url).endsWith("/api/providers")) return jsonResponse({ connections: [{ provider: "kiro", name: "Kiro", isActive: true }] });
+      if (String(url).endsWith("/api/combos")) return jsonResponse({ combos: [{ name: "fast", models: ["kr/model-a"] }] });
+      if (String(url).endsWith("/api/keys")) return jsonResponse({ keys: [{ id: "key_1", name: "Default" }] });
+      return jsonResponse({ error: "not found" }, { status: 404 });
+    });
+
+    const output = await executeSlashCommand("/router", state("model-key"));
+
+    expect(output).toContain("9router: http://localhost:20128");
+    expect(output).toContain("models: 1");
+    expect(output).toContain("providers: 1 configured, 1 active");
+    expect(output).toContain("combos: 1");
+    expect(output).toContain("API keys: 1");
+  });
+
+  it("/refresh clears stale router config cache before refetching", async () => {
+    const current = state("model-key");
+    let modelId = "kr/old";
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).endsWith("/v1/models")) return jsonResponse({ data: [{ id: modelId, owned_by: "kr" }] });
+      if (String(url).endsWith("/api/providers")) return jsonResponse({ connections: [{ provider: "kiro", isActive: true }] });
+      return jsonResponse({ error: "not found" }, { status: 404 });
+    });
+
+    await expect(fetchModels(current)).resolves.toEqual([{ id: "kr/old", owned_by: "kr" }]);
+    modelId = "kr/new";
+    const output = await executeSlashCommand("/refresh", current);
+
+    expect(output).toContain("refreshed 9router config: 1 models");
+    await expect(fetchModels(current)).resolves.toEqual([{ id: "kr/new", owned_by: "kr" }]);
+  });
 });
