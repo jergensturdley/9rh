@@ -175,6 +175,9 @@ REVIEW CHECKLIST:
 4. Is code quality acceptable? (no type suppressions, no empty catches, no disabled lint rules)
 5. Do tests exist and pass?
 6. Were any files modified outside plan scope?
+7. If semanticReview is present, inspect all three layers: plainDiff, semanticSummary, and intentRisk.
+8. Require justification for files flagged in intentRisk.scopeJustificationsRequired.
+9. Treat high/critical semantic changes in auth, validation, data access, permissions, or side effects as blockers unless explicitly justified and tested.
 
 OUTPUT FORMAT — respond with ONLY valid JSON:
 {
