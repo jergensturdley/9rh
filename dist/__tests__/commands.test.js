@@ -209,5 +209,12 @@ describe("model command helpers", () => {
         expect(output).toContain("refreshed 9router config: 1 models");
         await expect(fetchModels(current)).resolves.toEqual([{ id: "kr/new", owned_by: "kr" }]);
     });
+    it("/sandbox reports command isolation status", async () => {
+        const output = await executeSlashCommand("/sandbox", state("model-key"));
+        expect(output).toContain("sandbox:");
+        expect(output).toContain("backend:");
+        expect(output).toContain("platform support:");
+        expect(output).toContain("network policy:");
+    });
 });
 //# sourceMappingURL=commands.test.js.map

@@ -73,6 +73,7 @@ The `/setup` slash command performs the same check/start from within a REPL sess
 |---------|--------|
 | `/doctor` | Run pre-flight diagnostics (connectivity, keys, providers, models) |
 | `/setup` | Install and start 9router if not already running |
+| `/sandbox` | Shows command sandbox/isolation backend status and direct fallback warnings |
 | `/switch <model>` | Changes active model for subsequent tasks |
 | `/dir [path]` | Shows or changes working directory (validated via `fs.stat`) |
 | `/providers` | Lists 9router provider connections |
@@ -81,4 +82,3 @@ The `/setup` slash command performs the same check/start from within a REPL sess
 | `/router` | Shows a cached 9router configuration summary (models, providers, combos, keys, cache state) |
 | `/refresh` | Clears and reloads cached 9router configuration for slash commands and pickers |
 | `/clear` | Clears terminal screen |
-
