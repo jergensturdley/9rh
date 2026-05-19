@@ -15,11 +15,11 @@ function makeConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
   };
 }
 
-type AgentPrivate = { streamCompletionWithReplay(): Promise<StreamResult>; compactContext(): Promise<string> };
+type AgentPrivate = { streamCompletionWithReplay(): Promise<StreamResult>; compactContext(): Promise<string>; executeToolWithRepair(name: string, args: Record<string, unknown>, callId: string): Promise<{ output: string; error?: string }> };
 type StreamResult = { text: string; toolCalls: Array<{ id: string; name: string; argsRaw: string }> | null };
 type AgentWithRuntime = AgentPrivate & { activeModel?: string; config: AgentConfig };
 type AgentWithClient = AgentPrivate & { client: { chat: { completions: { create: () => Promise<AsyncIterable<unknown>> } } } };
-type AgentWithMessages = AgentPrivate & { messages: Array<{ role: string; tool_calls?: Array<{ function: { arguments: string } }> }> };
+type AgentWithMessages = AgentPrivate & { messages: Array<{ role: string; content?: string | null; tool_calls?: Array<{ function: { arguments: string } }> }> };
 
 function spyCompact(agent: Agent): void {
   jest.spyOn(agent as unknown as AgentPrivate, "compactContext").mockResolvedValue("summary");
@@ -301,5 +301,28 @@ describe("Agent tool call history", () => {
       (message) => message.role === "assistant" && message.tool_calls,
     );
     expect(assistantWithToolCall?.tool_calls?.[0]?.function.arguments).toBe("{}");
+  });
+
+  it("stores compacted large tool results in model history", async () => {
+    const events: AgentEvent[] = [];
+    const agent = new Agent(makeConfig({ maxIterations: 3, onEvent: (e) => events.push(e) }));
+    const largeOutput = [
+      ...Array.from({ length: 180 }, (_, i) => `noise ${i} ${"x".repeat(90)}`),
+      "FAIL src/app.test.ts",
+      "Expected: ok",
+      "Received: boom",
+    ].join("\n");
+
+    spyStream(agent, [TOOL_CALL, DONE]);
+    jest.spyOn(agent as unknown as AgentPrivate, "executeToolWithRepair")
+      .mockResolvedValue({ output: largeOutput });
+
+    await expect(agent.run("task")).resolves.toBe("finished");
+
+    const toolMessage = (agent as unknown as AgentWithMessages).messages.find((message) => message.role === "tool");
+    expect(toolMessage?.content).toContain("tool result:run_bash compressed for model context");
+    expect(toolMessage?.content).toContain("FAIL src/app.test.ts");
+    expect(toolMessage?.content?.length).toBeLessThan(largeOutput.length / 4);
+    expect(events.find((e) => e.type === "compact" && e.summary.includes("tool result run_bash compacted"))).toBeDefined();
   });
 });

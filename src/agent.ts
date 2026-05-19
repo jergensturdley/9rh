@@ -6,6 +6,7 @@ import type {
 } from "openai/resources/chat/completions.js";
 import type { Stream } from "openai/streaming.js";
 import { TOOL_DEFINITIONS, executeTool } from "./tools.js";
+import { compressToolResultForContext } from "./contextCompression.js";
 import { CircuitBreaker } from "./repair/circuitBreaker.js";
 import {
   withErrorInterception,
@@ -536,12 +537,18 @@ export class Agent {
           };
           this.logReplay(trEvent as ToolResultEvent);
 
+          const contextResult = compressToolResultForContext(tc.name, result.output, result.error);
+          if (contextResult.changed) {
+            this.emit({
+              type: "compact",
+              summary: `tool result ${tc.name} compacted for context: ${contextResult.originalChars.toLocaleString()} → ${contextResult.text.length.toLocaleString()} chars`,
+            });
+          }
+
           this.messages.push({
             role: "tool",
             tool_call_id: tc.id,
-            content: result.error
-              ? `ERROR: ${result.error}\n${result.output}`
-              : result.output,
+            content: contextResult.text,
           });
         }
 
