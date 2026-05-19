@@ -1,6 +1,6 @@
 # 9rh
 
-9rh is a lightweight coding agent for local repositories that routes model traffic through [9router](https://github.com/decolua/9router). It supports one-shot tasks, an interactive REPL, a small sandboxed toolset, and automatic 9router startup when the router is not already running.
+9rh is a lightweight, 9router-native coding agent for local repositories. It routes model traffic through [9router](https://github.com/decolua/9router), supports one-shot tasks and an interactive REPL, and provides a small sandbox-aware toolset.
 
 ## What it does
 
@@ -8,7 +8,6 @@
 - Streams agent thoughts, tool calls, and tool results in the terminal.
 - Uses 9router's OpenAI-compatible API for completions and native REST API for diagnostics and slash commands.
 - Caches 9router configuration briefly during REPL sessions so slash menus and model pickers stay responsive.
-- Auto-starts 9router when possible, then reuses the first configured API key.
 
 ## Install
 
@@ -45,14 +44,7 @@ node dist/index.js --doctor
 
 9rh expects 9router at `http://localhost:20128/v1` by default.
 
-If 9router is not running, 9rh will try to:
-
-1. install `9router` globally with npm, or fall back to `npx`
-2. start `9router --no-browser`
-3. wait for the server to become reachable
-4. use the first API key stored by 9router
-
-You still need at least one provider connected in the 9router dashboard:
+Install and start 9router separately, then connect at least one provider in the 9router dashboard:
 
 ```text
 http://localhost:20128/dashboard

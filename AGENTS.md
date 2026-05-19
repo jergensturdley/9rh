@@ -57,15 +57,9 @@ REPL intercepts lines starting with `/` **before** sending to the agent. `execut
 
 `fetchJSON()` returns `unknown`. All handlers use `toArray<T>()` helper (guards with `Array.isArray`) before iterating. Malformed API payloads are handled gracefully — they produce empty-state messages, not crashes.
 
-## Auto-Start
+## 9router Setup
 
-9rh auto-detects whether 9router is running. If not found on startup, it automatically:
-1. Installs 9router globally via `npm install -g 9router` (or uses existing `npx`)
-2. Starts 9router as a background daemon (`--no-browser`)
-3. Waits up to 30s for the server to become reachable
-4. Uses the first available API key from the server
-
-The `/setup` slash command performs the same check/start from within a REPL session.
+9rh is 9router-native: it expects 9router to be installed, running, and configured with at least one provider/API key. Prefer documenting the explicit setup flow (`npm install -g 9router`, then `9router`, then configure the dashboard). `/setup` may attempt a best-effort setup, but docs should not imply fully headless configuration because most first-time users complete provider setup in the browser.
 
 ## Key Commands
 
