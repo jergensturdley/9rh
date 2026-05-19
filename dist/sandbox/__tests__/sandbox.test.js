@@ -1,10 +1,19 @@
 import { describe, it, expect } from "@jest/globals";
-import { createExecutor, isSandboxAvailable, DirectExecutor, ObservabilityCollector } from "../index.js";
+import { createExecutor, isSandboxAvailable, SandboxExecutor, DirectExecutor, ObservabilityCollector } from "../index.js";
 describe("SandboxExecutor", () => {
     const workDir = "/tmp";
-    it("falls back to DirectExecutor when sandbox is not available", () => {
+    it("selects the executor that matches platform sandbox availability", () => {
         const exec = createExecutor(workDir, { useSandbox: true });
-        expect(exec).toBeInstanceOf(DirectExecutor);
+        expect(exec).toBeInstanceOf(isSandboxAvailable() ? SandboxExecutor : DirectExecutor);
+    });
+    it("executes through SandboxExecutor when sandbox-exec is available", async () => {
+        if (!isSandboxAvailable())
+            return;
+        const exec = new SandboxExecutor(workDir);
+        const result = await exec.exec("echo sandbox-ok");
+        expect(result.sandboxUsed).toBe(true);
+        expect(result.output).toContain("sandbox-ok");
+        expect(result.exitCode).toBe(0);
     });
     it("returns sandboxUsed false when not sandboxed", async () => {
         const exec = new DirectExecutor(workDir);
@@ -78,7 +87,7 @@ describe("createExecutor", () => {
     });
     it("returns SandboxExecutor when sandbox is available", () => {
         const exec = createExecutor("/tmp", { useSandbox: true });
-        expect(exec).toBeInstanceOf(DirectExecutor);
+        expect(exec).toBeInstanceOf(isSandboxAvailable() ? SandboxExecutor : DirectExecutor);
     });
 });
 describe("isSandboxAvailable", () => {
