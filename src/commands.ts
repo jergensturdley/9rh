@@ -219,14 +219,37 @@ const COMMANDS: Record<string, CommandDef> = {
     usage: "/help",
     description: "List all slash commands",
     handler: async (_args, state) => {
-      const lines = ["", "Available slash commands:", ""];
-      for (const [name, def] of Object.entries(COMMANDS)) {
-        const usage = state.useColor
-          ? chalk.cyan(def.usage.padEnd(28)) + chalk.dim(def.description)
-          : def.usage.padEnd(28) + def.description;
-        lines.push("  " + usage);
-      }
-      lines.push("");
+      const c = state.useColor;
+      const divider = c ? chalk.dim("─".repeat(42)) : "─".repeat(42);
+      const banner = c
+        ? chalk.bold.cyan("┌" + "─".repeat(40) + "┐\n") + chalk.bold.cyan("│") + "  ✦ 9rh slash commands".padEnd(40) + chalk.bold.cyan("│") + "\n" + chalk.bold.cyan("└" + "─".repeat(40) + "┘")
+        : "+----------------------------------------+\n   9rh slash commands\n+----------------------------------------+";
+      const lines = [
+        "",
+        banner,
+        "",
+        c ? chalk.dim("━━ system ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") : "━━ system ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        `  ${c ? chalk.cyan("/help") : "/help"}          Show this menu`,
+        `  ${c ? chalk.cyan("/clear") : "/clear"}        Clear the screen`,
+        `  ${c ? chalk.cyan("/setup") : "/setup"}        Install & start 9router`,
+        `  ${c ? chalk.cyan("/doctor") : "/doctor"}       Diagnose connectivity & config`,
+        "",
+        c ? chalk.dim("━━ router ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") : "━━ router ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        `  ${c ? chalk.cyan("/status") : "/status"}       9router health, version, updates`,
+        `  ${c ? chalk.cyan("/providers") : "/providers"}  List configured provider connections`,
+        `  ${c ? chalk.cyan("/combos") : "/combos"}       List model fallback chains`,
+        `  ${c ? chalk.cyan("/keys") : "/keys"}          List 9router API keys`,
+        "",
+        c ? chalk.dim("━━ models ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") : "━━ models ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        `  ${c ? chalk.cyan("/models") : "/models"}       List available models`,
+        `  ${c ? chalk.cyan("/switch") : "/switch"}       Switch active model`,
+        "",
+        c ? chalk.dim("━━ session ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") : "━━ session ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        `  ${c ? chalk.cyan("/dir") : "/dir"}            Show or change working directory`,
+        "",
+        divider,
+        "",
+      ];
       return lines.join("\n");
     },
   },
