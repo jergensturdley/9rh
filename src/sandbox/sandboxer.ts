@@ -1,4 +1,4 @@
-import { spawn } from "child_process";
+import { spawn, execFileSync } from "child_process";
 import { unlinkSync } from "fs";
 import { readlink, writeFile, lstat, realpath } from "fs/promises";
 import { resolve, normalize, dirname } from "path";
@@ -206,7 +206,11 @@ export class Sandbox {
 export function isSandboxAvailable(): boolean {
   if (process.platform === "darwin") {
     try {
-      require("child_process").execFileSync("/usr/bin/sandbox-exec", ["--version"], { timeout: 5000 });
+      execFileSync(
+        "/usr/bin/sandbox-exec",
+        ["-p", "(version 1)(allow default)", "/usr/bin/true"],
+        { timeout: 5000 },
+      );
       return true;
     } catch {
       return false;
