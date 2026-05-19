@@ -1,6 +1,6 @@
 # 9rh
 
-9rh is a lightweight local coding-agent harness that routes model traffic through [9router](https://github.com/decolua/9router). It can run one-shot tasks, open an interactive REPL, call sandbox-aware tools, and auto-start 9router when needed.
+9rh is a lightweight, 9router-native local coding-agent harness. It routes model traffic through [9router](https://github.com/decolua/9router), runs one-shot tasks, opens an interactive REPL, and provides sandbox-aware local repository tools.
 
 ## Highlights
 
@@ -55,7 +55,7 @@ node dist/index.js --dir /path/to/project --model kr/claude-sonnet-4.5 "fix the 
 ## Requirements
 
 - Node.js 18+
-- [9router](https://github.com/decolua/9router), automatically installed/started when possible
+- [9router](https://github.com/decolua/9router), installed and running locally
 - At least one provider configured in the 9router dashboard: `http://localhost:20128/dashboard`
 
 ## Common slash commands
