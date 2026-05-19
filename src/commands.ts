@@ -25,6 +25,14 @@ export interface ModelInfo {
   owned_by?: string;
 }
 
+interface ProviderConnectionInfo {
+  provider?: unknown;
+  name?: unknown;
+  isActive?: unknown;
+  defaultModel?: unknown;
+  providerSpecificData?: unknown;
+}
+
 class HTTPError extends Error {
   status: number;
 
@@ -66,9 +74,84 @@ export function toArray<T>(val: unknown): T[] {
 
 export async function fetchModels(state: SessionState): Promise<ModelInfo[]> {
   const raw = await fetchJSON(`${state.baseURL}/models`, state.apiKey);
-  return toArray<{ id?: unknown; owned_by?: unknown }>(
+  const models = toArray<{ id?: unknown; owned_by?: unknown }>(
     (raw as { data?: unknown })?.data
   ).filter((m) => typeof m.id === "string") as ModelInfo[];
+
+  try {
+    return reconcileConnectionModels(models, await fetchProviderConnections(state));
+  } catch {
+    return models;
+  }
+}
+
+async function fetchProviderConnections(state: SessionState): Promise<ProviderConnectionInfo[]> {
+  const raw = await fetchNativeJSON(state, "/api/providers");
+  return toArray<ProviderConnectionInfo>((raw as { connections?: unknown })?.connections);
+}
+
+function providerData(conn: ProviderConnectionInfo): Record<string, unknown> {
+  return conn.providerSpecificData && typeof conn.providerSpecificData === "object"
+    ? conn.providerSpecificData as Record<string, unknown>
+    : {};
+}
+
+function connectionAlias(conn: ProviderConnectionInfo): string | null {
+  const data = providerData(conn);
+  const candidates = [data.prefix, conn.provider, conn.name];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+  return null;
+}
+
+function connectionModelIds(conn: ProviderConnectionInfo): string[] {
+  const data = providerData(conn);
+  const enabled = Array.isArray(data.enabledModels) ? data.enabledModels : [];
+  const ids = enabled.filter((m): m is string => typeof m === "string" && m.trim() !== "");
+  if (typeof conn.defaultModel === "string" && conn.defaultModel.trim()) ids.push(conn.defaultModel.trim());
+  return Array.from(new Set(ids));
+}
+
+function stripKnownPrefix(modelId: string, aliases: string[]): string {
+  for (const alias of aliases) {
+    if (alias && modelId.startsWith(`${alias}/`)) return modelId.slice(alias.length + 1);
+  }
+  return modelId;
+}
+
+function reconcileConnectionModels(models: ModelInfo[], connections: ProviderConnectionInfo[]): ModelInfo[] {
+  const output = [...models];
+  const seen = new Set(output.map((m) => m.id));
+  const active = connections.filter((conn) => conn.isActive !== false);
+  const aliasesByProvider = new Map<string, string[]>();
+
+  for (const conn of active) {
+    if (typeof conn.provider !== "string") continue;
+    const alias = connectionAlias(conn);
+    if (!alias) continue;
+    const aliases = aliasesByProvider.get(conn.provider) ?? [];
+    aliases.push(alias);
+    aliasesByProvider.set(conn.provider, aliases);
+  }
+
+  for (const conn of active) {
+    const alias = connectionAlias(conn);
+    if (!alias) continue;
+    if (output.some((m) => m.owned_by === alias || m.id.startsWith(`${alias}/`))) continue;
+
+    const configuredIds = connectionModelIds(conn);
+    const knownAliases = typeof conn.provider === "string" ? [conn.provider, ...(aliasesByProvider.get(conn.provider) ?? [])] : [alias];
+    for (const rawId of configuredIds) {
+      const bareId = stripKnownPrefix(rawId, knownAliases);
+      const id = `${alias}/${bareId}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      output.push({ id, owned_by: alias });
+    }
+  }
+
+  return output;
 }
 
 export function filterModels(models: ModelInfo[], filter: string): ModelInfo[] {
