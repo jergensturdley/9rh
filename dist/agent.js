@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { TOOL_DEFINITIONS, executeTool } from "./tools.js";
+import { compressToolResultForContext } from "./contextCompression.js";
 import { CircuitBreaker } from "./repair/circuitBreaker.js";
 import { withErrorInterception, captureSnapshot, runRepairAgent, logIncident, } from "./repair/index.js";
 import { EventLogger } from "./replay/eventLogger.js";
@@ -393,12 +394,17 @@ export class Agent {
                         },
                     };
                     this.logReplay(trEvent);
+                    const contextResult = compressToolResultForContext(tc.name, result.output, result.error);
+                    if (contextResult.changed) {
+                        this.emit({
+                            type: "compact",
+                            summary: `tool result ${tc.name} compacted for context: ${contextResult.originalChars.toLocaleString()} → ${contextResult.text.length.toLocaleString()} chars`,
+                        });
+                    }
                     this.messages.push({
                         role: "tool",
                         tool_call_id: tc.id,
-                        content: result.error
-                            ? `ERROR: ${result.error}\n${result.output}`
-                            : result.output,
+                        content: contextResult.text,
                     });
                 }
                 this.logReplay({
