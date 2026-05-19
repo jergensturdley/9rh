@@ -7,6 +7,7 @@
 - Runs coding tasks against a local working directory.
 - Streams agent thoughts, tool calls, and tool results in the terminal.
 - Uses 9router's OpenAI-compatible API for completions and native REST API for diagnostics and slash commands.
+- Caches 9router configuration briefly during REPL sessions so slash menus and model pickers stay responsive.
 - Auto-starts 9router when possible, then reuses the first configured API key.
 
 ## Install
@@ -123,11 +124,15 @@ Persistent defaults are used when `--model` and `NINE_ROUTER_MODEL` are not set.
 | `/providers` | List configured provider connections |
 | `/combos` | List fallback combos |
 | `/keys` | List configured 9router API keys |
+| `/router` | Show a cached 9router configuration summary |
+| `/refresh` | Clear and reload cached 9router configuration |
 | `/switch <model>` | Change the active model |
 | `/dir [path]` | Show or change the working directory |
 | `/setup` | Install and start 9router if needed |
 | `/doctor` | Diagnose router connectivity and configuration |
 | `/clear` | Clear the terminal |
+
+9router configuration reads for `/models`, `/providers`, `/combos`, `/keys`, `/router`, and the model picker are cached briefly within the current REPL session. Run `/refresh` after changing providers, API keys, combos, or model settings in the 9router dashboard.
 
 ## Built-in agent tools
 

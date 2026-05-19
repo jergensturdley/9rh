@@ -40,3 +40,4 @@ test-bed/
 test-snapshots/
 snapshots/
 *.snap
+CLAUDE.md
