@@ -82,6 +82,8 @@ async function installAndStart() {
     const isInstalled = existsSync("/usr/local/bin/9router") ||
         existsSync("/usr/bin/9router") ||
         (await execFileAsync("which", ["9router"]).then(() => true).catch(() => false));
+    let startCommand = "9router";
+    let startArgs = ["--no-browser"];
     if (!isInstalled) {
         process.stderr.write(chalk.yellow("  Installing 9router globally...\n"));
         try {
@@ -91,6 +93,8 @@ async function installAndStart() {
             process.stderr.write(chalk.yellow("  npm install failed — trying npx...\n"));
             try {
                 await execFileAsync("npx", ["-y", "9router", "--version"], { timeout: 30_000 });
+                startCommand = "npx";
+                startArgs = ["-y", "9router", "--no-browser"];
             }
             catch {
                 return { success: false, error: "Neither npm install -g nor npx could install 9router" };
@@ -101,10 +105,11 @@ async function installAndStart() {
         return { success: true };
     }
     process.stderr.write(chalk.blue("  Starting 9router daemon...\n"));
-    const daemon = spawn("9router", ["--no-browser"], {
+    const daemon = spawn(startCommand, startArgs, {
         detached: true,
         stdio: "ignore",
     });
+    daemon.on("error", () => { });
     daemon.unref();
     for (let i = 0; i < 30; i++) {
         await delay(1000);
