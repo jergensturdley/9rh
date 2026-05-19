@@ -14,21 +14,24 @@
 ## Quick start
 
 ```sh
-npm install -g 9rh
-9rh --doctor
-9rh "summarize this repository"
+git clone https://github.com/1jehuang/9rh.git
+cd 9rh
+npm install
+npm run build
+node dist/index.js --doctor
+node dist/index.js "summarize this repository"
 ```
 
 Start the interactive REPL:
 
 ```sh
-9rh --repl
+node dist/index.js --repl
 ```
 
 Run against a specific directory and model:
 
 ```sh
-9rh --dir /path/to/project --model kr/claude-sonnet-4.5 "fix the failing tests"
+node dist/index.js --dir /path/to/project --model kr/claude-sonnet-4.5 "fix the failing tests"
 ```
 
 ## Requirements
