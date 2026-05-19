@@ -18,18 +18,24 @@ git clone https://github.com/jergensturdley/9rh.git
 cd 9rh
 npm install
 npm run build
-node dist/index.js --doctor
 ```
 
-If 9router is not already configured, open the dashboard and connect at least one provider/API key:
+Start 9router in another terminal. If it is not installed globally, `npx` is fine:
+
+```sh
+npx -y 9router --no-browser
+```
+
+Then open the dashboard and connect at least one provider/API key:
 
 ```text
 http://localhost:20128/dashboard
 ```
 
-Then run a task:
+Finally, verify and run a task:
 
 ```sh
+node dist/index.js --doctor
 node dist/index.js "summarize this repository"
 ```
 
