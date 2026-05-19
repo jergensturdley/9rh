@@ -38,6 +38,12 @@ export type {
   VisualStep,
 } from "./visualization.js";
 export { Orchestrator } from "./orchestrator/index.js";
+export {
+  createPlainDiff,
+  createSemanticReview,
+  filterSemanticChanges,
+  formatSemanticReview,
+} from "./semanticDiff.js";
 export type {
   OrchestratorConfig,
   OrchestratorEvent,
@@ -65,6 +71,15 @@ export type {
   ConflictParty,
   ConflictResolution,
 } from "./orchestrator/index.js";
+export type {
+  BehaviorType,
+  FileSnapshot,
+  IntentRiskAssessment,
+  SemanticChange,
+  SemanticReview,
+  SemanticReviewFilter,
+  SemanticSeverity,
+} from "./semanticDiff.js";
 export { FaultInjector } from "./faultInjection/index.js";
 export { RecoveryEvaluator } from "./faultInjection/index.js";
 export { ScenarioRegistry, createDefaultRegistry } from "./faultInjection/index.js";

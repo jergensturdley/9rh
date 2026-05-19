@@ -4,6 +4,7 @@ export { ensureRouter } from "./init.js";
 export { formatSpecDrivenPrompt, parseTaskSpecification, shouldUseSpecDrivenTesting, synthesizeTestPlan, } from "./spec/specDrivenTesting.js";
 export { applyAgentEvent, applyReplayEvent, createRunVisualization, exportRunVisualization, renderRunVisualization, visibleSteps, } from "./visualization.js";
 export { Orchestrator } from "./orchestrator/index.js";
+export { createPlainDiff, createSemanticReview, filterSemanticChanges, formatSemanticReview, } from "./semanticDiff.js";
 export { FaultInjector } from "./faultInjection/index.js";
 export { RecoveryEvaluator } from "./faultInjection/index.js";
 export { ScenarioRegistry, createDefaultRegistry } from "./faultInjection/index.js";

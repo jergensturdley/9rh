@@ -22,6 +22,7 @@ export function getReviewerContext(state) {
         task: state.originalTask,
         plan: state.architectPlan,
         implementation: state.implementationResult,
+        semanticReview: state.implementationResult?.semanticReview,
         successCriteria: state.architectPlan?.successCriteria ?? [],
     };
 }

@@ -1,4 +1,5 @@
 import type { RiskLevel } from "./roles.js";
+import type { SemanticReview } from "../semanticDiff.js";
 export type TaskStatus = "pending" | "architecting" | "implementing" | "reviewing" | "security_audit" | "test_strategy" | "completed" | "failed" | "escalated";
 export interface ArchitectPlan {
     summary: string;
@@ -25,6 +26,7 @@ export interface ImplementationResult {
     filesModified: string[];
     testResults: "pass" | "fail" | "not_run";
     diff: string;
+    semanticReview?: SemanticReview;
 }
 export interface ReviewResult {
     decision: "approved" | "rejected" | "needs_revision";

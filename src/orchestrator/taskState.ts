@@ -1,4 +1,5 @@
 import type { RiskLevel } from "./roles.js";
+import type { SemanticReview } from "../semanticDiff.js";
 
 export type TaskStatus =
   | "pending"
@@ -29,6 +30,7 @@ export interface ImplementationResult {
   filesModified: string[];
   testResults: "pass" | "fail" | "not_run";
   diff: string;
+  semanticReview?: SemanticReview;
 }
 
 export interface ReviewResult {
@@ -117,6 +119,7 @@ export function getReviewerContext(state: TaskState): Record<string, unknown> {
     task: state.originalTask,
     plan: state.architectPlan,
     implementation: state.implementationResult,
+    semanticReview: state.implementationResult?.semanticReview,
     successCriteria: state.architectPlan?.successCriteria ?? [],
   };
 }
