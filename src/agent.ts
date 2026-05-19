@@ -7,6 +7,7 @@ import type {
 import type { Stream } from "openai/streaming.js";
 import { TOOL_DEFINITIONS, executeTool } from "./tools.js";
 import { compressToolResultForContext } from "./contextCompression.js";
+import { buildLongHorizonMemory, renderLongHorizonMemory } from "./longHorizonMemory.js";
 import { CircuitBreaker } from "./repair/circuitBreaker.js";
 import {
   withErrorInterception,
@@ -163,15 +164,19 @@ export class Agent {
       })
       .join("\n");
 
+    const memory = buildLongHorizonMemory(historyText, `agent-run:${this.currentTask.slice(0, 48) || "unknown"}`);
+    const memorySummary = renderLongHorizonMemory(memory);
+
     const compactPrompt =
-      `Summarize the conversation in 2-3 sentences. What task, what done, what next.\n\n${historyText}\n\nSummary:`;
+      `Compress the conversation for a long-running coding agent. Preserve exact file names, function names, schema terms, API routes, decisions, and unresolved blockers. Drop repetitive deliberation and low-value status chatter. If any fact is uncertain, mark it for reconfirmation rather than stating it as fact. Return a concise operational summary of what task, what is done, and what next.\n\n${historyText}\n\nSummary:`;
 
     const response = await this.client.chat.completions.create({
       model: this.currentModel(),
       messages: [{ role: "user", content: compactPrompt }],
     });
 
-    return response.choices[0]?.message?.content ?? "Work in progress";
+    const llmSummary = response.choices[0]?.message?.content ?? "Work in progress";
+    return `${llmSummary}\n\n${memorySummary}`;
   }
 
   private resetForContinuation(summary: string, originalTask: string): void {

@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { TOOL_DEFINITIONS, executeTool } from "./tools.js";
 import { compressToolResultForContext } from "./contextCompression.js";
+import { buildLongHorizonMemory, renderLongHorizonMemory } from "./longHorizonMemory.js";
 import { CircuitBreaker } from "./repair/circuitBreaker.js";
 import { withErrorInterception, captureSnapshot, runRepairAgent, logIncident, } from "./repair/index.js";
 import { EventLogger } from "./replay/eventLogger.js";
@@ -77,12 +78,15 @@ export class Agent {
             return "";
         })
             .join("\n");
-        const compactPrompt = `Summarize the conversation in 2-3 sentences. What task, what done, what next.\n\n${historyText}\n\nSummary:`;
+        const memory = buildLongHorizonMemory(historyText, `agent-run:${this.currentTask.slice(0, 48) || "unknown"}`);
+        const memorySummary = renderLongHorizonMemory(memory);
+        const compactPrompt = `Compress the conversation for a long-running coding agent. Preserve exact file names, function names, schema terms, API routes, decisions, and unresolved blockers. Drop repetitive deliberation and low-value status chatter. If any fact is uncertain, mark it for reconfirmation rather than stating it as fact. Return a concise operational summary of what task, what is done, and what next.\n\n${historyText}\n\nSummary:`;
         const response = await this.client.chat.completions.create({
             model: this.currentModel(),
             messages: [{ role: "user", content: compactPrompt }],
         });
-        return response.choices[0]?.message?.content ?? "Work in progress";
+        const llmSummary = response.choices[0]?.message?.content ?? "Work in progress";
+        return `${llmSummary}\n\n${memorySummary}`;
     }
     resetForContinuation(summary, originalTask) {
         this.messages = [
