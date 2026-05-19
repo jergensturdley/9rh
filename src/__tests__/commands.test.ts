@@ -106,15 +106,39 @@ describe("model command helpers", () => {
   });
 
   it("fetches OpenAI-compatible models with the session API key", async () => {
-    const fetchMock = jest.spyOn(globalThis, "fetch").mockResolvedValue(
-      jsonResponse({ data: [{ id: "kr/model-a", owned_by: "9router" }, { id: 42 }] }),
-    );
+    const fetchMock = jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).endsWith("/api/providers")) return jsonResponse({ connections: [] });
+      return jsonResponse({ data: [{ id: "kr/model-a", owned_by: "9router" }, { id: 42 }] });
+    });
 
     await expect(fetchModels(state("model-key"))).resolves.toEqual([{ id: "kr/model-a", owned_by: "9router" }]);
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:20128/v1/models",
       expect.objectContaining({ headers: { Authorization: "Bearer model-key" } }),
     );
+  });
+
+  it("adds configured models for active provider connections missing from /v1/models", async () => {
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).endsWith("/v1/models")) {
+        return jsonResponse({ data: [{ id: "acct-a/model-a", owned_by: "acct-a" }] });
+      }
+      if (String(url).endsWith("/api/providers")) {
+        return jsonResponse({
+          connections: [
+            { provider: "openai", isActive: true, providerSpecificData: { prefix: "acct-a", enabledModels: ["model-a"] } },
+            { provider: "openai", isActive: true, providerSpecificData: { prefix: "acct-b", enabledModels: ["openai/model-b"] } },
+            { provider: "openai", isActive: false, providerSpecificData: { prefix: "disabled", enabledModels: ["model-c"] } },
+          ],
+        });
+      }
+      return jsonResponse({ error: "not found" }, { status: 404 });
+    });
+
+    await expect(fetchModels(state("model-key"))).resolves.toEqual([
+      { id: "acct-a/model-a", owned_by: "acct-a" },
+      { id: "acct-b/model-b", owned_by: "acct-b" },
+    ]);
   });
 
   it("filters and formats models consistently for static fallback output", () => {

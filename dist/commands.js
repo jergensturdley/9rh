@@ -38,7 +38,80 @@ export function toArray(val) {
 }
 export async function fetchModels(state) {
     const raw = await fetchJSON(`${state.baseURL}/models`, state.apiKey);
-    return toArray(raw?.data).filter((m) => typeof m.id === "string");
+    const models = toArray(raw?.data).filter((m) => typeof m.id === "string");
+    try {
+        return reconcileConnectionModels(models, await fetchProviderConnections(state));
+    }
+    catch {
+        return models;
+    }
+}
+async function fetchProviderConnections(state) {
+    const raw = await fetchNativeJSON(state, "/api/providers");
+    return toArray(raw?.connections);
+}
+function providerData(conn) {
+    return conn.providerSpecificData && typeof conn.providerSpecificData === "object"
+        ? conn.providerSpecificData
+        : {};
+}
+function connectionAlias(conn) {
+    const data = providerData(conn);
+    const candidates = [data.prefix, conn.provider, conn.name];
+    for (const candidate of candidates) {
+        if (typeof candidate === "string" && candidate.trim())
+            return candidate.trim();
+    }
+    return null;
+}
+function connectionModelIds(conn) {
+    const data = providerData(conn);
+    const enabled = Array.isArray(data.enabledModels) ? data.enabledModels : [];
+    const ids = enabled.filter((m) => typeof m === "string" && m.trim() !== "");
+    if (typeof conn.defaultModel === "string" && conn.defaultModel.trim())
+        ids.push(conn.defaultModel.trim());
+    return Array.from(new Set(ids));
+}
+function stripKnownPrefix(modelId, aliases) {
+    for (const alias of aliases) {
+        if (alias && modelId.startsWith(`${alias}/`))
+            return modelId.slice(alias.length + 1);
+    }
+    return modelId;
+}
+function reconcileConnectionModels(models, connections) {
+    const output = [...models];
+    const seen = new Set(output.map((m) => m.id));
+    const active = connections.filter((conn) => conn.isActive !== false);
+    const aliasesByProvider = new Map();
+    for (const conn of active) {
+        if (typeof conn.provider !== "string")
+            continue;
+        const alias = connectionAlias(conn);
+        if (!alias)
+            continue;
+        const aliases = aliasesByProvider.get(conn.provider) ?? [];
+        aliases.push(alias);
+        aliasesByProvider.set(conn.provider, aliases);
+    }
+    for (const conn of active) {
+        const alias = connectionAlias(conn);
+        if (!alias)
+            continue;
+        if (output.some((m) => m.owned_by === alias || m.id.startsWith(`${alias}/`)))
+            continue;
+        const configuredIds = connectionModelIds(conn);
+        const knownAliases = typeof conn.provider === "string" ? [conn.provider, ...(aliasesByProvider.get(conn.provider) ?? [])] : [alias];
+        for (const rawId of configuredIds) {
+            const bareId = stripKnownPrefix(rawId, knownAliases);
+            const id = `${alias}/${bareId}`;
+            if (seen.has(id))
+                continue;
+            seen.add(id);
+            output.push({ id, owned_by: alias });
+        }
+    }
+    return output;
 }
 export function filterModels(models, filter) {
     const normalized = filter.toLowerCase();
