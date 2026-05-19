@@ -27,7 +27,7 @@ Then verify your setup:
 ### Local development install
 
 ```sh
-git clone https://github.com/1jehuang/9rh.git
+git clone https://github.com/jergensturdley/9rh.git
 cd 9rh
 npm install
 npm run build
