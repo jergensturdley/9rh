@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createInterface, cursorTo, emitKeypressEvents, moveCursor, clearScreenDown } from "readline";
+import { createInterface, cursorTo, emitKeypressEvents, moveCursor, clearScreenDown, clearLine } from "readline";
 import { resolve } from "path";
 import { program } from "commander";
 import chalk from "chalk";
@@ -9,6 +9,7 @@ import { ensureRouter, readFirstApiKey, getCliToken } from "./init.js";
 import { createTuiRenderer, printSplash } from "./tui.js";
 import { compressUserInput } from "./inputCompression.js";
 import { ReplInputCoalescer } from "./replInput.js";
+import { readUserConfig, resolveConfiguredModel, updateUserConfig } from "./config.js";
 
 const DEFAULTS = {
   url: process.env.NINE_ROUTER_URL ?? "http://localhost:20128/v1",
@@ -37,6 +38,9 @@ program
   .option("--continue-switch-after <n>", "Continuation round that triggers model switch", DEFAULTS.continuationSwitchAfter)
   .option("--repl", "Start interactive REPL session")
   .option("--no-color", "Disable colored output")
+  .option("--set-default-model <model>", "Persist a default model for future runs")
+  .option("--set-default-provider <provider>", "Persist a default provider/prefix for future runs")
+  .option("--show-config", "Show persisted 9rh defaults and exit")
   .option("--doctor", "Run pre-flight diagnostics and exit");
 
 const rawArgs = process.argv.slice(2);
@@ -47,7 +51,7 @@ if (!isInit) {
 }
 
 const opts = program.opts<{
-  model: string;
+  model?: string;
   url: string;
   key: string;
   dir: string;
@@ -59,9 +63,16 @@ const opts = program.opts<{
   repl: boolean;
   color: boolean;
   doctor: boolean;
+  showConfig: boolean;
+  setDefaultModel?: string;
+  setDefaultProvider?: string;
 }>();
 
 const task = program.args[0];
+
+function hasOption(...names: string[]): boolean {
+  return rawArgs.some((arg) => names.some((name) => arg === name || arg.startsWith(`${name}=`)));
+}
 
 if (isInit) {
   const rawArgs = process.argv.slice(2);
@@ -231,13 +242,13 @@ async function runRepl(state: SessionState): Promise<void> {
   }
 
   function promptColumns(): number {
-    const cols = process.stderr.columns ?? process.stdout.columns ?? 80;
     const visible = stripAnsi(prompt());
-    return Math.min(cols - 1, visible.length + 4);
+    return visible.length;
   }
 
   function redrawLine(): void {
     cursorTo(process.stderr, 0);
+    clearLine(process.stderr, 0);
     process.stderr.write(prompt() + rl.line);
     cursorTo(process.stderr, promptColumns() + rl.cursor);
   }
@@ -700,7 +711,7 @@ return allOk;
 const state: SessionState = {
   baseURL: opts.url,
   apiKey: opts.key,
-  model: opts.model,
+  model: DEFAULTS.model,
   workDir: resolve(opts.dir),
   useColor: opts.color,
   wasStarted: false,
@@ -713,6 +724,26 @@ async function main() {
   const wantsDoctor = opts.doctor;
 
   if (isInit) {
+    return;
+  }
+
+  const userConfig = await readUserConfig();
+  const modelWasExplicit = hasOption("-m", "--model") || Boolean(process.env.NINE_ROUTER_MODEL);
+  state.model = resolveConfiguredModel(modelWasExplicit ? opts.model : undefined, userConfig);
+
+  if (opts.showConfig) {
+    process.stdout.write(JSON.stringify({ ...userConfig, effectiveModel: state.model }, null, 2) + "\n");
+    return;
+  }
+
+  if (opts.setDefaultModel || opts.setDefaultProvider) {
+    const next = await updateUserConfig({
+      defaultModel: opts.setDefaultModel?.trim() || userConfig.defaultModel,
+      defaultProvider: opts.setDefaultProvider?.trim() || userConfig.defaultProvider,
+    });
+    const effectiveModel = resolveConfiguredModel(undefined, next);
+    process.stderr.write(`  saved defaults: model=${next.defaultModel ?? "(unset)"}, provider=${next.defaultProvider ?? "(unset)"}\n`);
+    process.stderr.write(`  effective default model: ${effectiveModel}\n`);
     return;
   }
 
