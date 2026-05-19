@@ -82,6 +82,29 @@ export type AgentEvent = {
     type: "spec_plan";
     summary: string;
 } | {
+    type: "step_inspect";
+    stepId: string;
+    params?: string;
+    output?: string;
+    diff?: string;
+    trace?: string;
+    policy?: string;
+} | {
+    type: "partial_output";
+    stepId: string;
+    text: string;
+} | {
+    type: "incident";
+    stepId: string;
+    cause: string;
+    repairAttempt?: number;
+    circuitOpen?: boolean;
+} | {
+    type: "branch_create";
+    stepId: string;
+    branchId: string;
+    reason: string;
+} | {
     type: "sandbox_health";
     total: number;
     sandboxed: number;

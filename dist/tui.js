@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { applyAgentEvent, createRunVisualization, renderRunVisualization, } from "./visualization.js";
+import { applyAgentEvent, createRunVisualization, inspectStep, renderRunVisualization, } from "./visualization.js";
 import { colorizeFrame, generatePlasmaFrame, shouldShowSplash, SPLASH_ROWS } from "./splash.js";
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const THINKING_LABELS = [
@@ -185,6 +185,46 @@ function crop(text, max) {
         return text;
     return text.slice(0, Math.max(0, max - 1)) + "…";
 }
+function normalizeWhitespace(text) {
+    return text.replace(/\s+/g, " ").trim();
+}
+function truncateMiddle(text, max) {
+    if (text.length <= max)
+        return text;
+    if (max <= 1)
+        return "…";
+    const head = Math.ceil((max - 1) * 0.6);
+    const tail = Math.floor((max - 1) * 0.4);
+    return `${text.slice(0, head)}…${text.slice(-tail)}`;
+}
+function describeToolIntent(tool, args) {
+    const target = typeof args.path === "string" ? args.path :
+        typeof args.file_path === "string" ? args.file_path :
+            typeof args.command === "string" ? args.command :
+                typeof args.query === "string" ? args.query :
+                    typeof args.url === "string" ? args.url :
+                        undefined;
+    const targetHint = target ? ` (${truncateMiddle(normalizeWhitespace(target), 42)})` : "";
+    if (/^(read|agentgrep|grep|glob|ls|find|search|websearch|webfetch)/i.test(tool))
+        return `gather evidence with ${tool}${targetHint}`;
+    if (/^(write|edit|multiedit|apply_patch|patch)/i.test(tool))
+        return `change workspace state with ${tool}${targetHint}`;
+    if (/^(bash|test|npm|node)/i.test(tool))
+        return `execute or validate with ${tool}${targetHint}`;
+    if (/^(browser|mcp__playwright)/i.test(tool))
+        return `inspect or operate a browser surface with ${tool}${targetHint}`;
+    return `invoke ${tool}${targetHint}`;
+}
+export function summarizeLiveModelInsight(recentThinking, toolName, args) {
+    const text = normalizeWhitespace(recentThinking.join(" "));
+    const excerpt = text ? crop(text, 180) : "waiting for explicit reasoning text from the model";
+    const approxTokens = text ? Math.max(1, Math.ceil(text.length / 4)) : 0;
+    return [
+        `intent: ${describeToolIntent(toolName, args)}`,
+        `reasoning: ${excerpt}`,
+        `signal: ${approxTokens} approx reasoning tokens since last action`,
+    ].join("\n");
+}
 function stripAnsi(text) {
     return text.replace(/\x1B\[[0-9;]*m/g, "");
 }
@@ -291,6 +331,7 @@ export function createTuiRenderer(opts) {
     let spinnerLabelIndex = 0;
     let spinnerActive = false;
     let thinkingActive = false;
+    let recentThinking = [];
     let iterCurrent = 0;
     let iterMax = 0;
     const sessionStartedAt = new Date();
@@ -397,17 +438,24 @@ export function createTuiRenderer(opts) {
                     process.stdout.write("  ");
                     thinkingActive = true;
                 }
+                recentThinking.push(event.text);
+                if (recentThinking.join("").length > 1200) {
+                    recentThinking = [recentThinking.join("").slice(-1200)];
+                }
                 process.stdout.write(event.text);
                 break;
             case "tool_call": {
                 stopSpinner();
                 const argsStr = JSON.stringify(event.args, null, 2);
+                const insight = summarizeLiveModelInsight(recentThinking, event.name, event.args);
+                const panelBody = [`model insight:\n${insight}`, `args:\n${argsStr}`].join("\n\n");
                 const label = `⚙  ${event.name}`;
                 const borderFn = opts.useColor ? chalk.cyan : (s) => s;
                 process.stdout.write("\n\n");
-                process.stdout.write(drawBox(label, argsStr, borderFn, opts.useColor) + "\n");
+                process.stdout.write(drawBox(label, panelBody, borderFn, opts.useColor) + "\n");
                 printLiveMap();
                 thinkingActive = false;
+                recentThinking = [];
                 startSpinner(toolLabel(event.name));
                 break;
             }
@@ -502,10 +550,44 @@ export function createTuiRenderer(opts) {
             case "escalate":
             case "circuit_open":
             case "sandbox_health":
+            case "branch_create":
+            case "incident":
                 stopSpinner();
                 printLiveMap();
                 startSpinner(backgroundLabel());
                 break;
+            case "step_inspect": {
+                stopSpinner();
+                const step = inspectStep(visualization, event.stepId);
+                if (!step)
+                    break;
+                const details = [];
+                if (event.params)
+                    details.push(`params:\n${event.params}`);
+                if (event.output)
+                    details.push(`output:\n${event.output}`);
+                if (event.diff)
+                    details.push(`diff:\n${event.diff}`);
+                if (event.trace)
+                    details.push(`trace:\n${event.trace}`);
+                if (event.policy)
+                    details.push(`policy:\n${event.policy}`);
+                if (!details.length)
+                    break;
+                const borderFn = opts.useColor ? chalk.blueBright : (s) => s;
+                process.stdout.write("\n" + drawBox(`▸ inspect ${event.stepId}`, details.join("\n\n"), borderFn, opts.useColor) + "\n");
+                break;
+            }
+            case "partial_output": {
+                const step = visualization.steps.find((s) => s.id === event.stepId);
+                if (step) {
+                    if (opts.useColor)
+                        process.stdout.write(chalk.dim(event.text));
+                    else
+                        process.stdout.write(event.text);
+                }
+                break;
+            }
         }
     };
 }

@@ -11,6 +11,7 @@ export interface SplashOptions extends TuiOptions {
     project: string;
     status: string;
 }
+export declare function summarizeLiveModelInsight(recentThinking: string[], toolName: string, args: Record<string, unknown>): string;
 export declare function shouldRepositionSplashFrame(startMs: number, nowMs: number, timeoutMs: number): boolean;
 export declare function splashFrameDelayMs(): number;
 export declare function splashAnimationFrameCount(): number;
