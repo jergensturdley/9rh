@@ -349,14 +349,14 @@ export function createTuiRenderer(opts) {
     function printLiveMap() {
         if (liveMapTimer !== null)
             return;
-        liveMapTimer = setTimeout(printLiveMapNow, 200);
+        liveMapTimer = setTimeout(printLiveMapNow, 300);
         liveMapTimer.unref?.();
     }
     function stringifyArgs(args) {
         const cached = argsStringCache.get(args);
         if (cached)
             return cached;
-        const value = JSON.stringify(args, null, 2);
+        const value = JSON.stringify(args);
         argsStringCache.set(args, value);
         return value;
     }
@@ -372,7 +372,7 @@ export function createTuiRenderer(opts) {
                 : `  ${frame} ${label}`;
             process.stdout.write(`\r${line}`);
             spinnerFrame++;
-        }, 160);
+        }, 200);
     }
     function oddLabel(labels, replacements = {}) {
         const template = labels[spinnerLabelIndex++ % labels.length];

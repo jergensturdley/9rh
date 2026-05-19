@@ -6,17 +6,36 @@ const execFileAsync = promisify(execFile);
 const MAX_OUTPUT_CHARS = 40_000;
 const MIN_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 120_000;
+const PATH_CACHE_LIMIT = 512;
+const realWorkDirCache = new Map();
+const sandboxPathCache = new Map();
+function rememberBounded(cache, key, value) {
+    if (cache.size >= PATH_CACHE_LIMIT) {
+        const first = cache.keys().next().value;
+        if (first)
+            cache.delete(first);
+    }
+    cache.set(key, value);
+    return value;
+}
 async function realworkDir(workDir) {
-    return normalize(await realpath(workDir).catch(async () => readlink(workDir).catch(() => workDir)));
+    const cached = realWorkDirCache.get(workDir);
+    if (cached)
+        return cached;
+    return rememberBounded(realWorkDirCache, workDir, normalize(await realpath(workDir).catch(async () => readlink(workDir).catch(() => workDir))));
 }
 async function sandboxPath(rawPath, workDir) {
+    const cacheKey = `${workDir}\0${rawPath}`;
+    const cached = sandboxPathCache.get(cacheKey);
+    if (cached)
+        return cached;
     const realWorkDir = await realworkDir(workDir);
     const abs = resolve(realWorkDir, rawPath);
     const normalized = normalize(await realpath(abs).catch(() => abs));
     if (!normalized.startsWith(realWorkDir + "/") && normalized !== realWorkDir) {
         throw new Error(`Path escapes workDir: ${rawPath}`);
     }
-    return abs;
+    return rememberBounded(sandboxPathCache, cacheKey, abs);
 }
 async function assertExistingPathIsNotSymlink(rawPath, workDir, operation) {
     const sandboxed = await sandboxPath(rawPath, workDir);

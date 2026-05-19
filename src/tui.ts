@@ -406,14 +406,14 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
 
   function printLiveMap(): void {
     if (liveMapTimer !== null) return;
-    liveMapTimer = setTimeout(printLiveMapNow, 200);
+    liveMapTimer = setTimeout(printLiveMapNow, 300);
     liveMapTimer.unref?.();
   }
 
   function stringifyArgs(args: Record<string, unknown>): string {
     const cached = argsStringCache.get(args);
     if (cached) return cached;
-    const value = JSON.stringify(args, null, 2);
+    const value = JSON.stringify(args);
     argsStringCache.set(args, value);
     return value;
   }
@@ -429,7 +429,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         : `  ${frame} ${label}`;
       process.stdout.write(`\r${line}`);
       spinnerFrame++;
-    }, 160);
+    }, 200);
   }
 
   function oddLabel(labels: string[], replacements: Record<string, string> = {}): string {
