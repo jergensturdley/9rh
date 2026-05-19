@@ -20,4 +20,50 @@ describe("compressUserInput", () => {
     expect(result.text.length).toBeLessThan(1800);
     expect(result.text.length).toBeLessThan(frame.length / 5);
   });
+
+  it("compresses large pasted logs while preserving actionable signals", () => {
+    const log = [
+      "Please debug this failing test run:",
+      "$ npm test -- --runInBand",
+      ...Array.from({ length: 60 }, (_, i) => `noise line ${i} lorem ipsum dolor sit amet ${"x".repeat(70)}`),
+      "FAIL src/widget.test.ts",
+      "Expected: 200",
+      "Received: 500",
+      "Error: database timeout at src/api.ts:42",
+      ...Array.from({ length: 30 }, (_, i) => `more noise ${i} ${"y".repeat(90)}`),
+      "Please fix the regression without changing public API.",
+    ].join("\n");
+
+    const result = compressUserInput(log, { textLineThreshold: 20, maxChars: 1800 });
+
+    expect(result.changed).toBe(true);
+    expect(result.text).toContain("User input compressed for token frugality");
+    expect(result.text).toContain("FAIL src/widget.test.ts");
+    expect(result.text).toContain("Expected: 200");
+    expect(result.text).toContain("Received: 500");
+    expect(result.text).toContain("Error: database timeout at src/api.ts:42");
+    expect(result.text).toContain("Please fix the regression");
+    expect(result.text.length).toBeLessThan(log.length / 2);
+    expect(result.notices[0]).toContain("pasted large input compressed");
+  });
+
+  it("summarizes long code fences with head and tail context", () => {
+    const code = [
+      "Can you review this file?",
+      "```ts",
+      "export function first() { return 1; }",
+      ...Array.from({ length: 35 }, (_, i) => `const value${i} = ${i};`),
+      "export function last() { return 2; }",
+      "```",
+    ].join("\n");
+
+    const result = compressUserInput(code, { textLineThreshold: 10, maxChars: 1400 });
+
+    expect(result.changed).toBe(true);
+    expect(result.text).toContain("[Code fences summarized]");
+    expect(result.text).toContain("fence 1: ts");
+    expect(result.text).toContain("export function first");
+    expect(result.text).toContain("export function last");
+    expect(result.text).toContain("code lines omitted");
+  });
 });

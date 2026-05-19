@@ -7,6 +7,8 @@ const MARKDOWN_IMAGE_RE = /!\[([^\]]*)\]\((data:image\/(?:png|jpe?g|gif|webp|bmp
 const IMAGE_PATH_RE = /(?:^|\s)([\w./~:@%+\\-]+\.(?:png|jpe?g|gif|webp|bmp|svg))(?:\s|$)/gi;
 const PYTHON_FRAME_RE = /^\s*[│┃]?\s*(?:File ")?(.+?\.py)(?:", line |:)(\d+)(?:\s+in\s+([\w.<>]+))?/u;
 const EXCEPTION_LINE_RE = /^\s*(?:[A-Za-z_][\w.]*Error|Exception|Traceback|[\w.]+Exception)\b.*$/u;
+const IMPORTANT_LINE_RE = /(?:\b(?:error|exception|failed|failure|fatal|panic|traceback|warning|todo|fixme|expected|actual|received|diff|patch|file|command|test|build|compile|timeout|denied|not found|fail)\b|\b[\w./-]+\.\w{1,8}:\d+\b|^\s*(?:[-+@]{2,}|[>#] |\d+\)|[-*]\s))/iu;
+const CODE_FENCE_RE = /```[\s\S]*?```/gu;
 function hashText(text) {
     return createHash("sha256").update(text).digest("hex").slice(0, 16);
 }
@@ -41,6 +43,66 @@ function stripTerminalNoise(line) {
         .replace(/[─━]{4,}/gu, " ")
         .replace(/\s+/gu, " ")
         .trim();
+}
+function normalizeInputLine(line) {
+    return stripTerminalNoise(line)
+        .replace(/\s+$/u, "")
+        .replace(/^(?:\$|>|❯)\s+/u, "cmd: ");
+}
+function uniquePush(lines, seen, line, maxLength = 240) {
+    const normalized = normalizeInputLine(line).slice(0, maxLength);
+    if (!normalized || seen.has(normalized))
+        return;
+    seen.add(normalized);
+    lines.push(normalized);
+}
+function extractCodeFenceSummaries(input) {
+    return Array.from(input.matchAll(CODE_FENCE_RE)).slice(0, 6).map((match, index) => {
+        const fence = match[0];
+        const lines = fence.split(/\r?\n/u);
+        const first = lines[0].replace(/^```/u, "").trim() || "text";
+        const body = lines.slice(1, -1);
+        const head = body.slice(0, 5).map((line) => normalizeInputLine(line)).filter(Boolean);
+        const tail = body.length > 8 ? body.slice(-3).map((line) => normalizeInputLine(line)).filter(Boolean) : [];
+        const omitted = Math.max(0, body.length - head.length - tail.length);
+        return [
+            `fence ${index + 1}: ${first}, ${body.length.toLocaleString()} lines`,
+            ...head.map((line) => `  ${line}`),
+            ...(omitted > 0 ? [`  … ${omitted.toLocaleString()} code lines omitted …`] : []),
+            ...tail.map((line) => `  ${line}`),
+        ].join("\n");
+    });
+}
+function buildFrugalLargeTextSummary(input, opts) {
+    const lines = input.split(/\r?\n/u);
+    const digest = hashText(input);
+    const seen = new Set();
+    const head = lines.slice(0, 4).map((line) => normalizeInputLine(line).slice(0, 180)).filter(Boolean);
+    const tail = lines.slice(-4).map((line) => normalizeInputLine(line).slice(0, 180)).filter(Boolean);
+    const important = [];
+    for (const line of lines) {
+        if (important.length >= 40)
+            break;
+        if (IMPORTANT_LINE_RE.test(line))
+            uniquePush(important, seen, line);
+    }
+    const codeFences = extractCodeFenceSummaries(input);
+    const parts = [
+        `[User input compressed for token frugality: ${lines.length.toLocaleString()} lines / ${input.length.toLocaleString()} chars; sha256:${digest}]`,
+    ];
+    if (head.length > 0)
+        parts.push(`[Opening context]\n${head.map((line) => `- ${line}`).join("\n")}`);
+    if (important.length > 0)
+        parts.push(`[Signals preserved]\n${important.map((line) => `- ${line}`).join("\n")}`);
+    if (codeFences.length > 0)
+        parts.push(`[Code fences summarized]\n${codeFences.join("\n---\n")}`);
+    if (tail.length > 0)
+        parts.push(`[Closing context]\n${tail.map((line) => `- ${line}`).join("\n")}`);
+    parts.push("[Instruction]\nIf exact omitted content is needed, ask the user for the specific file/log slice rather than assuming details.");
+    let text = parts.join("\n\n");
+    if (text.length > opts.maxChars)
+        text = text.slice(0, opts.maxChars - 1).trimEnd() + "…";
+    return text;
 }
 function compressTerminalTraceback(input, opts) {
     const hasTraceback = /Traceback \(most recent call last\)|\bMountError:|\b\w+Error:/u.test(input);
@@ -104,15 +166,13 @@ function compressLargeText(input, opts) {
         return { text: input, changed: false, notices: [] };
     }
     const isLineWall = lineCount >= opts.textLineThreshold;
-    const text = isLineWall
-        ? `[Huge wall of ${lineCount.toLocaleString()} lines pasted]`
-        : `[Huge wall of ${charCount.toLocaleString()} chars pasted]`;
+    const text = buildFrugalLargeTextSummary(input, opts);
     return {
         text,
         changed: true,
         notices: [isLineWall
-                ? `pasted huge wall condensed: ${lineCount.toLocaleString()} lines → marker`
-                : `pasted huge wall condensed: ${charCount.toLocaleString()} chars → marker`],
+                ? `pasted large input compressed: ${lineCount.toLocaleString()} lines → ${text.length.toLocaleString()} chars`
+                : `pasted large input compressed: ${charCount.toLocaleString()} chars → ${text.length.toLocaleString()} chars`],
     };
 }
 export function compressUserInput(input, options = {}) {
