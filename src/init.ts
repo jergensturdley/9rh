@@ -2,7 +2,7 @@ import { createConnection } from "net";
 import { execFile, execFileSync, spawn } from "child_process";
 import { createHash } from "crypto";
 import { promisify } from "util";
-import { existsSync } from "fs";
+import { closeSync, existsSync, openSync, readFileSync } from "fs";
 import chalk from "chalk";
 
 const execFileAsync = promisify(execFile);
@@ -81,6 +81,20 @@ async function healthCheck(openAIURL: string, apiKey: string): Promise<boolean> 
   }
 }
 
+function processErrorMessage(err: unknown): string {
+  const e = err as { message?: string; stderr?: string; stdout?: string };
+  return [e.stderr, e.stdout, e.message].filter(Boolean).join("\n").trim() || String(err);
+}
+
+function tailFile(path: string, maxChars = 2000): string {
+  try {
+    const raw = readFileSync(path, "utf8");
+    return raw.length > maxChars ? raw.slice(-maxChars) : raw;
+  } catch {
+    return "";
+  }
+}
+
 async function installAndStart(): Promise<{ success: boolean; error?: string }> {
   const isInstalled =
     existsSync("/usr/local/bin/9router") ||
@@ -93,14 +107,15 @@ async function installAndStart(): Promise<{ success: boolean; error?: string }> 
     process.stderr.write(chalk.yellow("  Installing 9router globally...\n"));
     try {
       await execFileAsync("npm", ["install", "-g", "9router"], { timeout: 60_000 });
-    } catch {
-      process.stderr.write(chalk.yellow("  npm install failed — trying npx...\n"));
+    } catch (err) {
+      const npmError = processErrorMessage(err).split("\n").slice(0, 4).join("\n");
+      process.stderr.write(chalk.yellow(`  npm install failed — trying npx...\n${npmError ? `  ${npmError}\n` : ""}`));
       try {
         await execFileAsync("npx", ["-y", "9router", "--version"], { timeout: 30_000 });
         startCommand = "npx";
         startArgs = ["-y", "9router", "--no-browser"];
-      } catch {
-        return { success: false, error: "Neither npm install -g nor npx could install 9router" };
+      } catch (npxErr) {
+        return { success: false, error: `Neither npm install -g nor npx could install 9router. npx error: ${processErrorMessage(npxErr)}` };
       }
     }
   }
@@ -111,14 +126,18 @@ async function installAndStart(): Promise<{ success: boolean; error?: string }> 
 
   process.stderr.write(chalk.blue("  Starting 9router daemon...\n"));
 
+  const logPath = `/tmp/9rh-9router-${Date.now()}.log`;
+  const logFd = openSync(logPath, "a");
   const daemon = spawn(startCommand, startArgs, {
     detached: true,
-    stdio: "ignore",
+    stdio: ["ignore", logFd, logFd],
   });
-  daemon.on("error", () => {});
+  closeSync(logFd);
+  let spawnError = "";
+  daemon.on("error", (err) => { spawnError = err.message; });
   daemon.unref();
 
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 45; i++) {
     await delay(1000);
     if (await isPortOpen(NINE_ROUTER_PORT)) {
       await delay(1500);
@@ -126,7 +145,12 @@ async function installAndStart(): Promise<{ success: boolean; error?: string }> 
     }
   }
 
-  return { success: false, error: "9router started but did not become reachable within 30s" };
+  const logTail = tailFile(logPath).trim();
+  const details = [
+    spawnError ? `spawn error: ${spawnError}` : "",
+    logTail ? `startup log (${logPath}):\n${logTail}` : `startup log: ${logPath}`,
+  ].filter(Boolean).join("\n");
+  return { success: false, error: `9router started but did not become reachable within 45s. ${details}` };
 }
 
 export interface InitResult {
