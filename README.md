@@ -107,6 +107,11 @@ export NINE_ROUTER_CONTINUATION_MODEL=continuation-heavy
 | `--repl` | — | — | Start an interactive REPL |
 | `--doctor` | — | — | Run diagnostics and exit |
 | `--no-color` | — | — | Disable colored output |
+| `--set-default-model <model>` | — | — | Save a default model in `~/.9rh/config.json` |
+| `--set-default-provider <provider>` | — | — | Save a default provider/prefix in `~/.9rh/config.json` |
+| `--show-config` | — | — | Print persisted defaults and the effective model |
+
+Persistent defaults are used when `--model` and `NINE_ROUTER_MODEL` are not set. If the saved model does not include a provider prefix and `defaultProvider` is set, 9rh combines them, for example `--set-default-provider kr --set-default-model claude-sonnet-4.5` resolves to `kr/claude-sonnet-4.5`.
 
 ## REPL slash commands
 
