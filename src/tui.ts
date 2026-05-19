@@ -221,6 +221,50 @@ function crop(text: string, max: number): string {
   return text.slice(0, Math.max(0, max - 1)) + "…";
 }
 
+function normalizeWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function truncateMiddle(text: string, max: number): string {
+  if (text.length <= max) return text;
+  if (max <= 1) return "…";
+  const head = Math.ceil((max - 1) * 0.6);
+  const tail = Math.floor((max - 1) * 0.4);
+  return `${text.slice(0, head)}…${text.slice(-tail)}`;
+}
+
+function describeToolIntent(tool: string, args: Record<string, unknown>): string {
+  const target =
+    typeof args.path === "string" ? args.path :
+    typeof args.file_path === "string" ? args.file_path :
+    typeof args.command === "string" ? args.command :
+    typeof args.query === "string" ? args.query :
+    typeof args.url === "string" ? args.url :
+    undefined;
+  const targetHint = target ? ` (${truncateMiddle(normalizeWhitespace(target), 42)})` : "";
+
+  if (/^(read|agentgrep|grep|glob|ls|find|search|websearch|webfetch)/i.test(tool)) return `gather evidence with ${tool}${targetHint}`;
+  if (/^(write|edit|multiedit|apply_patch|patch)/i.test(tool)) return `change workspace state with ${tool}${targetHint}`;
+  if (/^(bash|test|npm|node)/i.test(tool)) return `execute or validate with ${tool}${targetHint}`;
+  if (/^(browser|mcp__playwright)/i.test(tool)) return `inspect or operate a browser surface with ${tool}${targetHint}`;
+  return `invoke ${tool}${targetHint}`;
+}
+
+export function summarizeLiveModelInsight(
+  recentThinking: string[],
+  toolName: string,
+  args: Record<string, unknown>,
+): string {
+  const text = normalizeWhitespace(recentThinking.join(" "));
+  const excerpt = text ? crop(text, 180) : "waiting for explicit reasoning text from the model";
+  const approxTokens = text ? Math.max(1, Math.ceil(text.length / 4)) : 0;
+  return [
+    `intent: ${describeToolIntent(toolName, args)}`,
+    `reasoning: ${excerpt}`,
+    `signal: ${approxTokens} approx reasoning tokens since last action`,
+  ].join("\n");
+}
+
 function stripAnsi(text: string): string {
   return text.replace(/\x1B\[[0-9;]*m/g, "");
 }
@@ -341,6 +385,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
   let spinnerLabelIndex = 0;
   let spinnerActive = false;
   let thinkingActive = false;
+  let recentThinking: string[] = [];
   let iterCurrent = 0;
   let iterMax = 0;
   const sessionStartedAt = new Date();
@@ -460,18 +505,25 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
           process.stdout.write("  ");
           thinkingActive = true;
         }
+        recentThinking.push(event.text);
+        if (recentThinking.join("").length > 1200) {
+          recentThinking = [recentThinking.join("").slice(-1200)];
+        }
         process.stdout.write(event.text);
         break;
 
       case "tool_call": {
         stopSpinner();
         const argsStr = JSON.stringify(event.args, null, 2);
+        const insight = summarizeLiveModelInsight(recentThinking, event.name, event.args);
+        const panelBody = [`model insight:\n${insight}`, `args:\n${argsStr}`].join("\n\n");
         const label = `⚙  ${event.name}`;
         const borderFn = opts.useColor ? chalk.cyan : (s: string) => s;
         process.stdout.write("\n\n");
-        process.stdout.write(drawBox(label, argsStr, borderFn, opts.useColor) + "\n");
+        process.stdout.write(drawBox(label, panelBody, borderFn, opts.useColor) + "\n");
         printLiveMap();
         thinkingActive = false;
+        recentThinking = [];
         startSpinner(toolLabel(event.name));
         break;
       }
