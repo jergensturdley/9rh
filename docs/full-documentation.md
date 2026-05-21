@@ -111,6 +111,8 @@ export NINE_ROUTER_CONTINUATION_MODEL=continuation-heavy
 
 Persistent defaults are used when `--model` and `NINE_ROUTER_MODEL` are not set. If the saved model does not include a provider prefix and `defaultProvider` is set, 9rh combines them, for example `--set-default-provider kr --set-default-model claude-sonnet-4.5` resolves to `kr/claude-sonnet-4.5`.
 
+When a run reaches `--max-iter`, 9rh automatically compacts into a structured continuation packet instead of a bare free-form summary. The packet preserves the original task, current objective, completed and pending steps, files touched, commands/tests run, known failures, exact important outputs, recent tool history, long-horizon memory, and live repository state from `git status --short`, `git diff --stat`, and `git diff --name-only`. This reduces context loss across long-running work while still keeping the model context bounded. Use `--no-continue` to disable this behavior.
+
 ## REPL slash commands
 
 | Command | Description |

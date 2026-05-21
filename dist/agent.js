@@ -1,4 +1,6 @@
 import OpenAI from "openai";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import { TOOL_DEFINITIONS, executeTool } from "./tools.js";
 import { compressToolResultForContext } from "./contextCompression.js";
 import { buildLongHorizonMemory, renderLongHorizonMemory } from "./longHorizonMemory.js";
@@ -8,6 +10,7 @@ import { EventLogger } from "./replay/eventLogger.js";
 import { Reasoner } from "./reasoner/reasoner.js";
 import { createExecutor, ObservabilityCollector } from "./sandbox/index.js";
 import { formatSpecDrivenPrompt, shouldUseSpecDrivenTesting } from "./spec/specDrivenTesting.js";
+const execFileAsync = promisify(execFile);
 const DEFAULT_SYSTEM = `You are a skilled coding agent. You help with coding tasks by reading, writing, and modifying files, running commands, and solving problems step by step.
 
 Guidelines:
@@ -35,6 +38,7 @@ export class Agent {
     observer;
     activeModel;
     toolArgsJsonCache = new WeakMap();
+    recentToolHistory = [];
     constructor(config) {
         this.config = config;
         this.client = new OpenAI({
@@ -81,13 +85,46 @@ export class Agent {
             .join("\n");
         const memory = buildLongHorizonMemory(historyText, `agent-run:${this.currentTask.slice(0, 48) || "unknown"}`);
         const memorySummary = renderLongHorizonMemory(memory);
-        const compactPrompt = `Compress the conversation for a long-running coding agent. Preserve exact file names, function names, schema terms, API routes, decisions, and unresolved blockers. Drop repetitive deliberation and low-value status chatter. If any fact is uncertain, mark it for reconfirmation rather than stating it as fact. Return a concise operational summary of what task, what is done, and what next.\n\n${historyText}\n\nSummary:`;
+        const repoState = await this.collectRepoState();
+        const recentToolHistory = this.recentToolHistory.length > 0
+            ? this.recentToolHistory.join("\n")
+            : "No tool calls recorded yet.";
+        const compactPrompt = `Compress the conversation for a long-running coding agent into a structured continuation packet. Preserve exact file names, function names, schema terms, API routes, decisions, unresolved blockers, and test status. Do not rely on vague phrasing like "continue work". If any fact is uncertain, mark it for reconfirmation rather than stating it as fact.\n\nReturn markdown with exactly these sections:\n# Continuation Packet\n## Original task\n## Current objective\n## Completed steps\n## Pending steps\n## Files modified or inspected\n## Commands and tests run\n## Known failures or blockers\n## Important exact outputs\n## Repository state\n## Recent tool history\n## Next action\n\nRepository state captured from disk:\n${repoState}\n\nRecent tool history captured by harness:\n${recentToolHistory}\n\nConversation history to compress:\n${historyText}\n\nStructured continuation packet:`;
         const response = await this.client.chat.completions.create({
             model: this.currentModel(),
             messages: [{ role: "user", content: compactPrompt }],
         });
         const llmSummary = response.choices[0]?.message?.content ?? "Work in progress";
-        return `${llmSummary}\n\n${memorySummary}`;
+        return `${llmSummary}\n\n## Long-horizon memory\n${memorySummary}`;
+    }
+    async collectRepoState() {
+        const commands = [
+            { label: "git status --short", args: ["status", "--short"] },
+            { label: "git diff --stat", args: ["diff", "--stat"] },
+            { label: "git diff --name-only", args: ["diff", "--name-only"] },
+        ];
+        const sections = [];
+        for (const command of commands) {
+            try {
+                const { stdout, stderr } = await execFileAsync("git", command.args, {
+                    cwd: this.config.workDir,
+                    timeout: 5_000,
+                    maxBuffer: 64 * 1024,
+                });
+                const output = `${stdout}${stderr ? `\nSTDERR:\n${stderr}` : ""}`.trim();
+                sections.push(`### ${command.label}\n${output || "(clean / no output)"}`);
+            }
+            catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                sections.push(`### ${command.label}\n(unavailable: ${message})`);
+            }
+        }
+        return sections.join("\n\n");
+    }
+    rememberToolHistory(line) {
+        const normalized = line.length > 2_000 ? `${line.slice(0, 2_000)}…` : line;
+        this.recentToolHistory.push(normalized);
+        this.recentToolHistory = this.recentToolHistory.slice(-30);
     }
     resetForContinuation(summary, originalTask) {
         this.messages = [
@@ -97,7 +134,7 @@ export class Agent {
             },
             {
                 role: "user",
-                content: `RESUME: ${summary}\n\nOriginal task: ${originalTask}`,
+                content: `Continue the original task using this structured continuation packet as authoritative state. Reconfirm uncertain facts from the repository before acting.\n\n${summary}\n\nOriginal task: ${originalTask}`,
             },
         ];
     }
@@ -238,6 +275,7 @@ export class Agent {
         this.activeModel = this.config.model;
         this.stepIndex = 0;
         this.compactCount = 0;
+        this.recentToolHistory = [];
         this.messages = [];
         this.reasoner.reset();
         await this.initReplay(task);
@@ -363,6 +401,7 @@ export class Agent {
                         continue;
                     }
                     this.emit({ type: "tool_call", name: tc.name, args: tc.args });
+                    this.rememberToolHistory(`CALL ${tc.name} ${this.stringifyToolArgs(tc.args)}`);
                     const tcEvent = {
                         type: "tool_call",
                         step: this.stepContext(),
@@ -382,6 +421,8 @@ export class Agent {
                     const startMs = Date.now();
                     const result = await this.executeToolWithRepair(tc.name, tc.args, tc.id);
                     const durationMs = Date.now() - startMs;
+                    const resultPreview = result.error ? `ERROR: ${result.error}` : result.output;
+                    this.rememberToolHistory(`RESULT ${tc.name} (${durationMs}ms) ${resultPreview}`);
                     this.emit({
                         type: "tool_result",
                         name: tc.name,

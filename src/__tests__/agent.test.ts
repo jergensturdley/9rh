@@ -18,8 +18,8 @@ function makeConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
 type AgentPrivate = { streamCompletionWithReplay(): Promise<StreamResult>; compactContext(): Promise<string>; executeToolWithRepair(name: string, args: Record<string, unknown>, callId: string): Promise<{ output: string; error?: string }> };
 type StreamResult = { text: string; toolCalls: Array<{ id: string; name: string; argsRaw: string }> | null };
 type AgentWithRuntime = AgentPrivate & { activeModel?: string; config: AgentConfig };
-type AgentWithClient = AgentPrivate & { client: { chat: { completions: { create: () => Promise<AsyncIterable<unknown>> } } } };
-type AgentWithMessages = AgentPrivate & { messages: Array<{ role: string; content?: string | null; tool_calls?: Array<{ function: { arguments: string } }> }> };
+type AgentWithClient = AgentPrivate & { client: { chat: { completions: { create: (params?: unknown) => Promise<unknown> } } } };
+type AgentWithMessages = AgentPrivate & { messages: Array<{ role: string; content?: string | null; tool_calls?: Array<{ function: { arguments: string } }> }>; recentToolHistory?: string[] };
 
 function spyCompact(agent: Agent): void {
   jest.spyOn(agent as unknown as AgentPrivate, "compactContext").mockResolvedValue("summary");
@@ -134,6 +134,58 @@ describe("Agent continuation policy", () => {
 
     expect(events.find((e) => e.type === "compact")).toBeDefined();
     expect(events.find((e) => e.type === "continuation")).toBeDefined();
+  });
+
+  it("builds structured continuation packets with repo state and recent tool history", async () => {
+    const agent = new Agent(makeConfig());
+    const runtime = agent as unknown as AgentWithMessages & AgentWithClient;
+    let compactPrompt = "";
+    runtime.messages = [
+      { role: "system", content: "sys" },
+      { role: "user", content: "fix tests" },
+      { role: "assistant", content: "I inspected src/index.ts" },
+    ];
+    runtime.recentToolHistory = ["CALL read_file {\"path\":\"src/index.ts\"}"];
+    runtime.client = {
+      chat: {
+        completions: {
+          create: async (params?: unknown) => {
+            const messages = (params as { messages: Array<{ content: string }> }).messages;
+            compactPrompt = messages[0]?.content ?? "";
+            return { choices: [{ message: { content: "# Continuation Packet\n## Next action\nRun tests" } }] };
+          },
+        },
+      },
+    };
+
+    const summary = await runtime.compactContext();
+
+    expect(summary).toContain("# Continuation Packet");
+    expect(summary).toContain("## Long-horizon memory");
+    expect(compactPrompt).toContain("## Pending steps");
+    expect(compactPrompt).toContain("Repository state captured from disk");
+    expect(compactPrompt).toContain("### git status --short");
+    expect(compactPrompt).toContain("Recent tool history captured by harness");
+    expect(compactPrompt).toContain("CALL read_file");
+  });
+
+  it("resumes from structured continuation packet instead of a bare summary", async () => {
+    const agent = new Agent(
+      makeConfig({
+        maxIterations: 1,
+        continuationPolicy: { maxContinuations: 1 },
+      }),
+    );
+
+    spyCompact(agent);
+    spyStream(agent, [TOOL_CALL, DONE]);
+
+    await expect(agent.run("task")).resolves.toBe("finished");
+
+    const userMessage = (agent as unknown as AgentWithMessages).messages.find((message) => message.role === "user");
+    expect(userMessage?.content).toContain("structured continuation packet");
+    expect(userMessage?.content).toContain("Reconfirm uncertain facts from the repository");
+    expect(userMessage?.content).toContain("summary");
   });
 
   it("switches model before compacting and resuming continuation", async () => {

@@ -127,11 +127,14 @@ export declare class Agent {
     private observer;
     private activeModel;
     private toolArgsJsonCache;
+    private recentToolHistory;
     constructor(config: AgentConfig);
     private emit;
     private currentModel;
     private shouldCompact;
     private compactContext;
+    private collectRepoState;
+    private rememberToolHistory;
     private resetForContinuation;
     private applyContinuationModelSwitch;
     private buildAgentState;
