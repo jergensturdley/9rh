@@ -1,7 +1,13 @@
 import chalk from "chalk";
 import { applyAgentEvent, createRunVisualization, inspectStep, renderRunVisualization, } from "./visualization.js";
 import { colorizeFrame, generatePlasmaFrame, shouldShowSplash, SPLASH_ROWS } from "./splash.js";
-const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const SPINNER_SETS = [
+    ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
+    ["◜", "◠", "◝", "◞", "◡", "◟"],
+    ["✶", "✸", "✹", "✺", "✹", "✷"],
+    ["▖", "▘", "▝", "▗"],
+    ["🌑", "🌒", "🌓", "🌔", "🌕", "🌖", "🌗", "🌘"],
+];
 const THINKING_LABELS = [
     "licking the type system…",
     "asking the AST if it feels held…",
@@ -59,6 +65,26 @@ const THINKING_LABELS = [
     "reading the room, then the heap dump…",
     "summoning a minimal reproduction homunculus…",
     "stapling invariants to the wall…",
+    "building a tiny bridge over undefined behavior…",
+    "installing handrails on the happy path…",
+    "asking the bug to step into better lighting…",
+    "knitting a stack trace into a little scarf…",
+    "teaching the build graph object permanence…",
+    "putting the race condition in time-out…",
+    "checking whether the abstraction has a permit…",
+    "building a tasteful shrine to deterministic output…",
+    "convincing the cache that secrets are not snacks…",
+    "polishing the yak before shaving it responsibly…",
+    "measuring vibes with a calibrated rubber duck…",
+    "building a small fence around spooky action at a distance…",
+    "asking the linter to use its inside voice…",
+    "turning vague dread into actionable diffs…",
+    "feeding breadcrumbs to the control flow…",
+    "checking if the monorepo needs a weighted blanket…",
+    "assembling a bug trap from promises and string cheese…",
+    "building context scaffolding out of exact filenames…",
+    "letting the type checker sniff the evidence…",
+    "pressing the flaky test until it squeaks…",
 ];
 const TOOL_LABELS = [
     "letting {tool} touch the wires…",
@@ -119,6 +145,16 @@ const TOOL_LABELS = [
     "watching {tool} metabolize arguments…",
     "asking {tool} to make stdout pretty but not proud…",
     "letting {tool} count things with suspicious confidence…",
+    "asking {tool} to build a tiny ramp for the bytes…",
+    "letting {tool} operate the repo forklift very slowly…",
+    "checking whether {tool} filed its side effects correctly…",
+    "watching {tool} perform filesystem cartography…",
+    "asking {tool} to bring back facts, not folklore…",
+    "giving {tool} a reflective vest and a timeout…",
+    "letting {tool} rummage through the evidence drawer…",
+    "asking {tool} to keep stdout on a short leash…",
+    "waiting while {tool} translates chaos into exit codes…",
+    "letting {tool} build a little report out of crumbs…",
 ];
 const BACKGROUND_LABELS = [
     "listening for kernel noises…",
@@ -151,6 +187,16 @@ const BACKGROUND_LABELS = [
     "checking if the rate limit is asleep…",
     "waiting for the queue to digest…",
     "making sure the timeout has a chaperone…",
+    "building suspense in a strictly bounded buffer…",
+    "rotating the tiny moon of progress…",
+    "dusting the live map for fingerprints…",
+    "checking whether context loss left footprints…",
+    "watering the continuation packet…",
+    "counting progress sparks in the terminal rafters…",
+    "keeping the transcript warm by the compiler fire…",
+    "asking the sandbox hamster wheel for telemetry…",
+    "building a small lighthouse for the next tool call…",
+    "listening for suspiciously confident silence…",
 ];
 function cols() {
     return process.stdout.columns ?? 80;
@@ -345,6 +391,7 @@ export function createTuiRenderer(opts) {
     let liveMapTimer = null;
     let spinnerFrame = 0;
     let spinnerLabelIndex = 0;
+    let activeSpinnerFrames = SPINNER_SETS[0];
     let spinnerActive = false;
     let thinkingActive = false;
     let recentThinking = [];
@@ -387,8 +434,9 @@ export function createTuiRenderer(opts) {
             return;
         spinnerActive = true;
         spinnerFrame = 0;
+        activeSpinnerFrames = SPINNER_SETS[(spinnerLabelIndex + label.length) % SPINNER_SETS.length] ?? SPINNER_SETS[0];
         spinnerTimer = setInterval(() => {
-            const frame = FRAMES[spinnerFrame % FRAMES.length];
+            const frame = activeSpinnerFrames[spinnerFrame % activeSpinnerFrames.length];
             const line = opts.useColor
                 ? `  ${chalk.cyan(frame)} ${chalk.dim(label)}`
                 : `  ${frame} ${label}`;
