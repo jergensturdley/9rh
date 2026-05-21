@@ -2,7 +2,7 @@ import { describe, expect, it, jest } from "@jest/globals";
 import { mkdtemp, rm, symlink, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import { executeTool } from "../tools.js";
+import { TOOL_DEFINITIONS, executeTool } from "../tools.js";
 import type { ExecutionResult, SandboxProvider } from "../sandbox/index.js";
 
 function makeMockExecutor(overrides: Partial<ExecutionResult> = {}): SandboxProvider {
@@ -120,6 +120,32 @@ describe("executeTool non-bash tools", () => {
   it("returns unknown tool error for unrecognised names", async () => {
     const result = await executeTool("unknown_tool", {}, process.cwd());
     expect(result.error).toBe("Unknown tool: unknown_tool");
+  });
+
+  it("exposes CodeGraph tools to the agent", () => {
+    const names = TOOL_DEFINITIONS.map((tool) => tool.function.name);
+    expect(names).toEqual(expect.arrayContaining([
+      "codegraph_search",
+      "codegraph_context",
+      "codegraph_files",
+      "codegraph_affected",
+      "codegraph_status",
+    ]));
+  });
+
+  it("validates required CodeGraph tool inputs before invoking codegraph", async () => {
+    await expect(executeTool("codegraph_search", {}, process.cwd())).resolves.toMatchObject({
+      output: "",
+      error: "codegraph_search requires query",
+    });
+    await expect(executeTool("codegraph_context", {}, process.cwd())).resolves.toMatchObject({
+      output: "",
+      error: "codegraph_context requires task",
+    });
+    await expect(executeTool("codegraph_affected", { files: [] }, process.cwd())).resolves.toMatchObject({
+      output: "",
+      error: "codegraph_affected requires files",
+    });
   });
 
   it("refuses to read through a symlink", async () => {

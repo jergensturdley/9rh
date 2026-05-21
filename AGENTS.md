@@ -35,7 +35,7 @@ Slash-command reads of 9router configuration are cached briefly on `SessionState
 ```
 src/
   agent.ts    — streaming ReAct loop (OpenAI client, tool execution, iteration management)
-  tools.ts    — 5 sandboxed tools (read_file, write_file, run_bash, list_files, search_files)
+  tools.ts    — sandboxed tools (read_file, write_file, run_bash, list_files, search_files, codegraph_*)
   commands.ts — 9router-native slash commands + SessionState interface
   index.ts    — CLI (commander), REPL, task runner
   main.ts     — programmatic exports for library use
@@ -46,6 +46,28 @@ src/
 Tools may **not** escape `workDir`. The `sandboxPath()` function resolves relative paths against `workDir` and throws if the normalized result leaves the sandbox. Do not disable or bypass this.
 
 `run_bash` uses `execFile("sh", ["-c", cmd])` (no shell wrapper) — shell operators like `&&`, `|`, `>` are passed to `sh -c`, which is intentional.
+
+## CodeGraph
+
+This repo has CodeGraph initialized at `.codegraph/`. Prefer semantic CodeGraph lookups before broad text scans when answering architecture/discovery questions.
+
+For 9rh, use the native tools:
+- `codegraph_context` for task-focused repository context
+- `codegraph_search` for symbols by name/kind
+- `codegraph_files` for indexed file structure
+- `codegraph_affected` to find tests affected by changed source files
+- `codegraph_status` to inspect index health
+
+For Jcode or other agents without native 9rh tools, use the CLI equivalents from the repo root:
+```sh
+codegraph context -p . "task or architecture question"
+codegraph query -p . "SymbolName"
+codegraph files -p . --format tree --max-depth 3
+codegraph affected -p . path/to/changed-file.ts
+codegraph status .
+```
+
+If results look stale after edits, run `codegraph sync .` before querying. Do not rely solely on CodeGraph before modifying files: re-open the target file section directly before editing.
 
 ## Slash Commands
 
