@@ -227,6 +227,26 @@ function normalizeWhitespace(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+export interface TranscriptEntry {
+  kind: "agent" | "tool" | "result" | "system" | "error";
+  text: string;
+}
+
+export function renderRecentTranscript(entries: TranscriptEntry[], maxLines = 8): string {
+  if (entries.length === 0) return "No agent messages yet.";
+  const prefixes: Record<TranscriptEntry["kind"], string> = {
+    agent: "agent",
+    tool: "tool",
+    result: "result",
+    system: "system",
+    error: "error",
+  };
+  return entries
+    .slice(-maxLines)
+    .map((entry) => `${prefixes[entry.kind]}: ${normalizeWhitespace(entry.text) || "(empty)"}`)
+    .join("\n");
+}
+
 function truncateMiddle(text: string, max: number): string {
   if (text.length <= max) return text;
   if (max <= 1) return "…";
@@ -389,11 +409,18 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
   let spinnerActive = false;
   let thinkingActive = false;
   let recentThinking: string[] = [];
+  let activeThinking = "";
+  let transcript: TranscriptEntry[] = [];
   let iterCurrent = 0;
   let iterMax = 0;
   const sessionStartedAt = new Date();
   const visualization = createRunVisualization();
   const argsStringCache = new WeakMap<Record<string, unknown>, string>();
+
+  function rememberTranscript(entry: TranscriptEntry): void {
+    transcript.push(entry);
+    transcript = transcript.slice(-20);
+  }
 
   function printLiveMapNow(): void {
     if (liveMapTimer !== null) {
@@ -401,7 +428,8 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
       liveMapTimer = null;
     }
     const borderFn = opts.useColor ? chalk.blueBright : (s: string) => s;
-    process.stdout.write("\n" + drawBox("▣  live run map", renderRunVisualization(visualization, { collapseNoise: true }), borderFn, opts.useColor) + "\n");
+    process.stdout.write("\n" + drawBox("◉  recent transcript", renderRecentTranscript(transcript), borderFn, opts.useColor) + "\n");
+    process.stdout.write(drawBox("▣  live run map", renderRunVisualization(visualization, { collapseNoise: true }), borderFn, opts.useColor) + "\n");
   }
 
   function printLiveMap(): void {
@@ -528,9 +556,11 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
           thinkingActive = true;
         }
         recentThinking.push(event.text);
+        activeThinking += event.text;
         if (recentThinking.join("").length > 1200) {
           recentThinking = [recentThinking.join("").slice(-1200)];
         }
+        if (activeThinking.length > 2_000) activeThinking = activeThinking.slice(-2_000);
         process.stdout.write(event.text);
         break;
 
@@ -541,10 +571,15 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         const panelBody = [`model insight:\n${insight}`, `args:\n${argsStr}`].join("\n\n");
         const label = `⚙  ${event.name}`;
         const borderFn = opts.useColor ? chalk.cyan : (s: string) => s;
+        if (normalizeWhitespace(activeThinking)) {
+          rememberTranscript({ kind: "agent", text: activeThinking });
+        }
+        rememberTranscript({ kind: "tool", text: `${event.name} ${argsStr}` });
         process.stdout.write("\n\n");
         process.stdout.write(drawBox(label, panelBody, borderFn, opts.useColor) + "\n");
         printLiveMapNow();
         thinkingActive = false;
+        activeThinking = "";
         recentThinking = [];
         startSpinner(toolLabel(event.name));
         break;
@@ -554,6 +589,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         stopSpinner();
         if (event.error) {
           const content = [event.error, event.output].filter(Boolean).join("\n");
+          rememberTranscript({ kind: "error", text: content });
           const borderFn = opts.useColor ? chalk.red : (s: string) => s;
           process.stdout.write(
             "\n" + drawBox("✗  error", content, borderFn, opts.useColor) + "\n",
@@ -561,6 +597,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         } else {
           const lines = event.output.split("\n");
           const preview = lines.slice(0, 6).join("\n");
+          rememberTranscript({ kind: "result", text: preview });
           const moreHint =
             lines.length > 6
               ? opts.useColor
@@ -580,6 +617,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
 
       case "compact":
         stopSpinner();
+        rememberTranscript({ kind: "system", text: `compacting context — ${event.summary}` });
         process.stdout.write(
           "\n" +
             (opts.useColor
@@ -592,6 +630,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
 
       case "continuation":
         stopSpinner();
+        rememberTranscript({ kind: "system", text: `continuing ${event.count}/${event.max}` });
         process.stdout.write(
           "\n" +
             (opts.useColor
@@ -605,6 +644,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
 
       case "model_switch":
         stopSpinner();
+        rememberTranscript({ kind: "system", text: `switching model ${event.from} → ${event.to}` });
         process.stdout.write(
           "\n" +
             (opts.useColor
@@ -627,6 +667,8 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
 
       case "done": {
         stopSpinner();
+        if (normalizeWhitespace(activeThinking)) rememberTranscript({ kind: "agent", text: activeThinking });
+        rememberTranscript({ kind: "system", text: "done" });
         const w = boxWidth() + 2;
         const sep = "═".repeat(w - 2);
         const body = "  ✓  done".padEnd(w - 2);
@@ -646,6 +688,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
 
       case "error":
         stopSpinner();
+        rememberTranscript({ kind: "error", text: event.message });
         process.stdout.write(
           "\n" +
             (opts.useColor
