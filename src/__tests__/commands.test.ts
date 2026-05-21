@@ -11,6 +11,9 @@ function state(apiKey = "session-key"): SessionState {
     model: "kr/test-model",
     workDir: "/tmp",
     useColor: false,
+    queue: [],
+    _runStartMs: undefined,
+    _toolCallCount: {},
   };
 }
 
