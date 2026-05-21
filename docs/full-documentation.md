@@ -97,8 +97,9 @@ export NINE_ROUTER_CONTINUATION_MODEL=continuation-heavy
 | `-k, --key <key>` | `NINE_ROUTER_KEY` | `9router` | 9router API key |
 | `-d, --dir <dir>` | — | current working directory | Target directory for agent tools |
 | `-i, --max-iter <n>` | — | `100` | Maximum agent iterations |
+| `--no-continue` | — | — | Disable automatic continuation after max iterations |
 | `--continue-model <model>` | `NINE_ROUTER_CONTINUATION_MODEL` | — | Model or 9router combo to switch to after max iterations |
-| `--continue-max <n>` | `NINE_ROUTER_CONTINUATION_MAX` | `1` when continuation config is present | Maximum continuation rounds |
+| `--continue-max <n>` | `NINE_ROUTER_CONTINUATION_MAX` | `20` | Maximum continuation rounds |
 | `--continue-iter <n>` | `NINE_ROUTER_CONTINUATION_ITER` | same as `--max-iter` | Iterations per continuation round |
 | `--continue-switch-after <n>` | `NINE_ROUTER_CONTINUATION_SWITCH_AFTER` | `1` | Continuation round that triggers model switch |
 | `--repl` | — | — | Start an interactive REPL |
