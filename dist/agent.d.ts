@@ -128,7 +128,13 @@ export declare class Agent {
     private activeModel;
     private toolArgsJsonCache;
     private recentToolHistory;
+    private abortController;
+    private stopFlag;
     constructor(config: AgentConfig);
+    /** Abort current run immediately — cancels in-flight stream, breaks loop. */
+    abort(): void;
+    /** Request graceful stop after current tool call completes. */
+    requestStop(): void;
     private emit;
     private currentModel;
     private shouldCompact;

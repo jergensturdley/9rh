@@ -40,6 +40,8 @@ export class Agent {
     activeModel;
     toolArgsJsonCache = new WeakMap();
     recentToolHistory = [];
+    abortController = new AbortController();
+    stopFlag = false;
     constructor(config) {
         this.config = config;
         this.client = new OpenAI({
@@ -56,6 +58,15 @@ export class Agent {
         });
         this.executor = createExecutor(config.workDir, { useSandbox: true });
         this.observer = new ObservabilityCollector();
+    }
+    /** Abort current run immediately — cancels in-flight stream, breaks loop. */
+    abort() {
+        this.stopFlag = true;
+        this.abortController.abort(new Error("Interrupted by user"));
+    }
+    /** Request graceful stop after current tool call completes. */
+    requestStop() {
+        this.stopFlag = true;
     }
     emit(event) {
         this.config.onEvent?.(event);
@@ -94,7 +105,7 @@ export class Agent {
         const response = await this.client.chat.completions.create({
             model: this.currentModel(),
             messages: [{ role: "user", content: compactPrompt }],
-        });
+        }, { signal: this.abortController.signal });
         const llmSummary = response.choices[0]?.message?.content ?? "Work in progress";
         return `${llmSummary}\n\n## Long-horizon memory\n${memorySummary}`;
     }
@@ -270,6 +281,9 @@ export class Agent {
         return result;
     }
     async run(task) {
+        // Reset abort controller and stop flag for each run
+        this.abortController = new AbortController();
+        this.stopFlag = false;
         const useSpecDrivenTesting = this.config.specDrivenTesting !== false && shouldUseSpecDrivenTesting(task);
         const taskForAgent = useSpecDrivenTesting ? formatSpecDrivenPrompt(task) : task;
         this.currentTask = task;
@@ -502,6 +516,9 @@ export class Agent {
         let lastError = "";
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
+                if (this.abortController.signal.aborted) {
+                    throw new DOMException("Aborted by user", "AbortError");
+                }
                 const stream = await this.client.chat.completions.create({
                     model: this.currentModel(),
                     messages: this.messages,
@@ -509,7 +526,7 @@ export class Agent {
                     tool_choice: "auto",
                     stream: true,
                     stream_options: { include_usage: true },
-                });
+                }, { signal: this.abortController.signal });
                 let text = "";
                 const toolCallAccumulators = new Map();
                 for await (const chunk of stream) {

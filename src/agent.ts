@@ -123,6 +123,8 @@ export class Agent {
   private activeModel: string | undefined;
   private toolArgsJsonCache = new WeakMap<Record<string, unknown>, string>();
   private recentToolHistory: string[] = [];
+  private abortController: AbortController = new AbortController();
+  private stopFlag: boolean = false;
 
   constructor(config: AgentConfig) {
     this.config = config;
@@ -140,6 +142,17 @@ export class Agent {
     });
     this.executor = createExecutor(config.workDir, { useSandbox: true });
     this.observer = new ObservabilityCollector();
+  }
+
+  /** Abort current run immediately — cancels in-flight stream, breaks loop. */
+  abort(): void {
+    this.stopFlag = true;
+    this.abortController.abort(new Error("Interrupted by user"));
+  }
+
+  /** Request graceful stop after current tool call completes. */
+  requestStop(): void {
+    this.stopFlag = true;
   }
 
   private emit(event: AgentEvent): void {
@@ -182,10 +195,13 @@ export class Agent {
     const compactPrompt =
       `Compress the conversation for a long-running coding agent into a structured continuation packet. Preserve exact file names, function names, schema terms, API routes, decisions, unresolved blockers, and test status. Do not rely on vague phrasing like "continue work". If any fact is uncertain, mark it for reconfirmation rather than stating it as fact.\n\nReturn markdown with exactly these sections:\n# Continuation Packet\n## Original task\n## Current objective\n## Completed steps\n## Pending steps\n## Files modified or inspected\n## Commands and tests run\n## Known failures or blockers\n## Important exact outputs\n## Repository state\n## Recent tool history\n## Next action\n\nRepository state captured from disk:\n${repoState}\n\nRecent tool history captured by harness:\n${recentToolHistory}\n\nConversation history to compress:\n${historyText}\n\nStructured continuation packet:`;
 
-    const response = await this.client.chat.completions.create({
-      model: this.currentModel(),
-      messages: [{ role: "user", content: compactPrompt }],
-    });
+    const response = await this.client.chat.completions.create(
+      {
+        model: this.currentModel(),
+        messages: [{ role: "user", content: compactPrompt }],
+      },
+      { signal: this.abortController.signal },
+    );
 
     const llmSummary = response.choices[0]?.message?.content ?? "Work in progress";
     return `${llmSummary}\n\n## Long-horizon memory\n${memorySummary}`;
@@ -393,6 +409,10 @@ export class Agent {
   }
 
   async run(task: string): Promise<string> {
+    // Reset abort controller and stop flag for each run
+    this.abortController = new AbortController();
+    this.stopFlag = false;
+
     const useSpecDrivenTesting = this.config.specDrivenTesting !== false && shouldUseSpecDrivenTesting(task);
     const taskForAgent = useSpecDrivenTesting ? formatSpecDrivenPrompt(task) : task;
 
@@ -658,15 +678,21 @@ export class Agent {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
+        if (this.abortController.signal.aborted) {
+          throw new DOMException("Aborted by user", "AbortError");
+        }
         const stream: Stream<ChatCompletionChunk> =
-          await this.client.chat.completions.create({
-            model: this.currentModel(),
-            messages: this.messages,
-            tools: TOOL_DEFINITIONS as ChatCompletionTool[],
-            tool_choice: "auto",
-            stream: true,
-            stream_options: { include_usage: true },
-          });
+          await this.client.chat.completions.create(
+            {
+              model: this.currentModel(),
+              messages: this.messages,
+              tools: TOOL_DEFINITIONS as ChatCompletionTool[],
+              tool_choice: "auto",
+              stream: true,
+              stream_options: { include_usage: true },
+            },
+            { signal: this.abortController.signal },
+          );
 
         let text = "";
         const toolCallAccumulators: Map<

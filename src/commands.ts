@@ -15,6 +15,10 @@ export interface SessionState {
   wasStarted?: boolean; // true if 9router was auto-started by this session
   continuationPolicy?: ContinuationPolicy;
   routerCache?: RouterConfigCache;
+  // Queue / interrupt state
+  queue: string[];
+  _runStartMs: number | undefined;
+  _toolCallCount: Record<string, number>;
 }
 
 export interface RouterCacheEntry<T> {
@@ -288,6 +292,8 @@ const COMMANDS: Record<string, CommandDef> = {
         c ? chalk.dim("━━ system ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") : "━━ system ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         `  ${c ? chalk.cyan("/help") : "/help"}          Show this menu`,
         `  ${c ? chalk.cyan("/clear") : "/clear"}        Clear the screen`,
+        `  ${c ? chalk.cyan("/queue") : "/queue"}        Show queued message count`,
+        `  ${c ? chalk.cyan("/done") : "/done"}          Interrupt hint`,
         `  ${c ? chalk.cyan("/setup") : "/setup"}        Install & start 9router`,
         `  ${c ? chalk.cyan("/doctor") : "/doctor"}       Diagnose connectivity & config`,
         `  ${c ? chalk.cyan("/sandbox") : "/sandbox"}      Show command isolation status`,
@@ -580,6 +586,23 @@ const COMMANDS: Record<string, CommandDef> = {
     handler: async (_args, state) => {
       const clear = state.useColor ? "\x1b[2J\x1b[H" : "\x1b[2J\x1b[H";
       return clear;
+    },
+  },
+
+  queue: {
+    usage: "/queue",
+    description: "Show how many messages are queued",
+    handler: async (_args, state) => {
+      const len = state.queue?.length ?? 0;
+      return `\n  Queued: ${len} message(s)\n`;
+    },
+  },
+
+  done: {
+    usage: "/done",
+    description: "Signal agent to stop gracefully (or Ctrl+C during a run)",
+    handler: async (_args, state) => {
+      return "\n  Use Ctrl+C to interrupt the agent during a run.\n  The REPL will stay alive — no need to relaunch.\n";
     },
   },
 

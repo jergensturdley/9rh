@@ -10,6 +10,7 @@ import { createTuiRenderer, printSplash } from "./tui.js";
 import { compressUserInput } from "./inputCompression.js";
 import { ReplInputCoalescer } from "./replInput.js";
 import { readUserConfig, resolveConfiguredModel, updateUserConfig } from "./config.js";
+import { showSpinner, hideSpinner, pulseQueueBadge, showRightStats, hideRightStats, refreshStatusLine, formatStats, type StatsSnapshot } from "./ui.js";
 
 const DEFAULTS = {
   url: process.env.NINE_ROUTER_URL ?? "http://localhost:20128/v1",
@@ -582,6 +583,36 @@ async function runRepl(state: SessionState): Promise<void> {
     if (trimmed.startsWith("/") && !trimmed.includes("\n")) {
       const prevModel = state.model;
       const parsed = parseSlash(trimmed);
+
+      // /run — flush the queue
+      if (parsed.cmd === "run") {
+        if (!state.queue.length) {
+          process.stderr.write("\n  No queued messages. Type lines first, then /run.\n");
+          refreshPrompt();
+          return;
+        }
+        const fullInput = state.queue.join("\n");
+        state.queue = [];
+        hideRightStats();
+
+        const compressed = compressUserInput(fullInput);
+        if (compressed.notices.length > 0) {
+          process.stderr.write(compressed.notices.map((notice) => `  ⧉ ${notice}`).join("\n") + "\n");
+        }
+
+        state._runStartMs = Date.now();
+        state._toolCallCount = {};
+        const agent = makeAgent(state, tui);
+        try {
+          await agent.run(compressed.text);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          process.stderr.write(opts.color ? chalk.red(`\n✗ ${msg}\n`) : `\n✗ ${msg}\n`);
+        }
+        refreshPrompt();
+        return;
+      }
+
       if (parsed.cmd === "models") {
         await runModelsPicker(parsed.args);
         refreshPrompt();
@@ -607,6 +638,7 @@ async function runRepl(state: SessionState): Promise<void> {
       return;
     }
 
+    // Non-slash, non-multiline — just run immediately (legacy direct mode)
     const compressed = compressUserInput(trimmed);
     if (compressed.notices.length > 0) {
       const noticeText = compressed.notices.map((notice) => `  ⧉ ${notice}`).join("\n");
@@ -635,6 +667,22 @@ async function runRepl(state: SessionState): Promise<void> {
 
   rl.on("line", (line: string) => {
     clearSuggestions();
+
+    // Non-slash lines go into the queue instead of being sent immediately
+    if (!line.startsWith("/")) {
+      state.queue.push(line);
+      const snapshot: StatsSnapshot = {
+        queueLength: state.queue.length,
+        stepIndex: 0,
+        elapsedMs: state._runStartMs ? Date.now() - state._runStartMs : undefined,
+        toolCalls: state._toolCallCount,
+      };
+      refreshStatusLine(snapshot);
+      rl.setPrompt(prompt());
+      rl.prompt();
+      return;
+    }
+
     inputCoalescer.pushLine(line);
   });
 
@@ -756,6 +804,9 @@ const state: SessionState = {
   useColor: opts.color,
   wasStarted: false,
   continuationPolicy: parseContinuationPolicy(),
+  queue: [],
+  _runStartMs: undefined,
+  _toolCallCount: {},
 };
 
 async function main() {
