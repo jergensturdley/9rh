@@ -125,7 +125,8 @@ When a run reaches `--max-iter`, 9rh automatically compacts into a structured co
 | `/keys` | List configured 9router API keys |
 | `/router` | Show a cached 9router configuration summary |
 | `/refresh` | Clear and reload cached 9router configuration |
-| `/switch <model>` | Change the active model |
+| `/switch <model>` | Change the active model for the current REPL session |
+| `/default-model <model>` | Persist the startup model for future 9rh runs |
 | `/dir [path]` | Show or change the working directory |
 | `/setup` | Install and start 9router if needed |
 | `/doctor` | Diagnose router connectivity and configuration |

@@ -3,6 +3,7 @@ import { resolve } from "path";
 import { stat } from "fs/promises";
 import { getCliToken } from "./init.js";
 import { createExecutor, isSandboxAvailable } from "./sandbox/index.js";
+import { updateUserConfig } from "./config.js";
 const PROVIDER_ALIASES = {
     claude: "cc",
     codex: "cx",
@@ -238,7 +239,8 @@ const COMMANDS = {
                 "",
                 c ? chalk.dim("━━ models ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") : "━━ models ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
                 `  ${c ? chalk.cyan("/models") : "/models"}       List available models`,
-                `  ${c ? chalk.cyan("/switch") : "/switch"}       Switch active model`,
+                `  ${c ? chalk.cyan("/switch") : "/switch"}       Switch active model for this REPL session`,
+                `  ${c ? chalk.cyan("/default-model") : "/default-model"} Set startup model for future 9rh runs`,
                 "",
                 c ? chalk.dim("━━ session ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") : "━━ session ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
                 `  ${c ? chalk.cyan("/dir") : "/dir"}            Show or change working directory`,
@@ -372,7 +374,7 @@ const COMMANDS = {
     },
     switch: {
         usage: "/switch <model>",
-        description: "Switch active model for subsequent tasks",
+        description: "Switch active model for subsequent tasks in this REPL session",
         handler: async (args, state) => {
             const model = args[0];
             if (!model)
@@ -384,7 +386,26 @@ const COMMANDS = {
             }
             const prev = state.model;
             state.model = model;
-            const msg = `  switched: ${prev} → ${model}`;
+            const msg = `  switched for this session: ${prev} → ${model}`;
+            return "\n" + (state.useColor ? chalk.cyan(msg) : msg) + "\n";
+        },
+    },
+    "default-model": {
+        usage: "/default-model <model>",
+        description: "Persist startup model for future 9rh runs",
+        handler: async (args, state) => {
+            const model = args[0];
+            if (!model)
+                return state.useColor ? chalk.red("\n  Usage: /default-model <model>\n") : "\n  Usage: /default-model <model>\n";
+            const models = await fetchModels(state);
+            if (!models.some((m) => m.id === model)) {
+                const msg = `  Unknown model: ${model}. Use /models to list available models.`;
+                return "\n" + (state.useColor ? chalk.red(msg) : msg) + "\n";
+            }
+            const prev = state.model;
+            state.model = model;
+            await updateUserConfig({ defaultModel: model });
+            const msg = `  startup model saved: ${model} (current session: ${prev} → ${model})`;
             return "\n" + (state.useColor ? chalk.cyan(msg) : msg) + "\n";
         },
     },
