@@ -41,3 +41,4 @@ test-snapshots/
 snapshots/
 *.snap
 CLAUDE.md
+SANDBOX_SECURITY_ROADMAP.md
