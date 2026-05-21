@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, jest } from "@jest/globals";
+import { mkdtemp, readFile, rm } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { executeSlashCommand, fetchModels, filterModels, formatModelsList, type ModelInfo, type SessionState } from "../commands.js";
 
 function state(apiKey = "session-key"): SessionState {
@@ -17,6 +20,19 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
     statusText: init.statusText,
     headers: { "content-type": "application/json" },
   });
+}
+
+async function withConfigDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const previous = process.env.NINE_RH_CONFIG_DIR;
+  const dir = await mkdtemp(join(tmpdir(), "9rh-commands-"));
+  process.env.NINE_RH_CONFIG_DIR = dir;
+  try {
+    return await fn(dir);
+  } finally {
+    if (previous === undefined) delete process.env.NINE_RH_CONFIG_DIR;
+    else process.env.NINE_RH_CONFIG_DIR = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 describe("executeSlashCommand native API auth", () => {
@@ -168,6 +184,37 @@ describe("model command helpers", () => {
 
     expect(output).toContain("Unknown model");
     expect(current.model).toBe("kr/test-model");
+  });
+
+  it("/switch changes only the current REPL session model", async () => {
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).endsWith("/v1/models")) return jsonResponse({ data: [{ id: "kr/next" }] });
+      if (String(url).endsWith("/api/providers")) return jsonResponse({ connections: [] });
+      return jsonResponse({ error: "not found" }, { status: 404 });
+    });
+    const current = state("model-key");
+
+    const output = await executeSlashCommand("/switch kr/next", current);
+
+    expect(output).toContain("switched for this session");
+    expect(current.model).toBe("kr/next");
+  });
+
+  it("/default-model persists the startup model and updates current session", async () => {
+    await withConfigDir(async (dir) => {
+      jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+        if (String(url).endsWith("/v1/models")) return jsonResponse({ data: [{ id: "kr/persisted" }] });
+        if (String(url).endsWith("/api/providers")) return jsonResponse({ connections: [] });
+        return jsonResponse({ error: "not found" }, { status: 404 });
+      });
+      const current = state("model-key");
+
+      const output = await executeSlashCommand("/default-model kr/persisted", current);
+
+      expect(output).toContain("startup model saved: kr/persisted");
+      expect(current.model).toBe("kr/persisted");
+      await expect(readFile(join(dir, "config.json"), "utf-8")).resolves.toContain('"defaultModel": "kr/persisted"');
+    });
   });
 
   it("filters and formats models consistently for static fallback output", () => {
