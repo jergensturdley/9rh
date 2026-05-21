@@ -11,6 +11,11 @@ export interface SplashOptions extends TuiOptions {
     project: string;
     status: string;
 }
+export interface TranscriptEntry {
+    kind: "agent" | "tool" | "result" | "system" | "error";
+    text: string;
+}
+export declare function renderRecentTranscript(entries: TranscriptEntry[], maxLines?: number): string;
 export declare function summarizeLiveModelInsight(recentThinking: string[], toolName: string, args: Record<string, unknown>): string;
 export declare function shouldRepositionSplashFrame(startMs: number, nowMs: number, timeoutMs: number): boolean;
 export declare function splashFrameDelayMs(): number;

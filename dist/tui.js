@@ -188,6 +188,21 @@ function crop(text, max) {
 function normalizeWhitespace(text) {
     return text.replace(/\s+/g, " ").trim();
 }
+export function renderRecentTranscript(entries, maxLines = 8) {
+    if (entries.length === 0)
+        return "No agent messages yet.";
+    const prefixes = {
+        agent: "agent",
+        tool: "tool",
+        result: "result",
+        system: "system",
+        error: "error",
+    };
+    return entries
+        .slice(-maxLines)
+        .map((entry) => `${prefixes[entry.kind]}: ${normalizeWhitespace(entry.text) || "(empty)"}`)
+        .join("\n");
+}
 function truncateMiddle(text, max) {
     if (text.length <= max)
         return text;
@@ -333,18 +348,25 @@ export function createTuiRenderer(opts) {
     let spinnerActive = false;
     let thinkingActive = false;
     let recentThinking = [];
+    let activeThinking = "";
+    let transcript = [];
     let iterCurrent = 0;
     let iterMax = 0;
     const sessionStartedAt = new Date();
     const visualization = createRunVisualization();
     const argsStringCache = new WeakMap();
+    function rememberTranscript(entry) {
+        transcript.push(entry);
+        transcript = transcript.slice(-20);
+    }
     function printLiveMapNow() {
         if (liveMapTimer !== null) {
             clearTimeout(liveMapTimer);
             liveMapTimer = null;
         }
         const borderFn = opts.useColor ? chalk.blueBright : (s) => s;
-        process.stdout.write("\n" + drawBox("▣  live run map", renderRunVisualization(visualization, { collapseNoise: true }), borderFn, opts.useColor) + "\n");
+        process.stdout.write("\n" + drawBox("◉  recent transcript", renderRecentTranscript(transcript), borderFn, opts.useColor) + "\n");
+        process.stdout.write(drawBox("▣  live run map", renderRunVisualization(visualization, { collapseNoise: true }), borderFn, opts.useColor) + "\n");
     }
     function printLiveMap() {
         if (liveMapTimer !== null)
@@ -459,9 +481,12 @@ export function createTuiRenderer(opts) {
                     thinkingActive = true;
                 }
                 recentThinking.push(event.text);
+                activeThinking += event.text;
                 if (recentThinking.join("").length > 1200) {
                     recentThinking = [recentThinking.join("").slice(-1200)];
                 }
+                if (activeThinking.length > 2_000)
+                    activeThinking = activeThinking.slice(-2_000);
                 process.stdout.write(event.text);
                 break;
             case "tool_call": {
@@ -471,10 +496,15 @@ export function createTuiRenderer(opts) {
                 const panelBody = [`model insight:\n${insight}`, `args:\n${argsStr}`].join("\n\n");
                 const label = `⚙  ${event.name}`;
                 const borderFn = opts.useColor ? chalk.cyan : (s) => s;
+                if (normalizeWhitespace(activeThinking)) {
+                    rememberTranscript({ kind: "agent", text: activeThinking });
+                }
+                rememberTranscript({ kind: "tool", text: `${event.name} ${argsStr}` });
                 process.stdout.write("\n\n");
                 process.stdout.write(drawBox(label, panelBody, borderFn, opts.useColor) + "\n");
                 printLiveMapNow();
                 thinkingActive = false;
+                activeThinking = "";
                 recentThinking = [];
                 startSpinner(toolLabel(event.name));
                 break;
@@ -483,12 +513,14 @@ export function createTuiRenderer(opts) {
                 stopSpinner();
                 if (event.error) {
                     const content = [event.error, event.output].filter(Boolean).join("\n");
+                    rememberTranscript({ kind: "error", text: content });
                     const borderFn = opts.useColor ? chalk.red : (s) => s;
                     process.stdout.write("\n" + drawBox("✗  error", content, borderFn, opts.useColor) + "\n");
                 }
                 else {
                     const lines = event.output.split("\n");
                     const preview = lines.slice(0, 6).join("\n");
+                    rememberTranscript({ kind: "result", text: preview });
                     const moreHint = lines.length > 6
                         ? opts.useColor
                             ? chalk.dim(`\n  … ${lines.length - 6} more lines`)
@@ -504,6 +536,7 @@ export function createTuiRenderer(opts) {
             }
             case "compact":
                 stopSpinner();
+                rememberTranscript({ kind: "system", text: `compacting context — ${event.summary}` });
                 process.stdout.write("\n" +
                     (opts.useColor
                         ? chalk.yellow(`  ⟳  compacting context — ${event.summary}`)
@@ -513,6 +546,7 @@ export function createTuiRenderer(opts) {
                 break;
             case "continuation":
                 stopSpinner();
+                rememberTranscript({ kind: "system", text: `continuing ${event.count}/${event.max}` });
                 process.stdout.write("\n" +
                     (opts.useColor
                         ? chalk.yellow(`  ⟳  continuing ${event.count}/${event.max}`)
@@ -523,6 +557,7 @@ export function createTuiRenderer(opts) {
                 break;
             case "model_switch":
                 stopSpinner();
+                rememberTranscript({ kind: "system", text: `switching model ${event.from} → ${event.to}` });
                 process.stdout.write("\n" +
                     (opts.useColor
                         ? chalk.cyan(`  ⇄  switching model ${event.from} → ${event.to}`)
@@ -541,6 +576,9 @@ export function createTuiRenderer(opts) {
             }
             case "done": {
                 stopSpinner();
+                if (normalizeWhitespace(activeThinking))
+                    rememberTranscript({ kind: "agent", text: activeThinking });
+                rememberTranscript({ kind: "system", text: "done" });
                 const w = boxWidth() + 2;
                 const sep = "═".repeat(w - 2);
                 const body = "  ✓  done".padEnd(w - 2);
@@ -558,6 +596,7 @@ export function createTuiRenderer(opts) {
             }
             case "error":
                 stopSpinner();
+                rememberTranscript({ kind: "error", text: event.message });
                 process.stdout.write("\n" +
                     (opts.useColor
                         ? chalk.red(`  ⚠  ${event.message}`)
