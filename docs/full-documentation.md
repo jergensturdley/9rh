@@ -137,7 +137,7 @@ When a run reaches `--max-iter`, 9rh automatically compacts into a structured co
 
 ## Built-in agent tools
 
-The agent can call five sandboxed tools within the selected working directory:
+The agent can call sandboxed tools within the selected working directory:
 
 | Tool | Description |
 |------|-------------|
@@ -146,8 +146,15 @@ The agent can call five sandboxed tools within the selected working directory:
 | `run_bash` | Run a shell command in the work directory |
 | `list_files` | List files and directories |
 | `search_files` | Search files with grep |
+| `codegraph_search` | Search CodeGraph's local semantic index for symbols |
+| `codegraph_context` | Build task-focused repository context from CodeGraph |
+| `codegraph_files` | Show indexed file structure from CodeGraph |
+| `codegraph_affected` | Find tests affected by changed source files |
+| `codegraph_status` | Show CodeGraph index health and statistics |
 
 Paths are sandboxed to the active work directory and cannot escape it. File tools also refuse to read or write through symlinks.
+
+When a project has `.codegraph/`, 9rh's default prompt tells the agent to prefer CodeGraph tools for discovery before broad `list_files`, `search_files`, or `read_file` exploration. CodeGraph must be installed on `PATH`; initialize a project with `codegraph init -i` and refresh stale indexes with `codegraph sync .`.
 
 ### Sandbox limitations
 

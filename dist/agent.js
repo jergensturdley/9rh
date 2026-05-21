@@ -18,6 +18,7 @@ Guidelines:
 - Read files before modifying them
 - Run tests after making changes
 - Be concise in explanations
+- If CodeGraph tools are available, prefer codegraph_context/codegraph_search/codegraph_files for codebase discovery before broad grep/list/read exploration
 - When done, summarize what you accomplished`;
 function generateId() {
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
