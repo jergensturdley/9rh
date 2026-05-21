@@ -15,7 +15,7 @@ const DEFAULTS = {
     key: process.env.NINE_ROUTER_KEY ?? "9router",
     model: process.env.NINE_ROUTER_MODEL ?? "kr/claude-sonnet-4.5",
     continuationModel: process.env.NINE_ROUTER_CONTINUATION_MODEL,
-    continuationMax: process.env.NINE_ROUTER_CONTINUATION_MAX ?? process.env.NINE_ROUTER_MAX_CONTINUATIONS,
+    continuationMax: process.env.NINE_ROUTER_CONTINUATION_MAX ?? process.env.NINE_ROUTER_MAX_CONTINUATIONS ?? "20",
     continuationIter: process.env.NINE_ROUTER_CONTINUATION_ITER,
     continuationSwitchAfter: process.env.NINE_ROUTER_CONTINUATION_SWITCH_AFTER,
     maxIter: 100,
@@ -30,6 +30,7 @@ program
     .option("-k, --key <key>", "9router API key", DEFAULTS.key)
     .option("-d, --dir <dir>", "Working directory", process.cwd())
     .option("-i, --max-iter <n>", "Max agent iterations", String(DEFAULTS.maxIter))
+    .option("--no-continue", "Disable automatic continuation after max iterations")
     .option("--continue-model <model>", "Model or 9router combo to use after max iterations", DEFAULTS.continuationModel)
     .option("--continue-max <n>", "Maximum continuation rounds", DEFAULTS.continuationMax)
     .option("--continue-iter <n>", "Iterations per continuation round", DEFAULTS.continuationIter)
@@ -117,6 +118,8 @@ function parseMaxIter() {
     return parsePositiveInt(opts.maxIter, "--max-iter") ?? DEFAULTS.maxIter;
 }
 function parseContinuationPolicy() {
+    if (opts.continue === false)
+        return undefined;
     const hasContinuationConfig = Boolean(opts.continueModel || opts.continueMax || opts.continueIter || opts.continueSwitchAfter);
     if (!hasContinuationConfig)
         return undefined;
