@@ -42,3 +42,8 @@ snapshots/
 *.snap
 CLAUDE.md
 SANDBOX_SECURITY_ROADMAP.md
+
+# Understand Anything (analysis artifacts)
+.understand-anything/
+!.understand-anything/.understandignore
+*.bak.*
