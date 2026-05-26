@@ -10,8 +10,42 @@ import { createTuiRenderer, printSplash } from "./tui.js";
 import { compressUserInput } from "./inputCompression.js";
 import { ReplInputCoalescer } from "./replInput.js";
 import { readUserConfig, resolveConfiguredModel, updateUserConfig } from "./config.js";
+import { hideRightStats } from "./ui.js";
+import { existsSync } from "fs";
+import { spawn } from "child_process";
+async function maybeAutoIndexCodeGraph(workDir) {
+    const codegraphDir = resolve(workDir, ".codegraph");
+    // Check if .codegraph directory exists and seems initialized
+    const configPath = resolve(codegraphDir, "config.json");
+    const dbPath = resolve(codegraphDir, "codegraph.db");
+    const needsInit = !existsSync(configPath) || !existsSync(dbPath);
+    if (needsInit) {
+        try {
+            // Run codegraph init -i to initialize and index
+            await new Promise((resolve, reject) => {
+                const proc = spawn("codegraph", ["init", "-i"], {
+                    cwd: workDir,
+                    stdio: "ignore" // silent; could pipe to stderr if desired
+                });
+                proc.on("close", (code) => {
+                    if (code === 0)
+                        resolve();
+                    else
+                        reject(new Error(`codegraph init exited with code ${code}`));
+                });
+                proc.on("error", reject);
+            });
+            // Optionally inform user
+            // process.stderr.write(`  CodeGraph initialized and indexed.\n`);
+        }
+        catch (err) {
+            // Silently fail – don't block REPL on indexing errors
+            // process.stderr.write(`  CodeGraph auto-index skipped: ${err.message}\n`);
+        }
+    }
+}
 const DEFAULTS = {
-    url: process.env.NINE_ROUTER_URL ?? "http://localhost:20128/v1",
+    url: process.env.NINE_ROUTER_URL ?? "http://127.0.0.1:20128/v1",
     key: process.env.NINE_ROUTER_KEY ?? "9router",
     model: process.env.NINE_ROUTER_MODEL ?? "kr/claude-sonnet-4.5",
     continuationModel: process.env.NINE_ROUTER_CONTINUATION_MODEL,
@@ -91,7 +125,7 @@ if (isInit) {
                 log(chalk.red(`  ✗ ${init.error}`));
                 process.exit(1);
             }
-            log(chalk.green("  ✓ 9router ready at http://localhost:20128"));
+            log(chalk.green("  ✓ 9router ready at http://127.0.0.1:20128"));
             process.exit(0);
         }).catch((err) => { log(chalk.red(`  ✗ ${err.message}`)); process.exit(1); });
     }
@@ -290,6 +324,10 @@ async function runRepl(state) {
         useColor: state.useColor,
     });
     const nativeBase = state.baseURL.replace(/\/v1\/?$/, "");
+    if (process.stdout.isTTY) {
+        // Clear screen and scrollback
+        process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
+    }
     await printSplash(state.useColor);
     const ALL_CMDS = getSlashCommands();
     function fuzzyScore(pattern, target) {
@@ -545,6 +583,33 @@ async function runRepl(state) {
         if (trimmed.startsWith("/") && !trimmed.includes("\n")) {
             const prevModel = state.model;
             const parsed = parseSlash(trimmed);
+            // /run — flush the queue
+            if (parsed.cmd === "run") {
+                if (!state.queue.length) {
+                    process.stderr.write("\n  No queued messages. Type lines first, then /run.\n");
+                    refreshPrompt();
+                    return;
+                }
+                const fullInput = state.queue.join("\n");
+                state.queue = [];
+                hideRightStats();
+                const compressed = compressUserInput(fullInput);
+                if (compressed.notices.length > 0) {
+                    process.stderr.write(compressed.notices.map((notice) => `  ⧉ ${notice}`).join("\n") + "\n");
+                }
+                state._runStartMs = Date.now();
+                state._toolCallCount = {};
+                const agent = makeAgent(state, tui);
+                try {
+                    await agent.run(compressed.text);
+                }
+                catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    process.stderr.write(opts.color ? chalk.red(`\n✗ ${msg}\n`) : `\n✗ ${msg}\n`);
+                }
+                refreshPrompt();
+                return;
+            }
             if (parsed.cmd === "models") {
                 await runModelsPicker(parsed.args);
                 refreshPrompt();
@@ -567,6 +632,7 @@ async function runRepl(state) {
             refreshPrompt();
             return;
         }
+        // Non-slash, non-multiline — just run immediately (legacy direct mode)
         const compressed = compressUserInput(trimmed);
         if (compressed.notices.length > 0) {
             const noticeText = compressed.notices.map((notice) => `  ⧉ ${notice}`).join("\n");
@@ -649,7 +715,7 @@ async function runDoctor(state) {
         checks.push({ label: "API keys", status: "ok", msg: `${keys.length} key(s) configured` });
     }
     else {
-        checks.push({ label: "API keys", status: "fail", msg: "no keys — visit http://localhost:20128/dashboard to add your key" });
+        checks.push({ label: "API keys", status: "fail", msg: "no keys — visit http://127.0.0.1:20128/dashboard to add your key" });
         allOk = false;
     }
     let connections = [];
@@ -663,7 +729,7 @@ async function runDoctor(state) {
             allOk = false;
     }
     else {
-        checks.push({ label: "providers", status: "fail", msg: "no providers — visit http://localhost:20128/dashboard to connect one" });
+        checks.push({ label: "providers", status: "fail", msg: "no providers — visit http://127.0.0.1:20128/dashboard to connect one" });
         allOk = false;
     }
     let models = [];
@@ -694,7 +760,7 @@ async function runDoctor(state) {
         process.stderr.write(`${icon} ${label} ${check.msg}\n`);
     }
     if (connections.length === 0) {
-        process.stderr.write(`\n  -> Open ${opts.color ? chalk.bold.cyan("http://localhost:20128/dashboard") : "http://localhost:20128/dashboard"} to connect a provider\n`);
+        process.stderr.write(`\n  -> Open ${opts.color ? chalk.bold.cyan("http://127.0.0.1:20128/dashboard") : "http://127.0.0.1:20128/dashboard"} to connect a provider\n`);
     }
     return allOk;
 }
@@ -706,6 +772,9 @@ const state = {
     useColor: opts.color,
     wasStarted: false,
     continuationPolicy: parseContinuationPolicy(),
+    queue: [],
+    _runStartMs: undefined,
+    _toolCallCount: {},
 };
 async function main() {
     const argv = process.argv.slice(2);
@@ -760,13 +829,15 @@ async function main() {
         process.exit(ok ? 0 : 1);
     }
     else if (opts.repl) {
-        ensureRouter(opts.url, opts.key).then((init) => {
+        ensureRouter(opts.url, opts.key).then(async (init) => {
             state.baseURL = init.baseURL;
             state.apiKey = init.apiKey;
             state.wasStarted = init.wasStarted;
             if (init.error) {
                 process.stderr.write(opts.color ? chalk.red(`  ✗ ${init.error}\n`) : `  ✗ ${init.error}\n`);
             }
+            // Auto-index the current workspace with CodeGraph if not already done
+            await maybeAutoIndexCodeGraph(state.workDir);
             runRepl(state).catch((err) => {
                 process.stderr.write(String(err) + "\n");
                 process.exit(1);

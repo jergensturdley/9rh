@@ -281,4 +281,28 @@ export function renderRunVisualization(view, filter = {}) {
         ...(graph.length ? graph : ["  (no dependencies yet)"]),
     ].join("\n");
 }
+export function renderRunMapCompact(view, maxWidth = 40) {
+    const steps = visibleSteps(view, { collapseNoise: true }).slice(-10);
+    const statusGlyph = {
+        queued: "○", running: "◉", blocked: "■", failed: "✗", repaired: "◆", done: "✓",
+    };
+    const stageAbbr = {
+        planning: "PLN", execution: "EXE", review: "REV", repair: "RPR", completion: "CMP",
+    };
+    const lines = [];
+    for (const step of steps) {
+        const marker = step.id === view.currentStepId ? "→" : " ";
+        const glyph = statusGlyph[step.status];
+        const stage = stageAbbr[step.stage];
+        let label = step.label;
+        if (step.file)
+            label += ` ${step.file}`;
+        const avail = maxWidth - 6;
+        if (avail > 0 && label.length > avail) {
+            label = label.slice(0, Math.max(0, avail - 1)) + "…";
+        }
+        lines.push(`${marker}${glyph} ${stage} ${label}`);
+    }
+    return lines.length > 0 ? lines : ["○ waiting for first event"];
+}
 //# sourceMappingURL=visualization.js.map

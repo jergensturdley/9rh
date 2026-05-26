@@ -8,6 +8,10 @@ export interface SessionState {
     wasStarted?: boolean;
     continuationPolicy?: ContinuationPolicy;
     routerCache?: RouterConfigCache;
+    queue: string[];
+    history?: string[];
+    _runStartMs: number | undefined;
+    _toolCallCount: Record<string, number>;
 }
 export interface RouterCacheEntry<T> {
     value: T;

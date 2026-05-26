@@ -63,3 +63,4 @@ export declare function inspectStep(view: RunVisualization, stepId: string): Vis
 export declare function exportRunVisualization(view: RunVisualization, filter?: VisualizationFilter): string;
 export declare function exportRunVisualizationGraphviz(view: RunVisualization, filter?: VisualizationFilter): string;
 export declare function renderRunVisualization(view: RunVisualization, filter?: VisualizationFilter): string;
+export declare function renderRunMapCompact(view: RunVisualization, maxWidth?: number): string[];

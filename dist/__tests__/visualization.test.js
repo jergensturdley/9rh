@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@jest/globals";
-import { applyAgentEvent, createRunVisualization, exportRunVisualization, exportRunVisualizationGraphviz, inspectStep, renderRunVisualization, visibleSteps, } from "../visualization.js";
+import { applyAgentEvent, createRunVisualization, exportRunVisualization, exportRunVisualizationGraphviz, inspectStep, renderRunVisualization, renderRunMapCompact, visibleSteps, } from "../visualization.js";
 describe("run visualization", () => {
     it("orders critical events and status transitions for a tool call", () => {
         const view = createRunVisualization();
@@ -199,6 +199,39 @@ describe("run visualization", () => {
         const repairHistory = view.steps.filter((s) => s.role === "repair");
         expect(repairHistory.length).toBe(2);
         expect(repairHistory.find((s) => s.status === "repaired")?.output).toContain("succeeded");
+    });
+});
+describe("renderRunMapCompact", () => {
+    it("produces compressed timeline lines for a simple run", () => {
+        const view = createRunVisualization();
+        applyAgentEvent(view, { type: "iteration", current: 1, max: 3 });
+        applyAgentEvent(view, { type: "tool_call", name: "read_file", args: { path: "src/main.ts" } });
+        applyAgentEvent(view, { type: "tool_result", name: "read_file", output: "ok" });
+        const lines = renderRunMapCompact(view, 40);
+        expect(lines.length).toBeGreaterThan(0);
+        expect(lines.some(l => l.includes("read_file"))).toBe(true);
+        expect(lines.some(l => l.includes("EXE"))).toBe(true);
+    });
+    it("truncates long labels to fit maxWidth", () => {
+        const view = createRunVisualization();
+        applyAgentEvent(view, { type: "iteration", current: 1, max: 1 });
+        applyAgentEvent(view, { type: "tool_call", name: "read_file", args: { path: "src/components/deep/nested/very/long/path/to/file.ts" } });
+        const lines = renderRunMapCompact(view, 30);
+        for (const line of lines) {
+            expect(line.length).toBeLessThanOrEqual(40);
+        }
+    });
+    it("returns waiting message when no events", () => {
+        const view = createRunVisualization();
+        const lines = renderRunMapCompact(view, 40);
+        expect(lines).toEqual(["○ waiting for first event"]);
+    });
+    it("shows current step marker", () => {
+        const view = createRunVisualization();
+        applyAgentEvent(view, { type: "iteration", current: 1, max: 2 });
+        applyAgentEvent(view, { type: "tool_call", name: "bash", args: { command: "npm test" } });
+        const lines = renderRunMapCompact(view, 40);
+        expect(lines.some(l => l.includes("→"))).toBe(true);
     });
 });
 //# sourceMappingURL=visualization.test.js.map

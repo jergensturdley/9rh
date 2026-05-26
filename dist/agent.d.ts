@@ -11,6 +11,8 @@ export interface AgentConfig {
     replay?: ReplayConfig;
     specDrivenTesting?: boolean;
     continuationPolicy?: ContinuationPolicy;
+    /** Maximum wall-clock time in milliseconds for a single `run()` call. Exceeding it aborts gracefully. */
+    timeoutMs?: number;
 }
 export interface ContinuationPolicy {
     maxContinuations: number;
@@ -130,6 +132,8 @@ export declare class Agent {
     private recentToolHistory;
     private abortController;
     private stopFlag;
+    private timeoutTimer;
+    private replayFinalized;
     constructor(config: AgentConfig);
     /** Abort current run immediately — cancels in-flight stream, breaks loop. */
     abort(): void;

@@ -30,7 +30,7 @@ npm install -g 9router
 Then open the dashboard and connect at least one provider/API key:
 
 ```text
-http://localhost:20128/dashboard
+http://127.0.0.1:20128/dashboard
 ```
 
 Finally, verify and run a task:
@@ -56,7 +56,7 @@ node dist/index.js --dir /path/to/project --model kr/claude-sonnet-4.5 "fix the 
 
 - Node.js 18+
 - [9router](https://github.com/decolua/9router), installed and running locally
-- At least one provider configured in the 9router dashboard: `http://localhost:20128/dashboard`
+- At least one provider configured in the 9router dashboard: `http://127.0.0.1:20128/dashboard`
 
 ## Common slash commands
 

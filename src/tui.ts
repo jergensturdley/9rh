@@ -6,6 +6,8 @@ import {
   inspectStep,
   exportRunVisualizationGraphviz,
   renderRunVisualization,
+  renderRunMapCompact,
+  type RunVisualization,
 } from "./visualization.js";
 import { colorizeFrame, generatePlasmaFrame, shouldShowSplash, SPLASH_ROWS } from "./splash.js";
 
@@ -446,10 +448,137 @@ export async function printSplash(useColor: boolean): Promise<void> {
     process.removeListener("SIGINT", sigintHandler);
   }
 }
+export interface ToolHistoryEntry {
+  status: "running" | "success" | "error";
+  name: string;
+  target: string;
+}
+
+export interface DashboardState {
+  startedAt: Date;
+  iterCurrent: number;
+  iterMax: number;
+  activity: "idle" | "thinking" | "tool" | "done" | "error";
+  thinkingCharCount: number;
+  thinkingPreview: string;
+  currentTool: string | null;
+  currentToolTarget: string | null;
+  toolHistory: ToolHistoryEntry[];
+}
+
+export function formatElapsed(start: Date): string {
+  const ms = Date.now() - start.getTime();
+  const secs = Math.floor(ms / 1000) % 60;
+  const mins = Math.floor(ms / 60000) % 60;
+  const hrs = Math.floor(ms / 3600000);
+  if (hrs > 0) return `${hrs}h ${mins}m`;
+  if (mins > 0) return `${mins}m ${secs}s`;
+  return `${secs}s`;
+}
+
+export function toolTarget(args: Record<string, unknown>): string {
+  const raw =
+    typeof args.path === "string" ? args.path :
+    typeof args.file_path === "string" ? args.file_path :
+    typeof args.command === "string" ? args.command :
+    typeof args.query === "string" ? args.query :
+    typeof args.url === "string" ? args.url : "";
+  return crop(normalizeWhitespace(raw), 30);
+}
+
+export function renderDashboardLines(state: DashboardState, useColor: boolean, w: number, runMap: RunVisualization): string[] {
+  const inner = w - 4;
+  if (inner < 10) return [];
+  const lines: string[] = [];
+
+  const model = crop("9rh", inner - 5);
+  const headerText = ` 9rh · ${model} `;
+  const dashFill = Math.max(1, w - 2 - headerText.length);
+  lines.push(`╭${headerText}${"─".repeat(dashFill)}╮`);
+
+  const elapsed = formatElapsed(state.startedAt);
+  const iterStr = state.iterMax > 0 ? `iter ${state.iterCurrent}/${state.iterMax}` : "iter —";
+  lines.push(`│ ` + `⏱ ${elapsed}    ${iterStr}`.padEnd(inner) + ` │`);
+
+  lines.push(`│${" ".repeat(inner + 2)}│`);
+
+  if (state.activity === "thinking") {
+    const countStr = `${state.thinkingCharCount} chars`;
+    const actLine = `⚡ thinking · ${countStr}`;
+    lines.push(`│ ${actLine.padEnd(inner)} │`);
+    if (state.thinkingPreview) {
+      const preview = normalizeWhitespace(state.thinkingPreview);
+      const snippet = preview.length > inner - 4 ? `…${preview.slice(-(inner - 5))}` : preview;
+      lines.push(`│ ` + `…${snippet}`.padEnd(inner) + ` │`);
+    } else {
+      lines.push(`│${" ".repeat(inner + 2)}│`);
+    }
+  } else if (state.activity === "tool" && state.currentTool) {
+    const toolLine = `⚙ ${state.currentTool}${state.currentToolTarget ? ` · ${crop(state.currentToolTarget, inner - 8)}` : ""}`;
+    lines.push(`│ ${toolLine.padEnd(inner)} │`);
+    lines.push(`│${" ".repeat(inner + 2)}│`);
+  } else if (state.activity === "done") {
+    lines.push(`│ ${"✓ done".padEnd(inner)} │`);
+    lines.push(`│${" ".repeat(inner + 2)}│`);
+  } else if (state.activity === "error") {
+    lines.push(`│ ${"⚠ error".padEnd(inner)} │`);
+    lines.push(`│${" ".repeat(inner + 2)}│`);
+  } else {
+    lines.push(`│ ${"idle".padEnd(inner)} │`);
+    lines.push(`│${" ".repeat(inner + 2)}│`);
+  }
+
+  lines.push(`│${" ".repeat(inner + 2)}│`);
+
+  const history = state.toolHistory.slice(-5);
+  for (const entry of history) {
+    const icon = entry.status === "running" ? "⚙" : entry.status === "error" ? "⚠" : "✓";
+    const text = `${icon} ${entry.name}${entry.target ? ` · ${entry.target}` : ""}`;
+    lines.push(`│ ${crop(text, inner).padEnd(inner)} │`);
+  }
+  const padCount = Math.max(0, 5 - history.length);
+  for (let i = 0; i < padCount; i++) {
+    lines.push(`│${" ".repeat(inner + 2)}│`);
+  }
+
+  lines.push(`│${" ".repeat(inner + 2)}│`);
+
+  lines.push(`│ ${"▸ timeline".padEnd(inner)} │`);
+
+  const mapLines = renderRunMapCompact(runMap, inner);
+  const showing = mapLines.slice(-6);
+  for (const ml of showing) {
+    lines.push(`│ ${crop(ml, inner).padEnd(inner)} │`);
+  }
+  const mapPad = Math.max(0, 6 - showing.length);
+  for (let i = 0; i < mapPad; i++) {
+    lines.push(`│${" ".repeat(inner + 2)}│`);
+  }
+
+  lines.push(`│${" ".repeat(inner + 2)}│`);
+
+  const sandStr = runMap.sandboxHealth
+    ? `${runMap.sandboxHealth.sandboxed}/${runMap.sandboxHealth.direct}/${runMap.sandboxHealth.timedOut}`
+    : "—";
+  const checkStr = runMap.lastGoodCheckpointId ? crop(runMap.lastGoodCheckpointId, Math.max(1, inner - 22)) : "none";
+  const footer = `sandbox ${sandStr}  check ${checkStr}`;
+  lines.push(`│ ${footer.padEnd(inner)} │`);
+
+  lines.push(`╰${"─".repeat(inner + 2)}╯`);
+
+  if (useColor) {
+    return lines.map((line, idx) => {
+      if (idx === 0 || idx === lines.length - 1) return chalk.blue(line);
+      return line;
+    });
+  }
+  return lines;
+}
+
 
 export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void {
   let spinnerTimer: ReturnType<typeof setInterval> | null = null;
-  let liveMapTimer: ReturnType<typeof setTimeout> | null = null;
+  let thinkingSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
   let spinnerFrame = 0;
   let spinnerLabelIndex = 0;
   let activeSpinnerFrames = SPINNER_SETS[0];
@@ -457,33 +586,24 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
   let thinkingActive = false;
   let recentThinking: string[] = [];
   let activeThinking = "";
-  let transcript: TranscriptEntry[] = [];
   let iterCurrent = 0;
   let iterMax = 0;
+  let lastThinkingSnapshot = 0;
   const sessionStartedAt = new Date();
   const visualization = createRunVisualization();
   const argsStringCache = new WeakMap<Record<string, unknown>, string>();
-
-  function rememberTranscript(entry: TranscriptEntry): void {
-    transcript.push(entry);
-    transcript = transcript.slice(-20);
-  }
-
-  function printLiveMapNow(): void {
-    if (liveMapTimer !== null) {
-      clearTimeout(liveMapTimer);
-      liveMapTimer = null;
-    }
-    const borderFn = opts.useColor ? chalk.blueBright : (s: string) => s;
-    process.stdout.write("\n" + drawBox("◉  recent transcript", renderRecentTranscript(transcript), borderFn, opts.useColor) + "\n");
-    process.stdout.write(drawBox("▣  live run map", renderRunVisualization(visualization, { collapseNoise: true }), borderFn, opts.useColor) + "\n");
-  }
-
-  function printLiveMap(): void {
-    if (liveMapTimer !== null) return;
-    liveMapTimer = setTimeout(printLiveMapNow, 300);
-    liveMapTimer.unref?.();
-  }
+  const dashboard: DashboardState = {
+    startedAt: sessionStartedAt,
+    iterCurrent: 0,
+    iterMax: 0,
+    activity: "idle",
+    thinkingCharCount: 0,
+    thinkingPreview: "",
+    currentTool: null,
+    currentToolTarget: null,
+    toolHistory: [],
+  };
+  let lastDashboardHeight = 0;
 
   function stringifyArgs(args: Record<string, unknown>): string {
     const cached = argsStringCache.get(args);
@@ -491,6 +611,42 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
     const value = JSON.stringify(args);
     argsStringCache.set(args, value);
     return value;
+  }
+
+  function drawDashboard(): void {
+    if (!process.stdout.isTTY) return;
+    const termWidth = cols();
+    const dashWidth = Math.max(36, Math.min(Math.floor(termWidth * 0.28), 48));
+    const dashCol = termWidth - dashWidth + 1;
+    const lines = renderDashboardLines(dashboard, opts.useColor, dashWidth, visualization);
+    if (lines.length === 0) return;
+    process.stdout.write("\x1b[s");
+    // Clear previous dashboard area
+    const maxRows = Math.max(lines.length, lastDashboardHeight);
+    for (let i = 0; i < maxRows; i++) {
+      process.stdout.write(`\x1b[${2 + i};${dashCol}H\x1b[0K`);
+    }
+    // Draw new lines
+    for (let i = 0; i < lines.length; i++) {
+      process.stdout.write(`\x1b[${2 + i};${dashCol}H${lines[i]}`);
+    }
+    lastDashboardHeight = lines.length;
+    process.stdout.write("\x1b[u");
+  }
+
+  function printThinkingSnapshot(): void {
+    if (!activeThinking) return;
+    const now = Date.now();
+    if (now - lastThinkingSnapshot < 1000) return;
+    lastThinkingSnapshot = now;
+    const snippet = normalizeWhitespace(activeThinking).slice(-200);
+    process.stdout.write("\n  ⚡ ");
+    if (opts.useColor) process.stdout.write(chalk.cyan(snippet));
+    else process.stdout.write(snippet);
+    // Update dashboard with latest thinking state
+    dashboard.thinkingCharCount = activeThinking.length;
+    dashboard.thinkingPreview = activeThinking.slice(-200);
+    drawDashboard();
   }
 
   function startSpinner(label: string): void {
@@ -590,17 +746,19 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
       case "iteration":
         iterCurrent = event.current;
         iterMax = event.max;
+        dashboard.iterCurrent = event.current;
+        dashboard.iterMax = event.max;
+        dashboard.activity = "thinking";
         thinkingActive = false;
         stopSpinner();
         printIterHeader();
-        printLiveMap();
+        drawDashboard();
         startSpinner(thinkingLabel());
         break;
 
       case "thinking":
         if (!thinkingActive) {
           stopSpinner();
-          process.stdout.write("  ");
           thinkingActive = true;
         }
         recentThinking.push(event.text);
@@ -609,23 +767,33 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
           recentThinking = [recentThinking.join("").slice(-1200)];
         }
         if (activeThinking.length > 2_000) activeThinking = activeThinking.slice(-2_000);
-        process.stdout.write(event.text);
+        // Throttled snapshot instead of streaming every char
+        printThinkingSnapshot();
         break;
 
       case "tool_call": {
         stopSpinner();
-        const argsStr = stringifyArgs(event.args);
-        const insight = summarizeLiveModelInsight(recentThinking, event.name, event.args);
-        const panelBody = [`model insight:\n${insight}`, `args:\n${argsStr}`].join("\n\n");
-        const label = `⚙  ${event.name}`;
-        const borderFn = opts.useColor ? chalk.cyan : (s: string) => s;
+        const target = toolTarget(event.args);
+        // Compact 2-line summary instead of full drawBox
+        const intent = describeToolIntent(event.name, event.args);
+        const line1 = opts.useColor ? chalk.cyan(`⚙ ${event.name}`) : `⚙ ${event.name}`;
+        const line2 = opts.useColor ? chalk.dim(`  ${intent}`) : `  ${intent}`;
+        process.stdout.write(`\n${line1}\n${line2}\n`);
+        // Print final thinking snippet if any
         if (normalizeWhitespace(activeThinking)) {
-          rememberTranscript({ kind: "agent", text: activeThinking });
+          const snippet = normalizeWhitespace(activeThinking).slice(-200);
+          const pre = opts.useColor ? chalk.dim(`  reasoning: ${snippet}`) : `  reasoning: ${snippet}`;
+          process.stdout.write(`${pre}\n`);
         }
-        rememberTranscript({ kind: "tool", text: `${event.name} ${argsStr}` });
-        process.stdout.write("\n\n");
-        process.stdout.write(drawBox(label, panelBody, borderFn, opts.useColor) + "\n");
-        printLiveMapNow();
+        // Update dashboard state
+        dashboard.activity = "tool";
+        dashboard.currentTool = event.name;
+        dashboard.currentToolTarget = target || null;
+        dashboard.thinkingCharCount = 0;
+        dashboard.thinkingPreview = "";
+        dashboard.toolHistory.push({ status: "running", name: event.name, target: target || "" });
+        if (dashboard.toolHistory.length > 20) dashboard.toolHistory = dashboard.toolHistory.slice(-20);
+        drawDashboard();
         thinkingActive = false;
         activeThinking = "";
         recentThinking = [];
@@ -635,9 +803,16 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
 
       case "tool_result": {
         stopSpinner();
+        // Mark the matching tool in history as done/failed
+        const lastRunning = [...dashboard.toolHistory].reverse().find(h => h.status === "running");
+        if (lastRunning) {
+          lastRunning.status = event.error ? "error" : "success";
+        }
+        dashboard.activity = "idle";
+        dashboard.currentTool = null;
+        dashboard.currentToolTarget = null;
         if (event.error) {
           const content = [event.error, event.output].filter(Boolean).join("\n");
-          rememberTranscript({ kind: "error", text: content });
           const borderFn = opts.useColor ? chalk.red : (s: string) => s;
           process.stdout.write(
             "\n" + drawBox("✗  error", content, borderFn, opts.useColor) + "\n",
@@ -645,7 +820,6 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         } else {
           const lines = event.output.split("\n");
           const preview = lines.slice(0, 6).join("\n");
-          rememberTranscript({ kind: "result", text: preview });
           const moreHint =
             lines.length > 6
               ? opts.useColor
@@ -657,7 +831,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
             `\n  ${tick}  ${opts.useColor ? chalk.dim(preview) : preview}${moreHint}\n`,
           );
         }
-        printLiveMapNow();
+        drawDashboard();
         thinkingActive = false;
         startSpinner(thinkingLabel());
         break;
@@ -665,7 +839,6 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
 
       case "compact":
         stopSpinner();
-        rememberTranscript({ kind: "system", text: `compacting context — ${event.summary}` });
         process.stdout.write(
           "\n" +
             (opts.useColor
@@ -673,12 +846,11 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
               : `  compacting context — ${event.summary}`) +
             "\n\n",
         );
-        printLiveMapNow();
+        drawDashboard();
         break;
 
       case "continuation":
         stopSpinner();
-        rememberTranscript({ kind: "system", text: `continuing ${event.count}/${event.max}` });
         process.stdout.write(
           "\n" +
             (opts.useColor
@@ -686,13 +858,12 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
               : `  continuing ${event.count}/${event.max}`) +
             "\n\n",
         );
-        printLiveMapNow();
+        drawDashboard();
         startSpinner(thinkingLabel());
         break;
 
       case "model_switch":
         stopSpinner();
-        rememberTranscript({ kind: "system", text: `switching model ${event.from} → ${event.to}` });
         process.stdout.write(
           "\n" +
             (opts.useColor
@@ -700,7 +871,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
               : `  switching model ${event.from} → ${event.to}`) +
             "\n\n",
         );
-        printLiveMapNow();
+        drawDashboard();
         startSpinner(thinkingLabel());
         break;
 
@@ -708,15 +879,13 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         stopSpinner();
         const borderFn = opts.useColor ? chalk.magentaBright : (s: string) => s;
         process.stdout.write("\n" + drawBox("☑  generated test plan", event.summary, borderFn, opts.useColor) + "\n");
-        printLiveMapNow();
+        drawDashboard();
         thinkingActive = false;
         break;
       }
 
       case "done": {
         stopSpinner();
-        if (normalizeWhitespace(activeThinking)) rememberTranscript({ kind: "agent", text: activeThinking });
-        rememberTranscript({ kind: "system", text: "done" });
         const w = boxWidth() + 2;
         const sep = "═".repeat(w - 2);
         const body = "  ✓  done".padEnd(w - 2);
@@ -730,13 +899,13 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         } else {
           process.stdout.write(`╔${sep}╗\n║${body}║\n╚${sep}╝\n\n`);
         }
-        printLiveMap();
+        dashboard.activity = "done";
+        drawDashboard();
         break;
       }
 
       case "error":
         stopSpinner();
-        rememberTranscript({ kind: "error", text: event.message });
         process.stdout.write(
           "\n" +
             (opts.useColor
@@ -744,7 +913,8 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
               : `  ⚠  ${event.message}`) +
             "\n\n",
         );
-        printLiveMap();
+        dashboard.activity = "error";
+        drawDashboard();
         break;
 
       case "repair_start":
@@ -755,7 +925,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
       case "branch_create":
       case "incident":
         stopSpinner();
-        printLiveMap();
+        drawDashboard();
         startSpinner(backgroundLabel());
         break;
       case "step_inspect": {
@@ -771,6 +941,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         if (!details.length) break;
         const borderFn = opts.useColor ? chalk.blueBright : (s: string) => s;
         process.stdout.write("\n" + drawBox(`▸ inspect ${event.stepId}`, details.join("\n\n"), borderFn, opts.useColor) + "\n");
+        drawDashboard();
         break;
       }
       case "partial_output": {
