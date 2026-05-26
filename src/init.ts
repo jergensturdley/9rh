@@ -3,12 +3,13 @@ import { execFile, execFileSync, spawn } from "child_process";
 import { createHash } from "crypto";
 import { promisify } from "util";
 import { closeSync, existsSync, openSync, readFileSync } from "fs";
+import os from "os";
 import chalk from "chalk";
 
 const execFileAsync = promisify(execFile);
 
 const NINE_ROUTER_PORT = 20128;
-const NINE_ROUTER_NATIVE = `http://localhost:${NINE_ROUTER_PORT}`;
+const NINE_ROUTER_NATIVE = `http://127.0.0.1:${NINE_ROUTER_PORT}`;
 const NINE_ROUTER_OPENAI = `${NINE_ROUTER_NATIVE}/v1`;
 const CLI_TOKEN_SALT = "9r-cli-auth";
 
@@ -18,7 +19,7 @@ async function delay(ms: number): Promise<void> {
 
 function readFirstApiKey(): string | null {
   try {
-    const dbPath = `${process.env.HOME}/.9router/db/data.sqlite`;
+    const dbPath = `${os.homedir()}/.9router/db/data.sqlite`;
     if (!existsSync(dbPath)) return null;
     const key = execFileSync("sqlite3", [dbPath, "SELECT key FROM apiKeys LIMIT 1"], { encoding: "utf8", timeout: 5000 }).trim();
     return key || null;
@@ -31,6 +32,10 @@ export { readFirstApiKey };
 
 function machineIdHash(): string {
   try {
+    const idFile = `${os.homedir()}/.9router/machine-id`;
+    if (existsSync(idFile)) {
+      return readFileSync(idFile, "utf8").trim();
+    }
     let id: string;
     if (process.platform === "darwin") {
       const raw = execFileSync("ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"], { encoding: "utf8", timeout: 5000 });
@@ -44,7 +49,8 @@ function machineIdHash(): string {
     } else {
       id = "";
     }
-    return id ? createHash("sha256").update(id).digest("hex") : "";
+    if (!id) return "";
+    return createHash("sha256").update(id).digest("hex");
   } catch {
     return "";
   }
@@ -52,8 +58,15 @@ function machineIdHash(): string {
 
 export function getCliToken(): string {
   const mid = machineIdHash();
-  if (!mid) return "";
-  return createHash("sha256").update(mid + CLI_TOKEN_SALT).digest("hex").substring(0, 16);
+  if (mid === "" || !mid) return "";
+  let secret = "";
+  try {
+    const secretFile = `${os.homedir()}/.9router/auth/cli-secret`;
+    if (existsSync(secretFile)) {
+      secret = readFileSync(secretFile, "utf8").trim();
+    }
+  } catch {}
+  return createHash("sha256").update(mid + CLI_TOKEN_SALT + secret).digest("hex").substring(0, 16);
 }
 
 async function isPortOpen(port: number): Promise<boolean> {
@@ -101,7 +114,7 @@ async function installAndStart(): Promise<{ success: boolean; error?: string }> 
     existsSync("/usr/bin/9router") ||
     (await execFileAsync("which", ["9router"]).then(() => true).catch(() => false));
   let startCommand = "9router";
-  let startArgs = ["--no-browser"];
+  let startArgs = ["--tray", "--no-browser", "--skip-update"];
 
   if (!isInstalled) {
     process.stderr.write(chalk.yellow("  Installing 9router globally...\n"));
@@ -113,7 +126,7 @@ async function installAndStart(): Promise<{ success: boolean; error?: string }> 
       try {
         await execFileAsync("npx", ["-y", "9router", "--version"], { timeout: 30_000 });
         startCommand = "npx";
-        startArgs = ["-y", "9router", "--no-browser"];
+        startArgs = ["-y", "9router", "--tray", "--no-browser", "--skip-update"];
       } catch (npxErr) {
         return { success: false, error: `Neither npm install -g nor npx could install 9router. npx error: ${processErrorMessage(npxErr)}` };
       }
@@ -161,7 +174,8 @@ export interface InitResult {
 }
 
 export async function ensureRouter(routerUrl?: string, apiKey?: string): Promise<InitResult> {
-  const baseURL = routerUrl ?? NINE_ROUTER_OPENAI;
+  const inputUrl = routerUrl ?? NINE_ROUTER_OPENAI;
+  const baseURL = inputUrl.replace("localhost", "127.0.0.1");
   const defaultKey = "9router";
 
   const storedKey = readFirstApiKey();
@@ -190,5 +204,15 @@ export async function ensureRouter(routerUrl?: string, apiKey?: string): Promise
     };
   }
 
-  return { baseURL, apiKey: storedKey ?? apiKey ?? defaultKey, wasStarted: true };
+  const finalKey = storedKey ?? apiKey ?? defaultKey;
+  if (!await healthCheck(baseURL, finalKey)) {
+    return {
+      baseURL,
+      apiKey: finalKey,
+      wasStarted: false,
+      error: "9router started but health check failed. Please verify 9router is running and configured.",
+    };
+  }
+
+  return { baseURL, apiKey: finalKey, wasStarted: true };
 }

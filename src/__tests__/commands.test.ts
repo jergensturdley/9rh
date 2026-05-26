@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, it, jest } from "@jest/globals";
-import { mkdtemp, readFile, rm } from "fs/promises";
-import { tmpdir } from "os";
+import { mkdtemp, readFile, rm, writeFile, mkdir } from "fs/promises";
+import os from "os";
+import child_process from "child_process";
 import { join } from "path";
 import { executeSlashCommand, fetchModels, filterModels, formatModelsList, type ModelInfo, type SessionState } from "../commands.js";
+import * as initModule from "../init.js";
 
 function state(apiKey = "session-key"): SessionState {
   return {
-    baseURL: "http://localhost:20128/v1",
+    baseURL: "http://127.0.0.1:20128/v1",
     apiKey,
     model: "kr/test-model",
     workDir: "/tmp",
@@ -27,7 +29,7 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
 
 async function withConfigDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const previous = process.env.NINE_RH_CONFIG_DIR;
-  const dir = await mkdtemp(join(tmpdir(), "9rh-commands-"));
+  const dir = await mkdtemp(join(os.tmpdir(), "9rh-commands-"));
   process.env.NINE_RH_CONFIG_DIR = dir;
   try {
     return await fn(dir);
@@ -71,7 +73,7 @@ describe("executeSlashCommand native API auth", () => {
     expect(output).toContain("fallback combo");
     expect(output).not.toContain("Command failed");
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:20128/api/combos",
+      "http://127.0.0.1:20128/api/combos",
       expect.objectContaining({ headers: expect.objectContaining({ "x-9r-cli-token": expect.any(String) }) }),
     );
   });
@@ -99,7 +101,7 @@ describe("executeSlashCommand native API auth", () => {
 
   it("does not report catalog models as usable when keys and providers are missing", async () => {
     jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
-      const path = String(url).replace("http://localhost:20128", "");
+      const path = String(url).replace("http://127.0.0.1:20128", "");
       if (path === "/api/health") return jsonResponse({ ok: true });
       if (path === "/api/version") return jsonResponse({ currentVersion: "1.0.0", hasUpdate: false });
       if (path === "/api/keys") return jsonResponse({ keys: [] });
@@ -132,7 +134,7 @@ describe("model command helpers", () => {
 
     await expect(fetchModels(state("model-key"))).resolves.toEqual([{ id: "kr/model-a", owned_by: "9router" }]);
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:20128/v1/models",
+      "http://127.0.0.1:20128/v1/models",
       expect.objectContaining({ headers: { Authorization: "Bearer model-key" } }),
     );
   });
@@ -248,8 +250,8 @@ describe("model command helpers", () => {
     await expect(fetchModels(current)).resolves.toEqual([{ id: "kr/model-a", owned_by: "kr" }]);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock).toHaveBeenCalledWith("http://localhost:20128/v1/models", expect.any(Object));
-    expect(fetchMock).toHaveBeenCalledWith("http://localhost:20128/api/providers", expect.any(Object));
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:20128/v1/models", expect.any(Object));
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:20128/api/providers", expect.any(Object));
   });
 
   it("/router summarizes cached 9router configuration", async () => {
@@ -263,7 +265,7 @@ describe("model command helpers", () => {
 
     const output = await executeSlashCommand("/router", state("model-key"));
 
-    expect(output).toContain("9router: http://localhost:20128");
+    expect(output).toContain("9router: http://127.0.0.1:20128");
     expect(output).toContain("models: 1");
     expect(output).toContain("providers: 1 configured, 1 active");
     expect(output).toContain("combos: 1");
@@ -294,5 +296,78 @@ describe("model command helpers", () => {
     expect(output).toContain("backend:");
     expect(output).toContain("platform support:");
     expect(output).toContain("network policy:");
+  });
+});
+
+describe("debug-auth handler", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  async function withMockHome<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+    const dir = await mkdtemp(join(os.tmpdir(), "9rh-mock-home-"));
+    jest.spyOn(os, "homedir").mockReturnValue(dir);
+    // Mock execFileSync to prevent it from finding real machine ID on Darwin/Linux
+    jest.spyOn(child_process, "execFileSync").mockImplementation(() => {
+      throw new Error("mocked error");
+    });
+    try {
+      return await fn(dir);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("uses token auth when CLI token present", async () => {
+    await withMockHome(async (home) => {
+      const nineRouterDir = join(home, ".9router");
+      const authDir = join(nineRouterDir, "auth");
+      await mkdir(authDir, { recursive: true });
+      await writeFile(join(nineRouterDir, "machine-id"), "mock-machine-id");
+      await writeFile(join(authDir, "cli-secret"), "mock-secret");
+
+      const fetchMock = jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+        const path = String(url).replace("http://127.0.0.1:20128", "");
+        if (path === "/api/health") return jsonResponse({ ok: true });
+        if (path === "/api/providers") return jsonResponse({ connections: [1, 2] });
+        return jsonResponse({ error: "not found" }, { status: 404 });
+      });
+
+      const output = await executeSlashCommand("/debug-auth", state());
+      expect(output).toContain("CLI token:");
+      expect(output).not.toContain("CLI token: missing");
+      expect(output).toContain("API Health: ok");
+      expect(output).toContain("Providers API: 2 connections found");
+      expect(fetchMock).toHaveBeenCalled();
+    });
+  });
+
+  it("falls back to API key when token missing", async () => {
+    await withMockHome(async (_home) => {
+      const fetchMock = jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+        const path = String(url).replace("http://127.0.0.1:20128", "");
+        if (path === "/api/health") return jsonResponse({ ok: false });
+        if (path === "/api/providers") return jsonResponse({ error: "Service Unavailable" }, { status: 503, statusText: "Service Unavailable" });
+        return jsonResponse({ error: "not found" }, { status: 404 });
+      });
+
+      const output = await executeSlashCommand("/debug-auth", state("keyABCDEF"));
+      expect(output).not.toBeNull();
+      expect(output).toContain("CLI token:");
+      expect(output).toContain("Effective API key: keyABCDE…");
+      expect(output).toContain("API Health: unhealthy");
+      expect(output).toContain("Providers API: error 503 Service Unavailable");
+      expect(fetchMock).toHaveBeenCalled();
+    });
+  });
+
+  it("handles fetch exceptions gracefully", async () => {
+    await withMockHome(async (_home) => {
+      jest.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network fail"));
+
+      const output = await executeSlashCommand("/debug-auth", state());
+      expect(output).toContain("API Health check failed: network fail");
+      expect(output).toContain("Providers API check failed: network fail");
+    });
   });
 });

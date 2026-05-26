@@ -331,3 +331,26 @@ export function renderRunVisualization(view: RunVisualization, filter: Visualiza
     ...(graph.length ? graph : ["  (no dependencies yet)"]),
   ].join("\n");
 }
+export function renderRunMapCompact(view: RunVisualization, maxWidth: number = 40): string[] {
+  const steps = visibleSteps(view, { collapseNoise: true }).slice(-10);
+  const statusGlyph: Record<StepStatus, string> = {
+    queued: "○", running: "◉", blocked: "■", failed: "✗", repaired: "◆", done: "✓",
+  };
+  const stageAbbr: Record<RunStage, string> = {
+    planning: "PLN", execution: "EXE", review: "REV", repair: "RPR", completion: "CMP",
+  };
+  const lines: string[] = [];
+  for (const step of steps) {
+    const marker = step.id === view.currentStepId ? "→" : " ";
+    const glyph = statusGlyph[step.status];
+    const stage = stageAbbr[step.stage];
+    let label = step.label;
+    if (step.file) label += ` ${step.file}`;
+    const avail = maxWidth - 6;
+    if (avail > 0 && label.length > avail) {
+      label = label.slice(0, Math.max(0, avail - 1)) + "…";
+    }
+    lines.push(`${marker}${glyph} ${stage} ${label}`);
+  }
+  return lines.length > 0 ? lines : ["○ waiting for first event"];
+}

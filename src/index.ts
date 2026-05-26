@@ -11,9 +11,40 @@ import { compressUserInput } from "./inputCompression.js";
 import { ReplInputCoalescer } from "./replInput.js";
 import { readUserConfig, resolveConfiguredModel, updateUserConfig } from "./config.js";
 import { showSpinner, hideSpinner, pulseQueueBadge, showRightStats, hideRightStats, refreshStatusLine, formatStats, type StatsSnapshot } from "./ui.js";
+import { existsSync, statSync } from "fs";
+import { spawn } from "child_process";
+
+async function maybeAutoIndexCodeGraph(workDir: string): Promise<void> {
+  const codegraphDir = resolve(workDir, ".codegraph");
+  // Check if .codegraph directory exists and seems initialized
+  const configPath = resolve(codegraphDir, "config.json");
+  const dbPath = resolve(codegraphDir, "codegraph.db");
+  const needsInit = !existsSync(configPath) || !existsSync(dbPath);
+  if (needsInit) {
+    try {
+      // Run codegraph init -i to initialize and index
+      await new Promise<void>((resolve, reject) => {
+        const proc = spawn("codegraph", ["init", "-i"], {
+          cwd: workDir,
+          stdio: "ignore" // silent; could pipe to stderr if desired
+        });
+        proc.on("close", (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`codegraph init exited with code ${code}`));
+        });
+        proc.on("error", reject);
+      });
+      // Optionally inform user
+      // process.stderr.write(`  CodeGraph initialized and indexed.\n`);
+    } catch (err) {
+      // Silently fail – don't block REPL on indexing errors
+      // process.stderr.write(`  CodeGraph auto-index skipped: ${err.message}\n`);
+    }
+  }
+}
 
 const DEFAULTS = {
-  url: process.env.NINE_ROUTER_URL ?? "http://localhost:20128/v1",
+  url: process.env.NINE_ROUTER_URL ?? "http://127.0.0.1:20128/v1",
   key: process.env.NINE_ROUTER_KEY ?? "9router",
   model: process.env.NINE_ROUTER_MODEL ?? "kr/claude-sonnet-4.5",
   continuationModel: process.env.NINE_ROUTER_CONTINUATION_MODEL,
@@ -110,7 +141,7 @@ if (isInit) {
     log(chalk.blue("  Initializing 9router..."));
     ensureRouter(DEFAULTS.url, DEFAULTS.key).then((init) => {
       if (init.error) { log(chalk.red(`  ✗ ${init.error}`)); process.exit(1); }
-      log(chalk.green("  ✓ 9router ready at http://localhost:20128"));
+      log(chalk.green("  ✓ 9router ready at http://127.0.0.1:20128"));
       process.exit(0);
     }).catch((err) => { log(chalk.red(`  ✗ ${err.message}`)); process.exit(1); });
   } else if (initArgv.length === 0) {
@@ -316,6 +347,10 @@ async function runRepl(state: SessionState): Promise<void> {
   });
 
   const nativeBase = state.baseURL.replace(/\/v1\/?$/, "");
+  if (process.stdout.isTTY) {
+    // Clear screen and scrollback
+    process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
+  }
   await printSplash(state.useColor);
 
   const ALL_CMDS = getSlashCommands();
@@ -667,22 +702,6 @@ async function runRepl(state: SessionState): Promise<void> {
 
   rl.on("line", (line: string) => {
     clearSuggestions();
-
-    // Non-slash lines go into the queue instead of being sent immediately
-    if (!line.startsWith("/")) {
-      state.queue.push(line);
-      const snapshot: StatsSnapshot = {
-        queueLength: state.queue.length,
-        stepIndex: 0,
-        elapsedMs: state._runStartMs ? Date.now() - state._runStartMs : undefined,
-        toolCalls: state._toolCallCount,
-      };
-      refreshStatusLine(snapshot);
-      rl.setPrompt(prompt());
-      rl.prompt();
-      return;
-    }
-
     inputCoalescer.pushLine(line);
   });
 
@@ -747,7 +766,7 @@ async function apiFetch(path: string): Promise<Response> {
   if (keys.length > 0) {
     checks.push({ label: "API keys", status: "ok", msg: `${keys.length} key(s) configured` });
   } else {
-    checks.push({ label: "API keys", status: "fail", msg: "no keys — visit http://localhost:20128/dashboard to add your key" });
+    checks.push({ label: "API keys", status: "fail", msg: "no keys — visit http://127.0.0.1:20128/dashboard to add your key" });
     allOk = false;
   }
 
@@ -760,7 +779,7 @@ async function apiFetch(path: string): Promise<Response> {
     checks.push({ label: "providers", status: active.length > 0 ? "ok" : "warn", msg: `${connections.length} connection(s), ${active.length} active` });
     if (active.length === 0) allOk = false;
   } else {
-    checks.push({ label: "providers", status: "fail", msg: "no providers — visit http://localhost:20128/dashboard to connect one" });
+    checks.push({ label: "providers", status: "fail", msg: "no providers — visit http://127.0.0.1:20128/dashboard to connect one" });
     allOk = false;
   }
 
@@ -791,7 +810,7 @@ async function apiFetch(path: string): Promise<Response> {
     process.stderr.write(`${icon} ${label} ${check.msg}\n`);
   }
   if (connections.length === 0) {
-    process.stderr.write(`\n  -> Open ${opts.color ? chalk.bold.cyan("http://localhost:20128/dashboard") : "http://localhost:20128/dashboard"} to connect a provider\n`);
+    process.stderr.write(`\n  -> Open ${opts.color ? chalk.bold.cyan("http://127.0.0.1:20128/dashboard") : "http://127.0.0.1:20128/dashboard"} to connect a provider\n`);
   }
 return allOk;
 }
@@ -866,13 +885,15 @@ async function main() {
     const ok = await runDoctor(state);
     process.exit(ok ? 0 : 1);
   } else if (opts.repl) {
-    ensureRouter(opts.url, opts.key).then((init) => {
+    ensureRouter(opts.url, opts.key).then(async (init) => {
       state.baseURL = init.baseURL;
       state.apiKey = init.apiKey;
       state.wasStarted = init.wasStarted;
       if (init.error) {
         process.stderr.write(opts.color ? chalk.red(`  ✗ ${init.error}\n`) : `  ✗ ${init.error}\n`);
       }
+      // Auto-index the current workspace with CodeGraph if not already done
+      await maybeAutoIndexCodeGraph(state.workDir);
       runRepl(state).catch((err) => {
         process.stderr.write(String(err) + "\n");
         process.exit(1);

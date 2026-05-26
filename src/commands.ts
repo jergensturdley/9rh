@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import { resolve } from "path";
 import { stat } from "fs/promises";
-import { getCliToken } from "./init.js";
+import { getCliToken, readFirstApiKey } from "./init.js";
 import { createExecutor, isSandboxAvailable } from "./sandbox/index.js";
 import type { ContinuationPolicy } from "./agent.js";
 import { updateUserConfig } from "./config.js";
@@ -17,6 +17,7 @@ export interface SessionState {
   routerCache?: RouterConfigCache;
   // Queue / interrupt state
   queue: string[];
+  history?: string[];
   _runStartMs: number | undefined;
   _toolCallCount: Record<string, number>;
 }
@@ -139,9 +140,11 @@ function setCached<T>(value: T): RouterCacheEntry<T> {
 
 async function fetchNativeJSON(state: SessionState, path: string): Promise<unknown> {
   const token = getCliToken();
+  const storedKey = readFirstApiKey();
+  const effectiveKey = storedKey ?? state.apiKey;
   const headers: Record<string, string> = token
     ? { "x-9r-cli-token": token }
-    : { Authorization: `Bearer ${state.apiKey}` };
+    : { Authorization: `Bearer ${effectiveKey}` };
   return fetchJSONWithHeaders(`${base(state)}${path}`, headers);
 }
 
@@ -285,36 +288,178 @@ const COMMANDS: Record<string, CommandDef> = {
       const banner = c
         ? chalk.bold.cyan("┌" + "─".repeat(40) + "┐\n") + chalk.bold.cyan("│") + "  ✦ 9rh slash commands".padEnd(40) + chalk.bold.cyan("│") + "\n" + chalk.bold.cyan("└" + "─".repeat(40) + "┘")
         : "+----------------------------------------+\n   9rh slash commands\n+----------------------------------------+";
-      const lines = [
+      const headerLines = [
         "",
         banner,
         "",
-        c ? chalk.dim("━━ system ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") : "━━ system ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        `  ${c ? chalk.cyan("/help") : "/help"}          Show this menu`,
-        `  ${c ? chalk.cyan("/clear") : "/clear"}        Clear the screen`,
-        `  ${c ? chalk.cyan("/queue") : "/queue"}        Show queued message count`,
-        `  ${c ? chalk.cyan("/done") : "/done"}          Interrupt hint`,
-        `  ${c ? chalk.cyan("/setup") : "/setup"}        Install & start 9router`,
-        `  ${c ? chalk.cyan("/doctor") : "/doctor"}       Diagnose connectivity & config`,
-        `  ${c ? chalk.cyan("/sandbox") : "/sandbox"}      Show command isolation status`,
-        "",
-        c ? chalk.dim("━━ router ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") : "━━ router ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        `  ${c ? chalk.cyan("/status") : "/status"}       9router health, version, updates`,
-        `  ${c ? chalk.cyan("/providers") : "/providers"}  List configured provider connections`,
-        `  ${c ? chalk.cyan("/combos") : "/combos"}       List model fallback chains`,
-        `  ${c ? chalk.cyan("/keys") : "/keys"}          List 9router API keys`,
-        "",
-        c ? chalk.dim("━━ models ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") : "━━ models ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        `  ${c ? chalk.cyan("/models") : "/models"}       List available models`,
-        `  ${c ? chalk.cyan("/switch") : "/switch"}       Switch active model for this REPL session`,
-        `  ${c ? chalk.cyan("/default-model") : "/default-model"} Set startup model for future 9rh runs`,
-        "",
-        c ? chalk.dim("━━ session ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") : "━━ session ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        `  ${c ? chalk.cyan("/dir") : "/dir"}            Show or change working directory`,
-        "",
         divider,
+      ];
+      const commands = Object.entries(COMMANDS).map(([name, def]) => ({
+        name,
+        description: def.description,
+        usage: def.usage,
+      }));
+      const groups: Record<string, typeof commands> = {};
+      for (const cmd of commands) {
+        let prefix = null;
+        if (cmd.name === "help" || cmd.name === "clear" || cmd.name === "queue" || cmd.name === "run" || cmd.name === "done" || cmd.name === "setup" || cmd.name === "sandbox" || cmd.name === "doctor") prefix = "system";
+        else if (cmd.name === "status" || cmd.name === "providers" || cmd.name === "combos" || cmd.name === "keys" || cmd.name === "router" || cmd.name === "refresh" || cmd.name === "reload") prefix = "router";
+        else if (cmd.name === "models" || cmd.name === "switch" || cmd.name === "default-model") prefix = "models";
+        else if (cmd.name === "dir" || cmd.name === "skills" || cmd.name === "history" || cmd.name === "logs" || cmd.name === "runonce" || cmd.name === "index" || cmd.name === "index-status") prefix = "session";
+        else prefix = "other";
+        groups[prefix] = groups[prefix] ?? [];
+        groups[prefix].push(cmd);
+      }
+      const lines = [...headerLines];
+      for (const [groupName, groupCommands] of Object.entries(groups)) {
+        lines.push(c ? chalk.dim(`━━ ${groupName} ━${"━".repeat(30)}`) : `━━ ${groupName} ━${"━".repeat(30)}`);
+        for (const cmd of groupCommands) {
+          const usageText = cmd.usage || `/${cmd.name}`;
+          const nameText = (c ? chalk.cyan(`/${cmd.name}`) : `/${cmd.name}`);
+          const descText = c ? chalk.dim(cmd.description) : cmd.description;
+          lines.push(`  ${usageText.padEnd(18)} ${nameText}  ${descText}`);
+        }
+        lines.push("");
+      }
+      return lines.join("\n");
+    },
+  },
+
+  skills: {
+    usage: "/skills [list|reload]",
+    description: "List or reload local agent skills from ~/.9rh/skills",
+    handler: async (args, state) => {
+      const fs = await import("fs/promises");
+      const path = await import("path");
+      const homedir = await import("os").then(os => os.homedir());
+      const skillsDir = path.join(homedir, ".9rh", "skills");
+      if (args.length === 0 || args[0] === "list") {
+        try {
+          const files = await fs.readdir(skillsDir, { withFileTypes: true });
+          const skillNames = files.filter(f => f.isDirectory()).map(f => f.name);
+          if (skillNames.length === 0) return "\n  No local skills found in ~/.9rh/skills.\n";
+          const list = skillNames.map(n => `  - ${n}`).join("\n");
+          return `\n  Local agent skills:\n${list}\n`;
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return (state.useColor ? chalk.red(`\n  Failed to list skills: ${msg}\n`) : `\n  Failed to list skills: ${msg}\n`);
+        }
+      }
+      if (args[0] === "reload") {
+        return "\n  (reload not yet implemented — would clear skill index cache)\n";
+      }
+      return "\n  Usage: /skills [list|reload]\n";
+    },
+  },
+
+  logs: {
+    usage: "/logs [tail <lines>] | clear",
+    description: "Tail agent logs or clear output",
+    handler: async (args, state) => {
+      if (args[0] === "clear") {
+        return "\n  Logs cleared (simulated).\n";
+      }
+      const linesArg = args[0] === "tail" ? args[1] : args[0];
+      const n = linesArg ? parseInt(linesArg, 10) : 10;
+      if (isNaN(n) || n <= 0) {
+        return (state.useColor ? chalk.red("\n  Invalid line count\n") : "\n  Invalid line count\n");
+      }
+      return `\n  Last ${n} lines of logs (simulated)\n`;
+    },
+  },
+
+  history: {
+    usage: "/history [count]",
+    description: "Show recent slash command history",
+    handler: async (args, state) => {
+      const count = args[0] ? parseInt(args[0], 10) : 10;
+      if (!state.history || state.history.length === 0) return "\n  No command history available.\n";
+      const start = Math.max(0, state.history.length - count);
+      const items = state.history.slice(start);
+      const lines = items.map((cmd, i) => `  ${start + i + 1}. ${cmd}`);
+      return "\n  Command history:\n" + lines.join("\n") + "\n";
+    },
+  },
+
+  reload: {
+    usage: "/reload",
+    description: "Reload 9router configuration and caches",
+    handler: async (_args, state) => {
+      if (state.routerCache) {
+        state.routerCache = { native: new Map() };
+        return "\n  Reloaded router cache.\n";
+      }
+      return "\n  No router cache to reload.\n";
+    },
+  },
+
+  runonce: {
+    usage: "/runonce",
+    description: "Run next queued message and remove from queue",
+    handler: async (_args, state) => {
+      if (!state.queue || state.queue.length === 0) return "\n  No queued messages to run.\n";
+      const next = state.queue.shift();
+      if (!next) return "\n  No queued messages to run.\n";
+      const { Agent } = await import("./agent.js");
+      const agent = new Agent({
+        baseURL: state.baseURL,
+        apiKey: state.apiKey,
+        model: state.model,
+        maxIterations: 100,
+        workDir: state.workDir,
+      });
+      try {
+        await agent.run(next);
+        return "\n  Run once completed.\n";
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return (state.useColor ? chalk.red(`\n  Failed to run once: ${msg}\n`) : `\n  Failed to run once: ${msg}\n`);
+      }
+    },
+  },
+
+  "index-status": {
+    usage: "/index-status",
+    description: "Show repo index status (count, size, age)",
+    handler: async (_args, state) => {
+      const { getRepoIndexStatus } = await import("./indexer.js");
+      const st = await getRepoIndexStatus(state.workDir);
+      const sizeStr = st.totalSizeBytes > 1048576
+        ? `${(st.totalSizeBytes / 1048576).toFixed(1)} MB`
+        : st.totalSizeBytes > 1024
+          ? `${(st.totalSizeBytes / 1024).toFixed(1)} KB`
+          : `${st.totalSizeBytes} B`;
+      const ageMin = Math.round(st.oldestEntryAgeMs / 60000);
+      const lines = [
+        "",
+        `  repo index: ${st.totalRepos} entries (${st.freshRepos} fresh, ${st.staleRepos} stale)`,
+        `  total size: ${sizeStr}`,
+        `  oldest entry: ${ageMin} min ago`,
         "",
       ];
+      return lines.join("\n");
+    },
+  },
+
+  index: {
+    usage: "/index [prune]",
+    description: "Re-scan workspace repos and update index",
+    handler: async (args, state) => {
+      const { ensureRepoIndex, pruneStaleRepos } = await import("./indexer.js");
+      if (args[0] === "prune") {
+        const removed = await pruneStaleRepos(state.workDir);
+        return `\n  pruned ${removed} stale entries\n`;
+      }
+      const result = await ensureRepoIndex(state.workDir);
+      const lines = [
+        "",
+        `  index refreshed in ${result.elapsedMs}ms`,
+        `  ${result.freshRepos} repos scanned, ${result.totalRepos} in index`,
+      ];
+      if (result.staleRemoved > 0) {
+        lines.push(`  ${result.staleRemoved} stale entries pruned`);
+      }
+      lines.push("");
       return lines.join("\n");
     },
   },
@@ -539,6 +684,52 @@ const COMMANDS: Record<string, CommandDef> = {
     },
   },
 
+  "debug-auth": {
+    usage: "/debug-auth",
+    description: "Debug 9router authentication and connectivity",
+    handler: async (_args, state) => {
+      const token = getCliToken();
+      const storedKey = readFirstApiKey();
+      const effectiveKey = storedKey ?? state.apiKey;
+      const native = base(state);
+
+      const lines = [
+        "",
+        `  9router base: ${native}`,
+        `  CLI token: ${token ? `${token.slice(0, 4)}…${token.slice(-4)}` : "missing"}`,
+        `  Effective API key: ${effectiveKey ? `${effectiveKey.slice(0, 8)}…` : "missing"}`,
+      ];
+
+      try {
+        const headers: Record<string, string> = token
+          ? { "x-9r-cli-token": token }
+          : { Authorization: `Bearer ${effectiveKey}` };
+        const res = await fetch(`${native}/api/health`, { headers });
+        const health = await res.json() as { ok?: boolean };
+        lines.push(`  API Health: ${health.ok ? "ok" : "unhealthy"}`);
+      } catch (err: any) {
+        lines.push(`  API Health check failed: ${err.message}`);
+      }
+
+      try {
+        const headers: Record<string, string> = token
+          ? { "x-9r-cli-token": token }
+          : { Authorization: `Bearer ${effectiveKey}` };
+        const res = await fetch(`${native}/api/providers`, { headers });
+        if (res.ok) {
+          const providers = await res.json() as { connections?: unknown[] };
+          lines.push(`  Providers API: ${providers.connections?.length ?? 0} connections found`);
+        } else {
+          lines.push(`  Providers API: error ${res.status} ${res.statusText}`);
+        }
+      } catch (err: any) {
+        lines.push(`  Providers API check failed: ${err.message}`);
+      }
+
+      lines.push("");
+      return lines.join("\n");
+    },
+  },
   refresh: {
     usage: "/refresh",
     description: "Refresh cached 9router models/providers/combos/keys",
@@ -591,10 +782,29 @@ const COMMANDS: Record<string, CommandDef> = {
 
   queue: {
     usage: "/queue",
-    description: "Show how many messages are queued",
+    description: "Show queued messages",
+    handler: async (args, state) => {
+      if (args[0] === "clear") {
+        const cleared = state.queue?.length ?? 0;
+        state.queue = [];
+        return `\n  Cleared ${cleared} queued message(s).\n`;
+      }
+      const len = state.queue?.length ?? 0;
+      if (!len) return "\n  Queue is empty. Type lines to queue, then /run to send.\n";
+      const lines = state.queue.map((l, i) => {
+        const preview = l.length > 80 ? l.slice(0, 77) + "..." : l;
+        return `  ${i + 1}. ${preview}`;
+      });
+      return `\n  Queued ${len} message(s):\n${lines.join("\n")}\n  Use /run to send, /queue clear to discard.\n`;
+    },
+  },
+  run: {
+    usage: "/run",
+    description: "Send queued messages to the agent",
     handler: async (_args, state) => {
       const len = state.queue?.length ?? 0;
-      return `\n  Queued: ${len} message(s)\n`;
+      if (!len) return "\n  No queued messages. Type lines first, then /run.\n";
+      return `\n  ${len} message(s) queued. Use /run in the REPL to send them.\n`;
     },
   },
 
@@ -730,7 +940,7 @@ const COMMANDS: Record<string, CommandDef> = {
         checks.push({
           label: "providers",
           status: "fail",
-          msg: "no providers — visit http://localhost:20128/dashboard to connect one",
+          msg: "no providers — visit http://127.0.0.1:20128/dashboard to connect one",
         });
         allOk = false;
       }
@@ -777,8 +987,8 @@ const COMMANDS: Record<string, CommandDef> = {
 
       if (connections.length === 0) {
         const dashboard = state.useColor
-          ? chalk.bold.cyan("http://localhost:20128/dashboard")
-          : "http://localhost:20128/dashboard";
+          ? chalk.bold.cyan("http://127.0.0.1:20128/dashboard")
+          : "http://127.0.0.1:20128/dashboard";
         lines.push(`  → Open ${dashboard} to connect a provider`);
         lines.push("");
       }
