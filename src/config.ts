@@ -6,6 +6,10 @@ export interface UserConfig {
   defaultProvider?: string;
   /** Persisted backend choice: "router" | "direct" | "embedded". */
   backend?: string;
+  /** Default path for the run report. Default: ~/.9rh/last-run.html */
+  reportPath?: string;
+  /** If true, each turn's report is preserved with a unique filename. */
+  keepReports?: boolean;
 }
 
 function configDir(): string {
@@ -30,6 +34,8 @@ export async function readUserConfig(): Promise<UserConfig> {
       defaultModel: cleanString(parsed.defaultModel),
       defaultProvider: cleanString(parsed.defaultProvider),
       backend: cleanString(parsed.backend),
+      reportPath: cleanString(parsed.reportPath),
+      keepReports: typeof parsed.keepReports === "boolean" ? parsed.keepReports : undefined,
     };
   } catch {
     return {};
@@ -42,6 +48,8 @@ export async function writeUserConfig(config: UserConfig): Promise<void> {
   if (config.defaultModel) normalized.defaultModel = config.defaultModel;
   if (config.defaultProvider) normalized.defaultProvider = config.defaultProvider;
   if (config.backend) normalized.backend = config.backend;
+  if (config.reportPath) normalized.reportPath = config.reportPath;
+  if (typeof config.keepReports === "boolean") normalized.keepReports = config.keepReports;
   await writeFile(configPath(), JSON.stringify(normalized, null, 2) + "\n", "utf-8");
 }
 

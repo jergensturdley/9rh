@@ -7,6 +7,7 @@
 - **Local repo agent** — run coding tasks against a selected working directory.
 - **Pluggable backends** — use 9router for combo chains, or talk straight to OpenAI / OpenRouter / Ollama / LM Studio. Auto-detected from your environment, overridable per-invocation.
 - **Interactive REPL** — slash commands for models, providers, router status, sandbox status, working directory, setup, and diagnostics.
+- **Run reports** — every agent turn writes a self-contained HTML summary of changes made, reasoning, tools used, and tokens used. Linked in the chat, openable via `/report`.
 - **Sandbox-aware tools** — file operations are path-checked, symlinks are blocked for file reads/writes, and shell commands use macOS `sandbox-exec` when available with visible `/sandbox` status.
 - **Spec, replay, and repair systems** — optional spec-driven task framing, live run visualization, replay logs, checkpoints, error taxonomy, and repair hooks.
 - **Programmatic API** — import the core agent, tools, visualization, spec, replay, and sandbox primitives from the package.
@@ -98,6 +99,7 @@ Slash commands that depend on 9router's native `/api/*` endpoints (`/providers`,
 | `/switch <model>` | both | Change the active model |
 | `/status` | both | Show backend, health, active model, working directory |
 | `/doctor` | both | Diagnose connectivity and configuration |
+| `/report [open]` | both | Show the path of the most recent run report; `/report open` launches it in the default browser |
 | `/sandbox` | both | Show command isolation backend status |
 | `/dir [path]` | both | Show or change working directory |
 | `/help` | both | List all slash commands |

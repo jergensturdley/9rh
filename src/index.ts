@@ -7,6 +7,7 @@ import { Agent, type AgentEvent, type ContinuationPolicy } from "./agent.js";
 import { executeSlashCommand, fetchModels, filterModels, type ModelInfo, type SessionState, toArray, getSlashCommands } from "./commands.js";
 import { ensureRouter, readFirstApiKey, getCliToken } from "./init.js";
 import { createTuiRenderer, printSplash } from "./tui.js";
+import { detectBackend, getProviderPreset, listProviderPresetIds, type Backend } from "./backends/index.js";
 import { compressUserInput } from "./inputCompression.js";
 import { ReplInputCoalescer } from "./replInput.js";
 import { readUserConfig, resolveConfiguredModel, updateUserConfig } from "./config.js";
@@ -52,11 +53,14 @@ const DEFAULTS = {
   continuationIter: process.env.NINE_ROUTER_CONTINUATION_ITER,
   continuationSwitchAfter: process.env.NINE_ROUTER_CONTINUATION_SWITCH_AFTER,
   maxIter: 100,
+  backend: process.env.NINE_ROUTER_BACKEND,
+  directUrl: process.env.OPENAI_BASE_URL ?? process.env.ANTHROPIC_BASE_URL ?? process.env.OPENROUTER_BASE_URL,
+  directKey: process.env.OPENAI_API_KEY ?? process.env.ANTHROPIC_API_KEY ?? process.env.OPENROUTER_API_KEY,
 };
 
 program
   .name("9rh")
-  .description("Coding agent harness for 9router")
+  .description("Local coding-agent harness with pluggable LLM backends (9router, OpenAI, OpenRouter, Ollama, LM Studio)")
   .version("1.0.0")
   .argument("[task]", "Task for the agent to perform")
   .option("-m, --model <model>", "Model to use (e.g. kr/claude-sonnet-4.5)", DEFAULTS.model)
@@ -64,6 +68,12 @@ program
   .option("-k, --key <key>", "9router API key", DEFAULTS.key)
   .option("-d, --dir <dir>", "Working directory", process.cwd())
   .option("-i, --max-iter <n>", "Max agent iterations", String(DEFAULTS.maxIter))
+  .option("-b, --backend <name>", "LLM backend: router | direct (default: auto-detect)", DEFAULTS.backend)
+  .option("-p, --provider <name>", `Direct-mode provider preset: ${listProviderPresetIds().join(" | ")}`)
+  .option("--direct-url <url>", "Direct backend base URL (e.g. https://api.openai.com/v1)", DEFAULTS.directUrl)
+  .option("--direct-key <key>", "Direct backend API key (otherwise from OPENAI_API_KEY / ANTHROPIC_API_KEY / OPENROUTER_API_KEY)", DEFAULTS.directKey)
+  .option("--report-path <path>", "Override the run report path (default: ~/.9rh/last-run.html)")
+  .option("--no-report", "Disable run report generation entirely")
   .option("--no-continue", "Disable automatic continuation after max iterations")
   .option("--continue-model <model>", "Model or 9router combo to use after max iterations", DEFAULTS.continuationModel)
   .option("--continue-max <n>", "Maximum continuation rounds", DEFAULTS.continuationMax)
@@ -89,6 +99,12 @@ const opts = program.opts<{
   key: string;
   dir: string;
   maxIter: string;
+  backend?: string;
+  provider?: string;
+  directUrl?: string;
+  directKey?: string;
+  reportPath?: string;
+  report?: boolean;
   continueModel?: string;
   continueMax?: string;
   continueIter?: string;
@@ -184,7 +200,26 @@ function parseContinuationPolicy(): ContinuationPolicy | undefined {
   return policy;
 }
 
+let _userConfigKeepReports: boolean | undefined;
+async function loadUserConfigKeepReports(): Promise<boolean | undefined> {
+  if (_userConfigKeepReports === undefined) {
+    const cfg = await readUserConfig();
+    _userConfigKeepReports = cfg.keepReports;
+  }
+  return _userConfigKeepReports;
+}
+
 function makeAgent(state: SessionState, onEvent: (e: AgentEvent) => void) {
+  // state.lastReportPath semantics:
+  //   null  → "use the Agent's default" (default: ~/.9rh/last-run.html)
+  //   false → disabled
+  //   string → use this path
+  const reportPath: string | false | undefined =
+    state.lastReportPath === null
+      ? undefined
+      : state.lastReportPath === false
+      ? false
+      : state.lastReportPath;
   return new Agent({
     baseURL: state.baseURL,
     apiKey: state.apiKey,
@@ -193,6 +228,8 @@ function makeAgent(state: SessionState, onEvent: (e: AgentEvent) => void) {
     workDir: state.workDir,
     onEvent,
     continuationPolicy: state.continuationPolicy,
+    reportPath,
+    keepReports: _userConfigKeepReports,
   });
 }
 
@@ -204,6 +241,7 @@ async function runTask(state: SessionState, t: string): Promise<void> {
     getBaseURL: () => state.baseURL,
     getStartedByRouter: () => state.wasStarted,
     useColor: state.useColor,
+    onReportWritten: (path) => { state.lastReportPath = path; },
   });
   const agent = makeAgent(state, tui);
   const compressed = compressUserInput(t);
@@ -344,6 +382,7 @@ async function runRepl(state: SessionState): Promise<void> {
     getBaseURL: () => state.baseURL,
     getStartedByRouter: () => state.wasStarted,
     useColor: state.useColor,
+    onReportWritten: (path) => { state.lastReportPath = path; },
   });
 
   const nativeBase = state.baseURL.replace(/\/v1\/?$/, "");
@@ -824,6 +863,7 @@ const state: SessionState = {
   wasStarted: false,
   continuationPolicy: parseContinuationPolicy(),
   queue: [],
+  lastReportPath: null, // null = "auto" (write to default). false = disabled. string = override.
   _runStartMs: undefined,
   _toolCallCount: {},
 };
@@ -840,6 +880,17 @@ async function main() {
   const userConfig = await readUserConfig();
   const modelWasExplicit = hasOption("-m", "--model") || Boolean(process.env.NINE_ROUTER_MODEL);
   state.model = resolveConfiguredModel(modelWasExplicit ? opts.model : undefined, userConfig);
+
+  // Resolve the report path: --no-report disables; --report-path overrides; else user config; else default.
+  if (opts.report === false) {
+    state.lastReportPath = false;
+  } else if (opts.reportPath) {
+    state.lastReportPath = opts.reportPath;
+  } else if (userConfig.reportPath) {
+    state.lastReportPath = userConfig.reportPath;
+  }
+  // Pre-load keepReports so makeAgent() can read it without an extra await.
+  await loadUserConfigKeepReports();
 
   if (opts.showConfig) {
     process.stdout.write(JSON.stringify({ ...userConfig, effectiveModel: state.model }, null, 2) + "\n");

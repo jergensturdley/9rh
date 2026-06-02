@@ -258,6 +258,8 @@ export interface TuiOptions {
   getBaseURL?: () => string;
   getStartedByRouter?: () => boolean | undefined;
   useColor: boolean;
+  /** Called when a run report is written to disk. Receives the absolute path. */
+  onReportWritten?: (path: string) => void;
 }
 
 export interface SplashOptions extends TuiOptions {
@@ -269,6 +271,29 @@ export interface SplashOptions extends TuiOptions {
 function crop(text: string, max: number): string {
   if (text.length <= max) return text;
   return text.slice(0, Math.max(0, max - 1)) + "…";
+}
+
+/**
+ * Word-wrap a single paragraph to the given width. Breaks at whitespace only;
+ * a single very long token is hard-wrapped rather than split mid-word.
+ */
+function wrapText(text: string, width: number): string {
+  if (width <= 0) return text;
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    if (current.length === 0) {
+      current = word;
+    } else if (current.length + 1 + word.length <= width) {
+      current = `${current} ${word}`;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.join("\n");
 }
 
 function normalizeWhitespace(text: string): string {
@@ -899,6 +924,30 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         } else {
           process.stdout.write(`╔${sep}╗\n║${body}║\n╚${sep}╝\n\n`);
         }
+        // Show the summary (existing behavior) and the report path link.
+        const finalText = (event.text ?? "").trim();
+        if (finalText) {
+          const normalized = finalText.replace(/\s+/g, " ");
+          const MAX_FINAL = 600;
+          const shown = normalized.length > MAX_FINAL
+            ? `${normalized.slice(0, MAX_FINAL)}…`
+            : normalized;
+          const header = opts.useColor ? chalk.bold.cyan("  summary") : "  summary";
+          process.stdout.write(`${header}\n`);
+          const indent = "  ";
+          const wrapWidth = boxWidth();
+          const wrapped = wrapText(shown, wrapWidth - indent.length);
+          for (const line of wrapped.split("\n")) {
+            process.stdout.write(`${indent}${line}\n`);
+          }
+          process.stdout.write("\n");
+        }
+        if (event.reportPath) {
+          const reportLine = `  report: file://${event.reportPath}  (open with /report open)`;
+          process.stdout.write(opts.useColor ? chalk.cyan(reportLine) : reportLine);
+          process.stdout.write("\n");
+          opts.onReportWritten?.(event.reportPath);
+        }
         dashboard.activity = "done";
         drawDashboard();
         break;
@@ -913,6 +962,12 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
               : `  ⚠  ${event.message}`) +
             "\n\n",
         );
+        if (event.reportPath) {
+          const reportLine = `  report: file://${event.reportPath}  (open with /report open)`;
+          process.stdout.write(opts.useColor ? chalk.cyan(reportLine) : reportLine);
+          process.stdout.write("\n\n");
+          opts.onReportWritten?.(event.reportPath);
+        }
         dashboard.activity = "error";
         drawDashboard();
         break;

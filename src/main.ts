@@ -2,6 +2,35 @@ export { Agent } from "./agent.js";
 export { TOOL_DEFINITIONS, executeTool } from "./tools.js";
 export { ensureRouter } from "./init.js";
 export {
+  DirectBackend,
+  RouterBackend,
+  NINE_ROUTER_OPENAI,
+  detectBackend,
+  type Backend,
+  type BackendName,
+  type ComboInfo,
+  type DetectOptions,
+  type DetectResult,
+  type HealthSnapshot,
+  type KeyInfo,
+  type ModelInfo,
+  type ProviderInfo,
+} from "./backends/index.js";
+export {
+  renderRunReport,
+  escapeHtml,
+  type RunReportData,
+  type RunStatus,
+  type TokenUsage,
+  type ToolCallRecord,
+  type ReasoningChunk,
+  type FileChangeRecord,
+  type FileChangeOperation,
+  type ErrorRecord,
+  type RepairRecord,
+  type CompactionRecord,
+} from "./reports/index.js";
+export {
   formatSpecDrivenPrompt,
   parseTaskSpecification,
   shouldUseSpecDrivenTesting,

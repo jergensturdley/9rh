@@ -52,6 +52,7 @@ src/
   index.ts    — CLI (commander), REPL, task runner, backend bootstrap
   main.ts     — programmatic exports for library use
   backends/   — Backend abstraction (Backend interface, DirectBackend, RouterBackend, detectBackend, presets)
+  reports/    — Run report generator (HTML+CSS, file snapshot tracking, token usage)
 ```
 
 ## Tool Sandbox
