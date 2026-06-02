@@ -1,6 +1,10 @@
 import OpenAI from "openai";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { readFile } from "fs/promises";
+import { dirname, join, resolve as resolvePath } from "path";
+import { mkdir } from "fs/promises";
+import { homedir } from "os";
 import type {
   ChatCompletionMessageParam,
   ChatCompletionTool,
@@ -33,6 +37,7 @@ import { Reasoner } from "./reasoner/reasoner.js";
 import { createExecutor, ObservabilityCollector, isSandboxAvailable } from "./sandbox/index.js";
 import type { SandboxProvider } from "./sandbox/index.js";
 import { formatSpecDrivenPrompt, shouldUseSpecDrivenTesting } from "./spec/specDrivenTesting.js";
+import { renderRunReport, type RunReportData, type RunStatus } from "./reports/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -50,6 +55,18 @@ export interface AgentConfig {
   continuationPolicy?: ContinuationPolicy;
   /** Maximum wall-clock time in milliseconds for a single `run()` call. Exceeding it aborts gracefully. */
   timeoutMs?: number;
+  /**
+   * If set, the agent writes a self-contained HTML report at this path on
+   * the `done` event. Default: `~/.9rh/last-run.html`. The directory is
+   * created if missing. Set to `false` to disable reports. If `keepReports`
+   * is true, the default becomes `~/.9rh/reports/run-<runId>.html`.
+   */
+  reportPath?: string | false;
+  /**
+   * If true, the report filename includes the runId so each turn is preserved
+   * instead of overwritten. Default false (last run only).
+   */
+  keepReports?: boolean;
 }
 
 export interface ContinuationPolicy {
@@ -76,8 +93,8 @@ export type AgentEvent =
   | { type: "thinking"; text: string }
   | { type: "tool_call"; name: string; args: Record<string, unknown> }
   | { type: "tool_result"; name: string; output: string; error?: string }
-  | { type: "done"; text: string }
-  | { type: "error"; message: string }
+  | { type: "done"; text: string; reportPath?: string }
+  | { type: "error"; message: string; reportPath?: string }
   | { type: "iteration"; current: number; max: number }
   | { type: "compact"; summary: string }
   | { type: "continuation"; count: number; max: number }
@@ -136,6 +153,10 @@ export class Agent {
   private stopFlag: boolean = false;
   private timeoutTimer: ReturnType<typeof setTimeout> | null = null;
   private replayFinalized: boolean = false;
+  // Report-data collection (built incrementally; written to disk on done).
+  private report: RunReportData | null = null;
+  private reportStartMs: number = 0;
+  private tokenUsage: { prompt: number; completion: number; total: number } | undefined = undefined;
 
   constructor(config: AgentConfig) {
     this.config = config;
@@ -328,6 +349,56 @@ export class Agent {
     this.emit({ type: "replay_event", event: event as unknown as ReplayEvent });
   }
 
+  /**
+   * Render the run report to HTML and write it to disk. Returns the absolute
+   * path written, or undefined if reports are disabled or the write failed.
+   *
+   * Best-effort: errors during write are swallowed (logged via stderr) so
+   * the agent run is never blocked by a report problem.
+   */
+  private async writeRunReport(status: RunStatus): Promise<string | undefined> {
+    if (!this.report) return undefined;
+    if (this.config.reportPath === false || this.config.reportPath === "") return undefined;
+
+    // Determine the final path. If keepReports is true, embed the runId.
+    const defaultPath = `~/.9rh/last-run.html`.replace("~", homedir());
+    let finalPath: string;
+    if (this.config.reportPath) {
+      finalPath = this.config.reportPath;
+    } else if (this.config.keepReports) {
+      const dir = join(homedir(), ".9rh", "reports");
+      finalPath = join(dir, `run-${this.report.runId}.html`);
+    } else {
+      finalPath = defaultPath;
+    }
+    finalPath = finalPath.replace(/^~/, homedir());
+
+    // Finalize the report data.
+    this.report.endedAt = Date.now();
+    this.report.durationMs = this.report.endedAt - this.reportStartMs;
+    this.report.steps = this.stepIndex;
+    this.report.compactionCount = this.compactCount;
+    this.report.status = status;
+    if (this.tokenUsage) this.report.tokenUsage = this.tokenUsage;
+    if (this.replay.enabled) {
+      this.report.replayLogPath = this.replay.logDir
+        ? join(this.replay.logDir, this.replay.runId ?? this.report.runId, "events.jsonl")
+        : undefined;
+    }
+
+    try {
+      await mkdir(dirname(finalPath), { recursive: true });
+      const html = renderRunReport(this.report);
+      const { writeFile } = await import("fs/promises");
+      await writeFile(finalPath, html, "utf-8");
+      return finalPath;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[9rh] failed to write run report: ${msg}\n`);
+      return undefined;
+    }
+  }
+
   private async finalizeReplay(reason: string): Promise<void> {
     if (this.replayFinalized) return;
     this.replayFinalized = true;
@@ -365,11 +436,29 @@ export class Agent {
       const outcome = result.escalate ? "ESCALATED" : "REPAIRED";
       await logIncident(tagged, attempt, outcome, durationMs, result.userMessage);
       this.emit({ type: "repair_success", message: result.userMessage });
+      if (this.report) {
+        this.report.repairs.push({
+          step: this.stepIndex,
+          attempt,
+          outcome: outcome === "REPAIRED" ? "REPAIRED" : "ESCALATED",
+          message: result.userMessage,
+          timestamp: Date.now(),
+        });
+      }
       return { escalate: false, userMessage: result.userMessage };
     }
 
     await logIncident(tagged, attempt, "ESCALATED", durationMs, result.userMessage);
     this.emit({ type: "escalate", message: result.userMessage });
+    if (this.report) {
+      this.report.repairs.push({
+        step: this.stepIndex,
+        attempt,
+        outcome: "ESCALATED",
+        message: result.userMessage,
+        timestamp: Date.now(),
+      });
+    }
     return { escalate: true, userMessage: result.userMessage };
   }
 
@@ -380,6 +469,19 @@ export class Agent {
   ): Promise<{ output: string; error?: string }> {
     const executor = this.executor;
     const observer = this.observer;
+    const startMs = Date.now();
+
+    // For write_file, capture the file's content before the call so the
+    // run report can show a real before/after diff. Failures here must
+    // not block the tool — the snapshot is best-effort.
+    let beforeSnapshot: string | null = null;
+    let beforePath: string | null = null;
+    if (name === "write_file" && typeof args.path === "string") {
+      beforePath = await this.safeResolveInsideWorkDir(args.path);
+      if (beforePath) {
+        beforeSnapshot = await this.tryReadFile(beforePath);
+      }
+    }
 
     const wrapped = async () => {
       return executeTool(name, args, this.config.workDir, {
@@ -418,7 +520,79 @@ export class Agent {
       },
     });
 
+    // Record the file change (after the tool ran) for the report.
+    if (name === "write_file" && beforePath && !result.error) {
+      const after = await this.tryReadFile(beforePath);
+      if (after !== null) {
+        this.recordFileChange({
+          step: this.stepIndex,
+          path: beforePath,
+          operation: beforeSnapshot === null ? "create" : "edit",
+          before: beforeSnapshot ?? undefined,
+          after,
+        });
+      }
+    }
+
     return result;
+  }
+
+  /**
+   * Resolve a relative path against the workDir and verify it doesn't escape.
+   * Returns null if the path can't be safely resolved. This is intentionally
+   * permissive — we never *block* a tool call based on this; the real
+   * sandboxing happens inside `tools.ts`.
+   */
+  private async safeResolveInsideWorkDir(p: string): Promise<string | null> {
+    try {
+      const workDir = resolvePath(this.config.workDir);
+      const abs = resolvePath(workDir, p);
+      // Light sanity check: must start with workDir + "/"
+      if (!abs.startsWith(workDir + "/") && abs !== workDir) return null;
+      return abs;
+    } catch {
+      return null;
+    }
+  }
+
+  private async tryReadFile(absPath: string): Promise<string | null> {
+    try {
+      return await readFile(absPath, "utf-8");
+    } catch {
+      return null;
+    }
+  }
+
+  private recordFileChange(c: {
+    step: number;
+    path: string;
+    operation: "create" | "edit";
+    before?: string;
+    after: string;
+  }): void {
+    if (!this.report) return;
+    const MAX_FIELD = 32_000; // ~32KB per field
+    let before = c.before;
+    let after = c.after;
+    let beforeTruncated: boolean | undefined;
+    let afterTruncated: boolean | undefined;
+    if (before !== undefined && before.length > MAX_FIELD) {
+      before = before.slice(0, MAX_FIELD);
+      beforeTruncated = true;
+    }
+    if (after.length > MAX_FIELD) {
+      after = after.slice(0, MAX_FIELD);
+      afterTruncated = true;
+    }
+    this.report.fileChanges.push({
+      step: c.step,
+      path: c.path,
+      operation: c.operation,
+      before,
+      after,
+      beforeTruncated,
+      afterTruncated,
+    });
   }
 
   async run(task: string): Promise<string> {
@@ -427,6 +601,7 @@ export class Agent {
     this.stopFlag = false;
     this.replayFinalized = false;
     this.timeoutTimer = null;
+    this.tokenUsage = undefined;
 
     const useSpecDrivenTesting = this.config.specDrivenTesting !== false && shouldUseSpecDrivenTesting(task);
     const taskForAgent = useSpecDrivenTesting ? formatSpecDrivenPrompt(task) : task;
@@ -438,6 +613,26 @@ export class Agent {
     this.recentToolHistory = [];
     this.messages = [];
     this.reasoner.reset();
+    this.reportStartMs = Date.now();
+    this.report = {
+      runId: this.replay.runId ?? generateId(),
+      task,
+      startedAt: this.reportStartMs,
+      endedAt: 0,
+      durationMs: 0,
+      model: this.config.model,
+      backendName: "router",
+      hasNativeRouter: true,
+      status: "completed",
+      steps: 0,
+      compactionCount: 0,
+      toolCalls: [],
+      reasoning: [],
+      fileChanges: [],
+      errors: [],
+      repairs: [],
+      compactions: [],
+    };
 
     // Set up wall-clock timeout
     if (this.config.timeoutMs && this.config.timeoutMs > 0) {
@@ -528,6 +723,13 @@ export class Agent {
           if (this.shouldCompact()) {
             const summary = await this.compactContext();
             this.compactCount++;
+            if (this.report) {
+              this.report.compactions.push({
+                step: this.stepIndex,
+                summary: summary.replace(/\s+/g, " ").trim().slice(0, 280),
+                timestamp: Date.now(),
+              });
+            }
             this.emit({ type: "compact", summary });
             this.resetForContinuation(summary, taskForAgent);
             this.logReplay({
@@ -544,9 +746,14 @@ export class Agent {
           const { text, toolCalls } = await this.streamCompletionWithReplay();
 
           if (text) finalResponse = text;
+          // Record the model's reasoning text for the report.
+          if (text && this.report) {
+            this.report.reasoning.push({ step: this.stepIndex, text, timestamp: Date.now() });
+          }
 
           if (!toolCalls || toolCalls.length === 0) {
-            this.emit({ type: "done", text });
+            const reportPath = await this.writeRunReport("completed");
+            this.emit({ type: "done", text, reportPath });
             this.logReplay({
               type: "step_end",
               step: this.stepContext(),
@@ -589,6 +796,15 @@ export class Agent {
           for (const tc of parsedToolCalls) {
             if (tc.parseError) {
               this.emit({ type: "tool_result", name: tc.name, output: "", error: tc.parseError });
+              if (this.report) {
+                this.report.toolCalls.push({
+                  step: this.stepIndex,
+                  name: tc.name,
+                  args: {},
+                  error: tc.parseError,
+                  timestamp: Date.now(),
+                });
+              }
               this.messages.push({
                 role: "tool",
                 tool_call_id: tc.id,
@@ -597,6 +813,7 @@ export class Agent {
               continue;
             }
 
+            const callTimestamp = Date.now();
             this.emit({ type: "tool_call", name: tc.name, args: tc.args });
             this.rememberToolHistory(`CALL ${tc.name} ${this.stringifyToolArgs(tc.args)}`);
 
@@ -623,6 +840,19 @@ export class Agent {
             const durationMs = Date.now() - startMs;
             const resultPreview = result.error ? `ERROR: ${result.error}` : result.output;
             this.rememberToolHistory(`RESULT ${tc.name} (${durationMs}ms) ${resultPreview}`);
+
+            // Record the tool call + result for the report.
+            if (this.report) {
+              this.report.toolCalls.push({
+                step: this.stepIndex,
+                name: tc.name,
+                args: tc.args,
+                output: result.error ? undefined : result.output,
+                error: result.error,
+                durationMs,
+                timestamp: callTimestamp,
+              });
+            }
 
             this.emit({
               type: "tool_result",
@@ -677,7 +907,11 @@ export class Agent {
         if (continuationCount >= maxContinuations) {
           const suffix = continuationCount > 0 ? ` after ${continuationCount} continuation(s)` : "";
           const exhaustedMsg = `Reached max iterations (${this.config.maxIterations})${suffix}`;
-          this.emit({ type: "error", message: exhaustedMsg });
+          if (this.report) {
+            this.report.errors.push({ step: this.stepIndex, message: exhaustedMsg, timestamp: Date.now() });
+          }
+          const reportPath = await this.writeRunReport("max_iterations");
+          this.emit({ type: "error", message: exhaustedMsg, reportPath });
           this.logReplay({
             type: "run_end",
             payload: { runId: this.replay.runId ?? "", reason: "max_iterations" },
@@ -690,6 +924,13 @@ export class Agent {
         this.applyContinuationModelSwitch(continuationCount);
         const contSummary = await this.compactContext();
         this.compactCount++;
+        if (this.report) {
+          this.report.compactions.push({
+            step: this.stepIndex,
+            summary: contSummary.replace(/\s+/g, " ").trim().slice(0, 280),
+            timestamp: Date.now(),
+          });
+        }
         this.emit({ type: "compact", summary: contSummary });
         this.emit({ type: "continuation", count: continuationCount, max: maxContinuations });
         this.resetForContinuation(contSummary, taskForAgent);
@@ -709,8 +950,12 @@ export class Agent {
         const msg = this.abortController.signal.reason instanceof Error
           ? this.abortController.signal.reason.message
           : "Aborted by user";
-        this.emit({ type: "error", message: msg });
-        this.emit({ type: "done", text: finalResponse || msg });
+        if (this.report) {
+          this.report.errors.push({ step: this.stepIndex, message: msg, timestamp: Date.now() });
+        }
+        const reportPath = await this.writeRunReport("aborted");
+        this.emit({ type: "error", message: msg, reportPath });
+        this.emit({ type: "done", text: finalResponse || msg, reportPath });
         this.logReplay({
           type: "run_end",
           payload: { runId: this.replay.runId ?? "", reason: "aborted" },
@@ -721,7 +966,11 @@ export class Agent {
 
       // Ensure error event is always emitted before re-throwing
       const message = err instanceof Error ? err.message : String(err);
-      this.emit({ type: "error", message });
+      if (this.report) {
+        this.report.errors.push({ step: this.stepIndex, message, timestamp: Date.now() });
+      }
+      const reportPath = await this.writeRunReport("error");
+      this.emit({ type: "error", message, reportPath });
       this.logReplay({
         type: "run_end",
         payload: { runId: this.replay.runId ?? "", reason: "error" },
@@ -791,6 +1040,17 @@ export class Agent {
               if (tc.function?.name) acc.name = tc.function.name;
               if (tc.function?.arguments) acc.argsRaw += tc.function.arguments;
             }
+          }
+
+          // Token usage arrives in the final chunk (when stream_options.include_usage
+          // is set, which we do above). Capture it for the run report.
+          if (chunk.usage) {
+            const u = chunk.usage as { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+            this.tokenUsage = {
+              prompt: u.prompt_tokens ?? 0,
+              completion: u.completion_tokens ?? 0,
+              total: u.total_tokens ?? 0,
+            };
           }
         }
 

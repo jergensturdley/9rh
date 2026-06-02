@@ -121,6 +121,8 @@ export OPENROUTER_API_KEY=sk-or-v1-…
 | `-p, --provider <name>` | — | _(none)_ | Direct-mode preset: `openrouter`, `openai`, `ollama`, `lmstudio`. Fills `--direct-url` and the matching API-key env var |
 | `--direct-url <url>` | `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` / `OPENROUTER_BASE_URL` | _(none)_ | Direct-mode base URL (overrides `--provider` preset) |
 | `--direct-key <key>` | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY` | _(none)_ | Direct-mode API key (overrides env-var detection) |
+| `--report-path <path>` | — | `~/.9rh/last-run.html` | Override the run report path |
+| `--no-report` | — | — | Disable run report generation entirely |
 | `-u, --url <url>` | `NINE_ROUTER_URL` | `http://localhost:20128/v1` | 9router API URL (router mode) |
 | `-k, --key <key>` | `NINE_ROUTER_KEY` | `9router` | 9router API key (router mode) |
 | `-d, --dir <dir>` | — | current working directory | Target directory for agent tools |
@@ -199,8 +201,42 @@ The preset only fills in values that weren't supplied explicitly — `--direct-u
 | `/combos` | router | List 9router fallback combos |
 | `/keys` | router | List configured 9router API keys |
 | `/setup` | router | Install and start 9router if needed |
+| `/report [open]` | both | Show the path of the most recent run report; `/report open` launches it in the default browser |
 
 9router configuration reads for `/models`, `/providers`, `/combos`, `/keys`, `/router`, and the model picker are cached briefly within the current REPL session. Run `/refresh` after changing providers, API keys, combos, or model settings in the 9router dashboard.
+
+## Run reports
+
+Every agent turn writes a self-contained HTML summary of the run: what the model reasoned about, which tools it called (with args, output, duration, errors), which files it changed (with before/after diffs), how many tokens it used, and any errors or repairs that happened along the way.
+
+When a run completes, the TUI prints the report path as a `file://` link in the chat:
+
+```
+  report: file:///Users/you/.9rh/last-run.html  (open with /report open)
+```
+
+From the REPL:
+
+- `/report` — show the path of the most recent report
+- `/report open` — launch the report in the default browser (macOS `open`, Linux `xdg-open`, Windows `start`)
+
+### Lifecycle
+
+By default the report is **overwritten on every turn** at `~/.9rh/last-run.html`. The path is configurable:
+
+- CLI: `--report-path <path>` overrides per-invocation
+- CLI: `--no-report` disables reports entirely
+- Config: `reportPath` in `~/.9rh/config.json` sets the default
+
+To preserve each turn's report instead of overwriting, set `keepReports: true` in `~/.9rh/config.json`. The reports then go to `~/.9rh/reports/run-<runId>.html`.
+
+### File change tracking
+
+For every `write_file` call, 9rh captures the file's content **before** the call and reads it **after** the call. The report shows a real before/after diff (computed inline using LCS — no external diff library). File contents larger than ~32KB are truncated for the diff with a marker.
+
+### Token usage
+
+Token counts come from the final `usage` chunk of the streaming response (`stream_options: { include_usage: true }` is set on every chat-completion call). The report shows prompt, completion, and total tokens.
 
 ## Built-in agent tools
 

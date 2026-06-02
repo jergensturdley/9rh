@@ -15,6 +15,13 @@ export interface SessionState {
   wasStarted?: boolean; // true if 9router was auto-started by this session
   continuationPolicy?: ContinuationPolicy;
   routerCache?: RouterConfigCache;
+  // Backend info (set once at startup, read by slash commands).
+  backendName?: "router" | "direct" | "embedded";
+  hasNativeRouter?: boolean;
+  /** Absolute path to the most recent run report (HTML).
+   *  `null` means "no report yet" (read by /report).
+   *  `false` means reports are disabled (--no-report). */
+  lastReportPath?: string | null | false;
   // Queue / interrupt state
   queue: string[];
   history?: string[];
@@ -146,6 +153,37 @@ async function fetchNativeJSON(state: SessionState, path: string): Promise<unkno
     ? { "x-9r-cli-token": token }
     : { Authorization: `Bearer ${effectiveKey}` };
   return fetchJSONWithHeaders(`${base(state)}${path}`, headers);
+}
+
+/**
+ * Open a file in the platform's default application. Returns the result
+ * string to print to the user.
+ */
+async function openReportInBrowser(path: string, useColor: boolean): Promise<string> {
+  const { spawn } = await import("child_process");
+  let cmd: string;
+  let args: string[] = [];
+  if (process.platform === "darwin") {
+    cmd = "open";
+  } else if (process.platform === "win32") {
+    cmd = "cmd";
+    args = ["/c", "start", ""];
+  } else {
+    cmd = "xdg-open";
+  }
+  try {
+    const child = spawn(cmd, [...args, path], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+    const ok = `\n  opened: file://${path}\n`;
+    return useColor ? chalk.green(ok) : ok;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const fallback = `\n  could not launch a browser (${msg})\n  path: file://${path}\n`;
+    return useColor ? chalk.yellow(fallback) : fallback;
+  }
 }
 
 async function fetchCachedNativeJSON(state: SessionState, path: string): Promise<unknown> {
@@ -768,6 +806,31 @@ const COMMANDS: Record<string, CommandDef> = {
         return "\n" + (state.useColor ? chalk.cyan(msg) : msg) + "\n";
       }
       return `\n  workDir: ${state.workDir}\n`;
+    },
+  },
+
+  report: {
+    usage: "/report [open]",
+    description: "Show the path of the most recent run report, or open it in the default browser",
+    handler: async (args, state) => {
+      const subcommand = (args[0] ?? "").toLowerCase();
+      const path = state.lastReportPath;
+      if (!path) {
+        const msg = "\n  no report generated yet (run a task first)\n";
+        return state.useColor ? msg : msg;
+      }
+      if (subcommand === "open") {
+        return await openReportInBrowser(path, state.useColor);
+      }
+      const lines = [
+        "",
+        `  last report: file://${path}`,
+        `  open with:    /report open`,
+        "",
+      ];
+      return state.useColor
+        ? lines.map((l) => chalk.cyan(l)).join("\n")
+        : lines.join("\n");
     },
   },
 
