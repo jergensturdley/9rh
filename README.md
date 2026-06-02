@@ -114,8 +114,6 @@ Full setup, CLI options, REPL commands, sandbox notes, replay, repair, programma
 
 - [Full documentation](docs/full-documentation.md)
 
-If GitHub Pages is enabled for this repository, publish `docs/full-documentation.md` as the main documentation page.
-
 ## Development
 
 ```sh
