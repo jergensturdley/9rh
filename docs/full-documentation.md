@@ -1,12 +1,19 @@
 # 9rh
 
-9rh is a lightweight, 9router-native coding agent for local repositories. It routes model traffic through [9router](https://github.com/decolua/9router), supports one-shot tasks and an interactive REPL, and provides a small sandbox-aware toolset.
+9rh is a lightweight coding agent for local repositories. It supports one-shot tasks and an interactive REPL, and provides a small sandbox-aware toolset.
+
+9rh talks to a **backend** for its model traffic. Two backends ship today:
+
+- **Router** (default) — routes through [9router](https://github.com/decolua/9router), giving you combo chains, the dashboard, and `/api/*` diagnostics.
+- **Direct** — talks straight to any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, LM Studio, etc.) with no local proxy required.
+
+The backend is auto-detected at startup and can be overridden per-invocation. See [Backends](#backends) below.
 
 ## What it does
 
 - Runs coding tasks against a local working directory.
 - Streams agent thoughts, tool calls, and tool results in the terminal.
-- Uses 9router's OpenAI-compatible API for completions and native REST API for diagnostics and slash commands.
+- Uses 9router's OpenAI-compatible API for completions (in router mode) and native REST API for diagnostics and slash commands.
 - Caches 9router configuration briefly during REPL sessions so slash menus and model pickers stay responsive.
 
 ## Install
@@ -42,7 +49,7 @@ node dist/index.js --doctor
 
 ## 9router setup
 
-9rh expects 9router at `http://localhost:20128/v1` by default.
+In router mode (the default), 9rh expects 9router at `http://localhost:20128/v1`.
 
 Install and start 9router separately, then connect at least one provider in the 9router dashboard:
 
@@ -51,6 +58,8 @@ http://localhost:20128/dashboard
 ```
 
 Most first-time users should expect to finish setup in the browser. If 9router is not already running, install and start it in another terminal with `npm install -g 9router` and `9router`, open the dashboard, add an API key/provider, then run `node dist/index.js --doctor` or `/refresh`.
+
+In direct mode, 9rh does not require 9router at all — see [Backends](#backends) below.
 
 ## Quick start
 
@@ -88,13 +97,32 @@ export NINE_ROUTER_CONTINUATION_MODEL=continuation-heavy
 9rh "fix the failing tests"
 ```
 
+Or skip 9router entirely with direct mode:
+
+```sh
+# OpenAI
+export OPENAI_API_KEY=sk-…
+9rh "fix the failing tests"
+
+# OpenRouter via the preset
+export OPENROUTER_API_KEY=sk-or-v1-…
+9rh --provider=openrouter --model anthropic/claude-3.5-sonnet "fix the failing tests"
+
+# Local Ollama
+9rh --provider=ollama --model llama3.1:70b "fix the failing tests"
+```
+
 ## CLI options
 
 | Flag | Env var | Default | Description |
 |------|---------|---------|-------------|
 | `-m, --model <model>` | `NINE_ROUTER_MODEL` | `kr/claude-sonnet-4.5` | Model identifier |
-| `-u, --url <url>` | `NINE_ROUTER_URL` | `http://localhost:20128/v1` | 9router API URL |
-| `-k, --key <key>` | `NINE_ROUTER_KEY` | `9router` | 9router API key |
+| `-b, --backend <name>` | `NINE_ROUTER_BACKEND` | _(auto-detect)_ | Backend choice: `router` or `direct` |
+| `-p, --provider <name>` | — | _(none)_ | Direct-mode preset: `openrouter`, `openai`, `ollama`, `lmstudio`. Fills `--direct-url` and the matching API-key env var |
+| `--direct-url <url>` | `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` / `OPENROUTER_BASE_URL` | _(none)_ | Direct-mode base URL (overrides `--provider` preset) |
+| `--direct-key <key>` | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY` | _(none)_ | Direct-mode API key (overrides env-var detection) |
+| `-u, --url <url>` | `NINE_ROUTER_URL` | `http://localhost:20128/v1` | 9router API URL (router mode) |
+| `-k, --key <key>` | `NINE_ROUTER_KEY` | `9router` | 9router API key (router mode) |
 | `-d, --dir <dir>` | — | current working directory | Target directory for agent tools |
 | `-i, --max-iter <n>` | — | `100` | Maximum agent iterations |
 | `--no-continue` | — | — | Disable automatic continuation after max iterations |
@@ -107,31 +135,70 @@ export NINE_ROUTER_CONTINUATION_MODEL=continuation-heavy
 | `--no-color` | — | — | Disable colored output |
 | `--set-default-model <model>` | — | — | Save a default model in `~/.9rh/config.json` |
 | `--set-default-provider <provider>` | — | — | Save a default provider/prefix in `~/.9rh/config.json` |
-| `--show-config` | — | — | Print persisted defaults and the effective model |
+| `--show-config` | — | — | Print persisted defaults, the effective model, and the resolved backend |
 
 Persistent defaults are used when `--model` and `NINE_ROUTER_MODEL` are not set. If the saved model does not include a provider prefix and `defaultProvider` is set, 9rh combines them, for example `--set-default-provider kr --set-default-model claude-sonnet-4.5` resolves to `kr/claude-sonnet-4.5`.
 
 When a run reaches `--max-iter`, 9rh automatically compacts into a structured continuation packet instead of a bare free-form summary. The packet preserves the original task, current objective, completed and pending steps, files touched, commands/tests run, known failures, exact important outputs, recent tool history, long-horizon memory, and live repository state from `git status --short`, `git diff --stat`, and `git diff --name-only`. This reduces context loss across long-running work while still keeping the model context bounded. Use `--no-continue` to disable this behavior.
 
+## Backends
+
+A `Backend` in 9rh is the thing that knows the LLM endpoint, the API key, and how to enumerate models. Three backends ship:
+
+- **`RouterBackend`** — talks to a running 9router. Default. Exposes 9router's native `/api/*` endpoints for `/providers`, `/combos`, `/keys`, `/router`.
+- **`DirectBackend`** — talks to any OpenAI-compatible endpoint directly. No local proxy. Does not expose 9router's `/api/*` endpoints.
+- **`EmbeddedBackend`** — _(planned)_ 9rh spawns and supervises 9router as a child process. Reserved; currently falls back to `RouterBackend`.
+
+### Auto-detection
+
+`detectBackend()` resolves the backend at startup using this precedence (first non-empty wins):
+
+1. `--backend=router|direct` CLI flag
+2. `NINE_ROUTER_BACKEND` env var
+3. `~/.9rh/config.json` → `backend` field
+4. Env-var heuristic: `NINE_ROUTER_URL` set → router; `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY` set without a router URL → direct
+5. Reachability probe on `:20128`
+6. Last-resort: try to auto-start 9router
+
+For most users, this means "9router is running" → router, and "I have an `OPENAI_API_KEY` but no 9router" → direct. No flags needed.
+
+### Direct-mode provider presets
+
+When using `--backend=direct`, the `--provider=<name>` flag is a shortcut for the common cases:
+
+| Preset | Base URL | API key env var |
+|--------|----------|-----------------|
+| `--provider=openrouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
+| `--provider=openai` | `https://api.openai.com/v1` | `OPENAI_API_KEY` |
+| `--provider=ollama` | `http://127.0.0.1:11434/v1` | _(none)_ |
+| `--provider=lmstudio` | `http://127.0.0.1:1234/v1` | _(none)_ |
+
+The preset only fills in values that weren't supplied explicitly — `--direct-url` and `--direct-key` always win over the preset. To target a custom proxy, pass `--direct-url` and `--direct-key` directly.
+
+### Mode behavior
+
+- **Router mode**: all slash commands work. `/providers`, `/combos`, `/keys`, `/router` hit 9router's `/api/*` endpoints. Setup wizard is `/setup` (installs/starts 9router).
+- **Direct mode**: `/models`, `/switch`, `/status`, `/doctor`, `/sandbox`, `/dir`, `/help`, and `/default-model` all work. `/providers`, `/combos`, `/keys`, `/router` are short-circuited with a friendly "requires 9router mode" message. `/status` shows the backend, baseURL, active model, and workdir. `/doctor` runs a direct-mode check (chat endpoint reachability, API key shape) without the 9router-specific probes.
+
 ## REPL slash commands
 
-| Command | Description |
-|---------|-------------|
-| `/help` | List slash commands |
-| `/status` | Show 9router health, version, active model, and working directory |
-| `/models [filter]` | List available models |
-| `/providers` | List configured provider connections |
-| `/combos` | List fallback combos |
-| `/keys` | List configured 9router API keys |
-| `/router` | Show a cached 9router configuration summary |
-| `/refresh` | Clear and reload cached 9router configuration |
-| `/switch <model>` | Change the active model for the current REPL session |
-| `/default-model <model>` | Persist the startup model for future 9rh runs |
-| `/dir [path]` | Show or change the working directory |
-| `/setup` | Install and start 9router if needed |
-| `/doctor` | Diagnose router connectivity and configuration |
-| `/sandbox` | Show command sandbox/isolation backend status |
-| `/clear` | Clear the terminal |
+| Command | Mode | Description |
+|---------|------|-------------|
+| `/help` | both | List slash commands |
+| `/status` | both | Backend, health, active model, working directory |
+| `/models [filter]` | both | List available models |
+| `/switch <model>` | both | Change the active model for the current REPL session |
+| `/default-model <model>` | both | Persist the startup model for future 9rh runs |
+| `/dir [path]` | both | Show or change the working directory |
+| `/sandbox` | both | Show command sandbox/isolation backend status |
+| `/doctor` | both | Diagnose connectivity and configuration |
+| `/clear` | both | Clear the terminal |
+| `/router` | router | Show a cached 9router configuration summary |
+| `/refresh` | router | Clear and reload cached 9router configuration |
+| `/providers` | router | List configured 9router provider connections |
+| `/combos` | router | List 9router fallback combos |
+| `/keys` | router | List configured 9router API keys |
+| `/setup` | router | Install and start 9router if needed |
 
 9router configuration reads for `/models`, `/providers`, `/combos`, `/keys`, `/router`, and the model picker are cached briefly within the current REPL session. Run `/refresh` after changing providers, API keys, combos, or model settings in the 9router dashboard.
 
@@ -162,14 +229,18 @@ The default tool path checks are cross-platform, but OS-level process sandboxing
 
 ## Programmatic API
 
-9rh also exposes the core agent as a library:
+9rh exposes the core agent, the backends, and the support modules as a library:
 
 ```ts
-import { Agent } from "9rh";
+import { Agent, detectBackend, DirectBackend, RouterBackend } from "9rh";
+
+// Auto-detect: returns a RouterBackend if 9router is running, otherwise
+// a DirectBackend from env-var hints.
+const backend = (await detectBackend()).backend;
 
 const agent = new Agent({
-  baseURL: "http://localhost:20128/v1",
-  apiKey: "9router",
+  baseURL: backend.baseURL,
+  apiKey: backend.apiKey,
   model: "kr/claude-sonnet-4.5",
   maxIterations: 20,
   continuationPolicy: {
@@ -188,20 +259,14 @@ await agent.run("Create a fibonacci function in src/math.ts");
 
 The package exports:
 
-- `Agent`
-- `TOOL_DEFINITIONS`
-- `executeTool`
-- `ensureRouter`
-- `parseTaskSpecification`
-- `synthesizeTestPlan`
-- `formatSpecDrivenPrompt`
-- `shouldUseSpecDrivenTesting`
-- `createRunVisualization`
-- `applyAgentEvent`
-- `applyReplayEvent`
-- `renderRunVisualization`
-- `exportRunVisualization`
-- `visibleSteps`
+- `Agent` — the ReAct loop and tool execution
+- `TOOL_DEFINITIONS`, `executeTool` — sandboxed tool primitives
+- `ensureRouter` — start 9router and return its baseURL/apiKey (legacy helper, superseded by `detectBackend`)
+- `detectBackend` — auto-detect a `Backend` from env vars, CLI flags, and reachability
+- `DirectBackend`, `RouterBackend` — concrete backend implementations
+- `Backend`, `BackendName`, `ModelInfo`, `ProviderInfo`, `ComboInfo`, `KeyInfo`, `HealthSnapshot` — backend interface and types
+- `parseTaskSpecification`, `synthesizeTestPlan`, `formatSpecDrivenPrompt`, `shouldUseSpecDrivenTesting` — spec-driven testing primitives
+- `createRunVisualization`, `applyAgentEvent`, `applyReplayEvent`, `renderRunVisualization`, `exportRunVisualization`, `visibleSteps` — live run visualization
 
 ## Spec-driven testing mode
 
@@ -478,3 +543,4 @@ Development entrypoints:
 - This package uses NodeNext module resolution and ESM imports.
 - When authoring internal TypeScript files, imports use `.js` extensions.
 - 9router native endpoints live under `/api/*`; model completion traffic goes through `/v1/*`.
+- In direct mode, the model registry comes from `${baseURL}/models` (OpenAI-compatible). Custom endpoints must implement this for `/models` and `/switch` to work.

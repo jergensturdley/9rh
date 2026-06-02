@@ -8,9 +8,21 @@ npm run build   # tsc → dist/
 
 `npm run dev` uses `ts-node` directly (no build needed for development).
 
-## 9router Dependency
+## 9router Dependency (now optional)
 
-9rh routes all LLM calls through [9router](https://github.com/decolua/9router). 9router must be running before 9rh works.
+9rh supports a **Backend** abstraction (see `src/backends/`). The default backend is still 9router, but the harness now also works in **direct mode** against any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, LM Studio) without 9router at all.
+
+Resolution order at startup (`detectBackend()` in `src/backends/detect.ts`):
+1. `--backend=router|direct` flag
+2. `NINE_ROUTER_BACKEND` env var
+3. `~/.9rh/config.json` → `backend` field
+4. Env-var heuristic: `NINE_ROUTER_URL` → router; `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY` alone → direct
+5. Reachability probe on `:20128`
+6. Last-resort: auto-start 9router
+
+For the direct mode UX, `--provider=<name>` is a shortcut (`openrouter`, `openai`, `ollama`, `lmstudio`) that fills in the baseURL and reads the matching env-var API key.
+
+When the chosen backend is 9router (default), 9router must be running for the agent to work:
 
 ```sh
 9router   # starts server at http://localhost:20128
@@ -18,7 +30,7 @@ npm run build   # tsc → dist/
 
 9router's API has two surfaces:
 - **OpenAI-compatible** at `/v1/*` — used by the agent for completions and model catalog reads
-- **Native REST** at `/api/*` — used by slash commands (`/status`, `/providers`, `/combos`, `/keys`, `/router`)
+- **Native REST** at `/api/*` — used by slash commands (`/status`, `/providers`, `/combos`, `/keys`, `/router`). These commands are disabled in direct mode.
 
 `baseURL` in config includes `/v1`; the slash command module strips it via `base()` to reach `/api/*`.
 
@@ -36,9 +48,10 @@ Slash-command reads of 9router configuration are cached briefly on `SessionState
 src/
   agent.ts    — streaming ReAct loop (OpenAI client, tool execution, iteration management)
   tools.ts    — sandboxed tools (read_file, write_file, run_bash, list_files, search_files, codegraph_*)
-  commands.ts — 9router-native slash commands + SessionState interface
-  index.ts    — CLI (commander), REPL, task runner
+  commands.ts — slash commands + SessionState interface (router-only commands guard in direct mode)
+  index.ts    — CLI (commander), REPL, task runner, backend bootstrap
   main.ts     — programmatic exports for library use
+  backends/   — Backend abstraction (Backend interface, DirectBackend, RouterBackend, detectBackend, presets)
 ```
 
 ## Tool Sandbox

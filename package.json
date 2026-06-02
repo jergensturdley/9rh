@@ -1,7 +1,7 @@
 {
   "name": "9rh",
   "version": "1.0.0",
-  "description": "Coding agent harness for 9router",
+  "description": "Local coding-agent harness with pluggable LLM backends (9router, OpenAI, OpenRouter, Ollama, LM Studio)",
   "main": "dist/main.js",
   "types": "dist/main.d.ts",
   "exports": {
@@ -23,6 +23,19 @@
     "postinstall": "node scripts/postinstall.cjs",
     "test": "NODE_OPTIONS='--experimental-vm-modules' node_modules/jest/bin/jest.js --config jest.config.ts"
   },
+  "keywords": [
+    "coding-agent",
+    "agent",
+    "llm",
+    "openai",
+    "openrouter",
+    "ollama",
+    "lmstudio",
+    "9router",
+    "codegraph",
+    "sandbox",
+    "repl"
+  ],
   "dependencies": {
     "chalk": "^5.6.2",
     "commander": "^12.1.0",
