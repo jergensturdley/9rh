@@ -17,6 +17,11 @@ examples/
 .sisyphus/
 .jcode/
 .claude/
+.cline/
+.crush/
+.kilo/
+.codegraph/
+.antigravitycli/
 .codex/
 .opencode/
 .cursor/
