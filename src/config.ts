@@ -4,6 +4,8 @@ import { join } from "path";
 export interface UserConfig {
   defaultModel?: string;
   defaultProvider?: string;
+  /** Persisted backend choice: "router" | "direct" | "embedded". */
+  backend?: string;
 }
 
 function configDir(): string {
@@ -27,6 +29,7 @@ export async function readUserConfig(): Promise<UserConfig> {
     return {
       defaultModel: cleanString(parsed.defaultModel),
       defaultProvider: cleanString(parsed.defaultProvider),
+      backend: cleanString(parsed.backend),
     };
   } catch {
     return {};
@@ -38,6 +41,7 @@ export async function writeUserConfig(config: UserConfig): Promise<void> {
   const normalized: UserConfig = {};
   if (config.defaultModel) normalized.defaultModel = config.defaultModel;
   if (config.defaultProvider) normalized.defaultProvider = config.defaultProvider;
+  if (config.backend) normalized.backend = config.backend;
   await writeFile(configPath(), JSON.stringify(normalized, null, 2) + "\n", "utf-8");
 }
 
