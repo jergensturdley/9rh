@@ -52,3 +52,4 @@ SANDBOX_SECURITY_ROADMAP.md
 .understand-anything/
 !.understand-anything/.understandignore
 *.bak.*
+fuzz_harness_config.cjs
