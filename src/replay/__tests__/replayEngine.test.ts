@@ -2,6 +2,7 @@ import { describe, it, expect } from "@jest/globals";
 import { ReplayEngine } from "../replayEngine.js";
 import { writeFile, mkdir, rm } from "fs/promises";
 import { join } from "path";
+import { DirectExecutor } from "../../sandbox/index.js";
 import type { ReplayEvent } from "../eventSchema.js";
 
 const TEST_DIR = "/tmp/9rh-replay-engine-test";
@@ -29,7 +30,11 @@ describe("ReplayEngine", () => {
       JSON.stringify({ type: "step_start", seq: 2, ts: 0, step: { stepIndex: 1, iteration: 1, compactCount: 0 }, payload: {} }),
       JSON.stringify({ type: "step_end", seq: 3, ts: 0, step: { stepIndex: 1, iteration: 1, compactCount: 0 }, payload: {} }),
     ].join("\n"), "utf-8");
-    const engine = new ReplayEngine({ eventLogPath: path, workDir: "/tmp" });
+    const engine = new ReplayEngine({
+      eventLogPath: path,
+      workDir: "/tmp",
+      executor: new DirectExecutor("/tmp"),
+    });
     await engine.load();
     expect(engine.getEventCount()).toBe(3);
   });
@@ -41,7 +46,11 @@ describe("ReplayEngine", () => {
       JSON.stringify({ type: "step_start", seq: 2, ts: 0, step: { stepIndex: 1, iteration: 1, compactCount: 0 }, payload: {} }),
       JSON.stringify({ type: "step_end", seq: 3, ts: 0, step: { stepIndex: 1, iteration: 1, compactCount: 0 }, payload: {} }),
     ].join("\n"), "utf-8");
-    const engine = new ReplayEngine({ eventLogPath: path, workDir: "/tmp" });
+    const engine = new ReplayEngine({
+      eventLogPath: path,
+      workDir: "/tmp",
+      executor: new DirectExecutor("/tmp"),
+    });
     await engine.load();
     expect(engine.getEventCount()).toBe(3);
     expect(engine.isDiverged()).toBe(false);

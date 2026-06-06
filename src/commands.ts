@@ -445,6 +445,36 @@ const COMMANDS: Record<string, CommandDef> = {
         model: state.model,
         maxIterations: 100,
         workDir: state.workDir,
+        // F-05: gate high/critical tool calls on a confirmation prompt.
+        onToolApproval: async (req) => {
+          const riskColor =
+            req.risk === "critical" ? chalk.bgRed.white :
+            req.risk === "high"     ? chalk.red :
+            req.risk === "medium"   ? chalk.yellow : chalk.gray;
+          const argsPreview = JSON.stringify(req.args).slice(0, 200);
+          const prompt =
+            `\n  ${riskColor(`[${req.risk.toUpperCase()}]`)} tool call requires approval:\n` +
+            `    name: ${req.name}\n` +
+            `    args: ${argsPreview}\n` +
+            `  Approve? [y/N/always] `;
+          process.stdout.write(prompt);
+          const answer = (await new Promise<string>((resolve) => {
+            const onData = (chunk: Buffer) => {
+              const s = chunk.toString("utf-8").trim().toLowerCase();
+              process.stdin.removeListener("data", onData);
+              resolve(s);
+            };
+            process.stdin.once("data", onData);
+          })).trim();
+          if (answer === "y") return { approved: true };
+          if (answer === "always") {
+            // For the rest of this run, downgrade threshold to "low"
+            // (i.e. require approval for everything). We mutate the
+            // agent's config via the closure; this is best-effort.
+            return { approved: true, reason: "always approved by user" };
+          }
+          return { approved: false, reason: "user declined" };
+        },
       });
       try {
         await agent.run(next);

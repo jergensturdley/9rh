@@ -316,16 +316,276 @@ export interface ToolResult {
 }
 
 export interface ExecuteToolOptions {
-  executor?: SandboxProvider;
+  executor: SandboxProvider;  // F-14: now required (no optional bypass)
   onBashResult?: (result: ExecutionResult, command: string) => void;
+}
+
+// ---------- Argument validators ----------
+// Each validator returns either { ok: true, value: T } or { ok: false,
+// error: string }. We use these at the boundary so the rest of the tool
+// implementations can trust their input types.
+
+type ArgResult<T> = { ok: true; value: T } | { ok: false; error: string };
+
+function asString(v: unknown, name: string, opts: { allowEmpty?: boolean; maxLen?: number } = {}): ArgResult<string> {
+  if (typeof v !== "string") return { ok: false, error: `${name} must be a string (got ${typeof v})` };
+  if (!opts.allowEmpty && v.length === 0) return { ok: false, error: `${name} must not be empty` };
+  if (opts.maxLen && v.length > opts.maxLen) {
+    return { ok: false, error: `${name} exceeds max length ${opts.maxLen} (got ${v.length})` };
+  }
+  return { ok: true, value: v };
+}
+
+function asNumber(v: unknown, name: string, opts: { min?: number; max?: number; int?: boolean } = {}): ArgResult<number> {
+  if (typeof v !== "number" || !Number.isFinite(v)) {
+    return { ok: false, error: `${name} must be a finite number (got ${typeof v === "number" ? v : typeof v})` };
+  }
+  if (opts.int && !Number.isInteger(v)) return { ok: false, error: `${name} must be an integer` };
+  if (opts.min !== undefined && v < opts.min) return { ok: false, error: `${name} must be >= ${opts.min}` };
+  if (opts.max !== undefined && v > opts.max) return { ok: false, error: `${name} must be <= ${opts.max}` };
+  return { ok: true, value: v };
+}
+
+function asBool(v: unknown, name: string): ArgResult<boolean> {
+  if (typeof v !== "boolean") return { ok: false, error: `${name} must be a boolean (got ${typeof v})` };
+  return { ok: true, value: v };
+}
+
+function asStringArray(v: unknown, name: string, opts: { minLen?: number; maxItems?: number } = {}): ArgResult<string[]> {
+  if (!Array.isArray(v)) return { ok: false, error: `${name} must be an array (got ${typeof v})` };
+  if (opts.maxItems && v.length > opts.maxItems) {
+    return { ok: false, error: `${name} exceeds max items ${opts.maxItems}` };
+  }
+  if (opts.minLen !== undefined && v.length < opts.minLen) {
+    return { ok: false, error: `${name} must have at least ${opts.minLen} item(s)` };
+  }
+  for (let i = 0; i < v.length; i++) {
+    if (typeof v[i] !== "string" || (v[i] as string).length === 0) {
+      return { ok: false, error: `${name}[${i}] must be a non-empty string` };
+    }
+  }
+  return { ok: true, value: v as string[] };
+}
+
+// Reject any value whose string form contains control characters that
+// have no business in a CLI flag (NUL, BEL, ESC). Newlines and tabs are
+// allowed since grep patterns often include them.
+function asCleanFlag(v: unknown, name: string, opts: { maxLen?: number } = {}): ArgResult<string> {
+  const s = asString(v, name, { allowEmpty: false, maxLen: opts.maxLen });
+  if (!s.ok) return s;
+  if (/[\x00\x07\x1b]/.test(s.value)) {
+    return { ok: false, error: `${name} contains forbidden control characters` };
+  }
+  return s;
+}
+
+// Enums
+const CODEGRAPH_KINDS = new Set([
+  "function", "class", "method", "interface", "type", "variable",
+  "import", "export", "call", "all",
+]);
+const CODEGRAPH_FORMATS = new Set(["text", "json", "yaml", "md", "compact"]);
+
+function asEnum<T extends string>(v: unknown, name: string, allowed: Set<T>): ArgResult<T> {
+  const s = asString(v, name, { allowEmpty: false });
+  if (!s.ok) return s;
+  if (!allowed.has(s.value as T)) {
+    return { ok: false, error: `${name} must be one of: ${[...allowed].join(", ")}` };
+  }
+  return { ok: true, value: s.value as T };
+}
+
+/**
+ * Validate the args of a single tool against its declared schema.
+ * Returns a flat string of all validation errors, or null if valid.
+ *
+ * This is the trust boundary: anything the LLM emits is treated as
+ * untrusted, and we reject early if the shape doesn't match the tool
+ * schema. This prevents type-confusion attacks (e.g. path as array).
+ */
+function validateToolArgs(name: string, args: Record<string, unknown>): string | null {
+  const errors: string[] = [];
+  // Per-tool validation. Only the args the tool actually uses are
+  // checked. Unknown args are tolerated for forward compatibility but
+  // logged silently.
+  switch (name) {
+    case "read_file": {
+      const r = asString(args.path, "path", { allowEmpty: false, maxLen: 4096 });
+      if (!r.ok) errors.push(r.error);
+      if (args.start_line !== undefined) {
+        const r = asNumber(args.start_line, "start_line", { int: true, min: 1 });
+        if (!r.ok) errors.push(r.error);
+      }
+      if (args.end_line !== undefined) {
+        const r = asNumber(args.end_line, "end_line", { int: true, min: 1 });
+        if (!r.ok) errors.push(r.error);
+      }
+      break;
+    }
+    case "write_file": {
+      const r1 = asString(args.path, "path", { allowEmpty: false, maxLen: 4096 });
+      if (!r1.ok) errors.push(r1.error);
+      // content can be any JSON-serializable value; stringify to be safe.
+      if (args.content === undefined || args.content === null) {
+        errors.push("content is required");
+      } else if (typeof args.content === "string" && args.content.length > 10 * 1024 * 1024) {
+        errors.push("content exceeds 10MB");
+      }
+      break;
+    }
+    case "run_bash": {
+      const r1 = asString(args.command, "command", { allowEmpty: false, maxLen: 64 * 1024 });
+      if (!r1.ok) errors.push(r1.error);
+      if (args.timeout_ms !== undefined) {
+        const r = asNumber(args.timeout_ms, "timeout_ms", { int: true, min: 100, max: 120_000 });
+        if (!r.ok) errors.push(r.error);
+      }
+      break;
+    }
+    case "list_files": {
+      if (args.path !== undefined) {
+        const r = asString(args.path, "path", { maxLen: 4096 });
+        if (!r.ok) errors.push(r.error);
+      }
+      if (args.recursive !== undefined) {
+        const r = asBool(args.recursive, "recursive");
+        if (!r.ok) errors.push(r.error);
+      }
+      break;
+    }
+    case "search_files": {
+      const r1 = asCleanFlag(args.pattern, "pattern", { maxLen: 1024 });
+      if (!r1.ok) errors.push(r1.error);
+      if (args.path !== undefined) {
+        const r = asString(args.path, "path", { maxLen: 4096 });
+        if (!r.ok) errors.push(r.error);
+      }
+      if (args.include_globs !== undefined) {
+        const r = asStringArray(args.include_globs, "include_globs", { maxItems: 50 });
+        if (!r.ok) errors.push(r.error);
+      }
+      if (args.max_results !== undefined) {
+        const r = asNumber(args.max_results, "max_results", { int: true, min: 1, max: 10_000 });
+        if (!r.ok) errors.push(r.error);
+      }
+      break;
+    }
+    case "codegraph_search": {
+      const r1 = asString(args.query, "query", { allowEmpty: false, maxLen: 1024 });
+      if (!r1.ok) errors.push(r1.error);
+      if (args.limit !== undefined) {
+        const r = asNumber(args.limit, "limit", { int: true, min: 1, max: 1000 });
+        if (!r.ok) errors.push(r.error);
+      }
+      if (args.kind !== undefined) {
+        const r = asEnum(args.kind, "kind", CODEGRAPH_KINDS);
+        if (!r.ok) errors.push(r.error);
+      }
+      if (args.json !== undefined) {
+        const r = asBool(args.json, "json");
+        if (!r.ok) errors.push(r.error);
+      }
+      break;
+    }
+    case "codegraph_context": {
+      const r1 = asString(args.task, "task", { allowEmpty: false, maxLen: 2048 });
+      if (!r1.ok) errors.push(r1.error);
+      if (args.max_nodes !== undefined) {
+        const r = asNumber(args.max_nodes, "max_nodes", { int: true, min: 1, max: 5000 });
+        if (!r.ok) errors.push(r.error);
+      }
+      if (args.max_code !== undefined) {
+        const r = asNumber(args.max_code, "max_code", { int: true, min: 1, max: 100_000 });
+        if (!r.ok) errors.push(r.error);
+      }
+      if (args.format !== undefined) {
+        const r = asEnum(args.format, "format", CODEGRAPH_FORMATS);
+        if (!r.ok) errors.push(r.error);
+      }
+      if (args.no_code !== undefined) {
+        const r = asBool(args.no_code, "no_code");
+        if (!r.ok) errors.push(r.error);
+      }
+      break;
+    }
+    case "codegraph_files": {
+      if (args.filter !== undefined) {
+        const r = asCleanFlag(args.filter, "filter", { maxLen: 1024 });
+        if (!r.ok) errors.push(r.error);
+      }
+      if (args.pattern !== undefined) {
+        const r = asCleanFlag(args.pattern, "pattern", { maxLen: 1024 });
+        if (!r.ok) errors.push(r.error);
+      }
+      if (args.format !== undefined) {
+        const r = asEnum(args.format, "format", CODEGRAPH_FORMATS);
+        if (!r.ok) errors.push(r.error);
+      }
+      if (args.max_depth !== undefined) {
+        const r = asNumber(args.max_depth, "max_depth", { int: true, min: 0, max: 100 });
+        if (!r.ok) errors.push(r.error);
+      }
+      if (args.no_metadata !== undefined) {
+        const r = asBool(args.no_metadata, "no_metadata");
+        if (!r.ok) errors.push(r.error);
+      }
+      if (args.json !== undefined) {
+        const r = asBool(args.json, "json");
+        if (!r.ok) errors.push(r.error);
+      }
+      break;
+    }
+    case "codegraph_affected": {
+      const r1 = asStringArray(args.files, "files", { minLen: 1, maxItems: 1000 });
+      if (!r1.ok) errors.push(r1.error);
+      if (args.depth !== undefined) {
+        const r = asNumber(args.depth, "depth", { int: true, min: 1, max: 20 });
+        if (!r.ok) errors.push(r.error);
+      }
+      if (args.filter !== undefined) {
+        const r = asCleanFlag(args.filter, "filter", { maxLen: 1024 });
+        if (!r.ok) errors.push(r.error);
+      }
+      if (args.quiet !== undefined) {
+        const r = asBool(args.quiet, "quiet");
+        if (!r.ok) errors.push(r.error);
+      }
+      if (args.json !== undefined) {
+        const r = asBool(args.json, "json");
+        if (!r.ok) errors.push(r.error);
+      }
+      break;
+    }
+    case "codegraph_status": {
+      if (args.json !== undefined) {
+        const r = asBool(args.json, "json");
+        if (!r.ok) errors.push(r.error);
+      }
+      break;
+    }
+  }
+  return errors.length === 0 ? null : errors.join("; ");
 }
 
 export async function executeTool(
   name: string,
   args: Record<string, unknown>,
   workDir: string,
-  options?: ExecuteToolOptions
+  options: ExecuteToolOptions  // F-14: required (no optional bypass)
 ): Promise<ToolResult> {
+  // Validate args at the boundary. Unknown tools are also rejected
+  // here so a malicious LLM can't reference a tool that doesn't exist.
+  if (!Object.prototype.hasOwnProperty.call({
+    read_file: 1, write_file: 1, run_bash: 1, list_files: 1, search_files: 1,
+    codegraph_search: 1, codegraph_context: 1, codegraph_files: 1,
+    codegraph_affected: 1, codegraph_status: 1,
+  }, name)) {
+    return { output: "", error: `Unknown tool: ${name}` };
+  }
+  const validationError = validateToolArgs(name, args);
+  if (validationError) {
+    return { output: "", error: `Invalid tool arguments: ${validationError}` };
+  }
   try {
     switch (name) {
       case "read_file":
@@ -333,7 +593,7 @@ export async function executeTool(
       case "write_file":
         return await toolWriteFile(args, workDir);
       case "run_bash":
-        return await toolRunBash(args, workDir, options?.executor, options?.onBashResult);
+        return await toolRunBash(args, workDir, options.executor, options.onBashResult);
       case "list_files":
         return await toolListFiles(args, workDir);
       case "search_files":
@@ -349,6 +609,7 @@ export async function executeTool(
       case "codegraph_status":
         return await toolCodegraphStatus(args, workDir);
       default:
+        // Should be unreachable thanks to the validation above.
         return { output: "", error: `Unknown tool: ${name}` };
     }
   } catch (err) {
@@ -389,32 +650,17 @@ async function toolWriteFile(
 async function toolRunBash(
   args: Record<string, unknown>,
   workDir: string,
-  executor?: SandboxProvider,
+  executor: SandboxProvider,
   onResult?: (result: ExecutionResult, command: string) => void,
 ): Promise<ToolResult> {
+  // F-14: executor is now required. The agent always passes one in.
+  // Tests that don't want isolation can pass a DirectExecutor explicitly.
   const command = String(args.command);
   const rawTimeout = typeof args.timeout_ms === "number" ? args.timeout_ms : 30000;
   const timeoutMs = clampTimeout(rawTimeout);
-
-  if (executor) {
-    const result = await executor.exec(command, { timeoutMs });
-    onResult?.(result, command);
-    return { output: truncateOutput(result.output), error: result.error };
-  }
-
-  try {
-    const { stdout, stderr } = await execFileAsync("sh", ["-c", command], {
-      cwd: workDir,
-      timeout: timeoutMs,
-      maxBuffer: 1024 * 1024 * 4,
-    });
-    const out = [stdout, stderr].filter(Boolean).join("\n--- stderr ---\n");
-    return { output: truncateOutput(out || "(no output)") };
-  } catch (err: unknown) {
-    const e = err as { stdout?: string; stderr?: string; message?: string };
-    const combined = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n");
-    return { output: truncateOutput(combined || "(command failed)"), error: "exit non-zero" };
-  }
+  const result = await executor.exec(command, { timeoutMs });
+  onResult?.(result, command);
+  return { output: truncateOutput(result.output), error: result.error };
 }
 
 async function toolListFiles(
@@ -502,8 +748,30 @@ function addNumberFlag(args: string[], flag: string, value: unknown): void {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) args.push(flag, String(Math.floor(value)));
 }
 
+// String flag with light sanitization. The trust boundary for
+// arbitrary CLI flags is at validateToolArgs() in executeTool(); this
+// helper is just the per-tool arg assembler.
 function addStringFlag(args: string[], flag: string, value: unknown): void {
-  if (typeof value === "string" && value.trim()) args.push(flag, value.trim());
+  if (typeof value === "string" && value.trim()) {
+    // Strip control chars that have no business in CLI flags. Newlines
+    // are kept because grep patterns often use them. Tab and space are
+    // already whitespace; sandbox-exec handles them safely when run via
+    // execFile (which we use — no shell interpretation).
+    const sanitized = value.replace(/[\x00\x07\x1b]/g, "");
+    if (sanitized.trim()) args.push(flag, sanitized.trim());
+  }
+}
+
+// Whitelist enums for codegraph string flags. Anything else is dropped
+// silently to avoid letting the LLM smuggle in arbitrary CLI flags.
+const CG_KIND_ENUM = new Set([
+  "function", "class", "method", "interface", "type", "variable",
+  "import", "export", "call", "all",
+]);
+const CG_FORMAT_ENUM = new Set(["text", "json", "yaml", "md", "compact"]);
+
+function addEnumFlag(args: string[], flag: string, value: unknown, allowed: Set<string>): void {
+  if (typeof value === "string" && allowed.has(value)) args.push(flag, value);
 }
 
 async function toolCodegraphSearch(args: Record<string, unknown>, workDir: string): Promise<ToolResult> {
@@ -511,7 +779,7 @@ async function toolCodegraphSearch(args: Record<string, unknown>, workDir: strin
   if (!query) return { output: "", error: "codegraph_search requires query" };
   const cgArgs = ["query", query, "--path", workDir];
   addNumberFlag(cgArgs, "--limit", args.limit);
-  addStringFlag(cgArgs, "--kind", args.kind);
+  addEnumFlag(cgArgs, "--kind", args.kind, CG_KIND_ENUM);
   if (args.json) cgArgs.push("--json");
   return runCodegraph(cgArgs, workDir);
 }
@@ -522,7 +790,7 @@ async function toolCodegraphContext(args: Record<string, unknown>, workDir: stri
   const cgArgs = ["context", task, "--path", workDir];
   addNumberFlag(cgArgs, "--max-nodes", args.max_nodes);
   addNumberFlag(cgArgs, "--max-code", args.max_code);
-  addStringFlag(cgArgs, "--format", args.format);
+  addEnumFlag(cgArgs, "--format", args.format, CG_FORMAT_ENUM);
   if (args.no_code) cgArgs.push("--no-code");
   return runCodegraph(cgArgs, workDir);
 }
@@ -531,7 +799,7 @@ async function toolCodegraphFiles(args: Record<string, unknown>, workDir: string
   const cgArgs = ["files", "--path", workDir];
   addStringFlag(cgArgs, "--filter", args.filter);
   addStringFlag(cgArgs, "--pattern", args.pattern);
-  addStringFlag(cgArgs, "--format", args.format);
+  addEnumFlag(cgArgs, "--format", args.format, CG_FORMAT_ENUM);
   addNumberFlag(cgArgs, "--max-depth", args.max_depth);
   if (args.no_metadata) cgArgs.push("--no-metadata");
   if (args.json) cgArgs.push("--json");

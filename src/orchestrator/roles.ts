@@ -74,6 +74,123 @@ export function isTrivialEdit(task: string): boolean {
   );
 }
 
+/**
+ * F-05: deterministic tool-level risk classifier. The orchestrator
+ * uses an LLM-driven classifier (above), but that classifier is
+ * attacker-influenced: a prompt-injected file can convince the
+ * Architect role to under-report risk. This second classifier looks
+ * at the actual tool call (which is the thing the user is about to
+ * allow) and assigns a risk independently of the LLM.
+ *
+ * Use `assessToolRisk` at the tool-call boundary. If the result is
+ * `high` or `critical`, the agent MUST surface the action to a
+ * human before executing it.
+ */
+export type ToolRiskLevel = "low" | "medium" | "high" | "critical";
+
+export interface ToolCall {
+  name: string;
+  args: Record<string, unknown>;
+}
+
+const SENSITIVE_PATH_REGEX = [
+  /(^|\/)\.ssh\b/i,
+  /(^|\/)\.aws\b/i,
+  /(^|\/)\.gnupg\b/i,
+  /(^|\/)\.kube\b/i,
+  /(^|\/)\.docker\/config\.json/i,
+  /(^|\/)\.netrc\b/i,
+  /(?:^|\/)(?:id_rsa|id_dsa|id_ed25519|id_ecdsa|\.bash_history|\.zsh_history)\b/i,
+  /(?:^|\/)\.npmrc\b/i,
+  /(?:^|\/)\.pypirc\b/i,
+];
+const SECRET_FLAG_REGEX = [
+  /\b(?:password|passwd|pwd)\s*[:=]/i,
+  /\b(?:api[-_]?key|apikey)\s*[:=]/i,
+  /\bsecret\s*[:=]/i,
+  /\btoken\s*[:=]/i,
+  /\bbearer\s+[A-Za-z0-9_.-]{20,}/i,
+  /\bAKIA[0-9A-Z]{16}\b/,  // AWS access key
+  /\b-----BEGIN (?:RSA|EC|OPENSSH|PRIVATE) KEY-----/,
+];
+const CRITICAL_BASH_REGEX = [
+  /\brm\s+(?:-[rRfF]+\s+)*\/(?:\s|$|\*)/,           // rm -rf /
+  /\brm\s+(?:-[rRfF]+\s+)*~(?:\s|$|\*)/,            // rm -rf ~
+  /\bdd\s+if=.+of=\/dev\//,                         // dd to /dev/
+  /\b(?:mkfs|format)\s+\/dev\//,                    // format a disk
+  /\bcurl\b.+\|\s*(?:ba)?sh\b/,                     // curl|sh
+  /\bwget\b.+\|\s*(?:ba)?sh\b/,                     // wget|sh
+  /\bnc\s+(?:-[A-Za-z]+\s+)*-e\b/,                  // netcat -e
+  /\bshutdown\b|\breboot\b|\bpoweroff\b/,
+];
+const HIGH_BASH_REGEX = [
+  /\bsudo\b/,
+  /\bchmod\s+(?:\+s|4[0-7]{2,3})/,                  // setuid
+  /\bchown\b/,
+  /\bsystemctl\s+(?:start|stop|restart|enable|disable)\b/,
+  /\blaunchctl\s+(?:load|unload|bootstrap|bootout)\b/,
+  /\bgit\s+push\s+.*?--force\b/,
+  /\bgit\s+reset\s+--hard\b/,
+  /\bgit\s+clean\s+(?:-[fFdxXqQreRdD]+\s+)*(?:-[fFdxXqQreRdD]*\s*)?(?:[a-zA-Z0-9_./-]+|\$)/,
+  /\bnpm\s+publish\b/,
+  /\bpip\s+install\b.*--break-system-packages\b/,
+  /\b(?:aws|gcloud|az)\s+\w+\s+.*--force\b/,
+  /\bdiskutil\s+(?:eraseDisk|partitionDisk|unmount|remove)\b/,
+  /\bdefaults\s+(?:write|delete)\b/,                 // macOS defaults
+];
+
+export function assessToolRisk(call: ToolCall): ToolRiskLevel {
+  // read_file / list_files / search_files are observation only.
+  if (call.name === "read_file" || call.name === "list_files" || call.name === "search_files") {
+    return "low";
+  }
+  // codegraph_* are observation only.
+  if (call.name.startsWith("codegraph_")) {
+    return "low";
+  }
+  // write_file — escalate based on path and content.
+  if (call.name === "write_file") {
+    const path = typeof call.args.path === "string" ? call.args.path : "";
+    const content = typeof call.args.content === "string" ? call.args.content : "";
+    if (SENSITIVE_PATH_REGEX.some((re) => re.test(path))) return "critical";
+    if (SECRET_FLAG_REGEX.some((re) => re.test(content))) return "critical";
+    if (/(?:^|\/)\.env(?:\.[\w-]+)?$/i.test(path)) return "high";
+    if (/\.(?:pem|key|p12|pfx|crt|cer)$/i.test(path)) return "high";
+    return "medium";
+  }
+  // run_bash — escalate based on command text.
+  if (call.name === "run_bash") {
+    const command = String(call.args.command ?? "");
+    if (CRITICAL_BASH_REGEX.some((re) => re.test(command))) return "critical";
+    if (HIGH_BASH_REGEX.some((re) => re.test(command))) return "high";
+    // Any command that touches a sensitive path via redirection.
+    if (/(?:>>|>)\s*[~\/]/.test(command) && SENSITIVE_PATH_REGEX.some((re) => re.test(command))) {
+      return "critical";
+    }
+    // Default: medium for any shell. Low for `cat`/`ls`/`echo` etc.
+    if (/^\s*(?:cat|ls|echo|wc|pwd|whoami|date|true|false|which|type|file|head|tail|grep|rg)\b/.test(command)) {
+      return "low";
+    }
+    return "medium";
+  }
+  // Unknown tool: be conservative.
+  return "medium";
+}
+
+/**
+ * F-05: the tool-level risk threshold. Any tool call at or above
+ * this level MUST be approved by a human before the agent
+ * executes it. The default threshold is "high", meaning high and
+ * critical actions require approval. Callers can override.
+ */
+export const DEFAULT_TOOL_RISK_THRESHOLD: ToolRiskLevel = "high";
+
+const RISK_ORDER: ToolRiskLevel[] = ["low", "medium", "high", "critical"];
+
+export function riskAtOrAbove(risk: ToolRiskLevel, threshold: ToolRiskLevel): boolean {
+  return RISK_ORDER.indexOf(risk) >= RISK_ORDER.indexOf(threshold);
+}
+
 export const ROLE_DEFINITIONS: Record<RoleName, RoleDefinition> = {
   architect: {
     name: "architect",

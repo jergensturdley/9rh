@@ -12,7 +12,7 @@ describe("SandboxExecutor", () => {
 
   it("executes through SandboxExecutor when sandbox-exec is available", async () => {
     if (!isSandboxAvailable()) return;
-    const exec = new SandboxExecutor(workDir);
+    const exec = new SandboxExecutor(workDir, { legacySandbox: true });
     const result = await exec.exec("echo sandbox-ok");
     expect(result.sandboxUsed).toBe(true);
     expect(result.output).toContain("sandbox-ok");

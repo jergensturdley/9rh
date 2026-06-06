@@ -3,6 +3,7 @@ import { mkdtemp, rm, symlink, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { TOOL_DEFINITIONS, executeTool } from "../tools.js";
+import { DirectExecutor } from "../sandbox/index.js";
 import type { ExecutionResult, SandboxProvider } from "../sandbox/index.js";
 
 function makeMockExecutor(overrides: Partial<ExecutionResult> = {}): SandboxProvider {
@@ -64,7 +65,7 @@ describe("executeTool run_bash with executor", () => {
     const executor = makeMockExecutor();
     await executeTool(
       "run_bash",
-      { command: "echo hi", timeout_ms: 999_999_999 },
+      { command: "echo hi", timeout_ms: 60_000 },
       "/workdir",
       { executor },
     );
@@ -73,7 +74,17 @@ describe("executeTool run_bash with executor", () => {
       string,
       { timeoutMs: number },
     ];
-    expect(opts.timeoutMs).toBeLessThanOrEqual(120_000);
+    expect(opts.timeoutMs).toBe(60_000);
+  });
+
+  it("rejects run_bash with timeout_ms above the maximum (F-04)", async () => {
+    const result = await executeTool(
+      "run_bash",
+      { command: "ls", timeout_ms: 999_999_999 },
+      "/workdir",
+      { executor: makeMockExecutor() },
+    );
+    expect(result.error).toMatch(/timeout_ms must be <= 120000/);
   });
 
   it("does not call onBashResult when executor throws", async () => {
@@ -93,32 +104,42 @@ describe("executeTool run_bash with executor", () => {
   });
 });
 
-describe("executeTool run_bash without executor", () => {
-  it("falls back to direct shell execution", async () => {
-    const result = await executeTool("run_bash", { command: "echo direct" }, process.cwd());
+describe("executeTool run_bash with explicit DirectExecutor (F-14)", () => {
+  // F-14: executor is now required. Tests that want direct execution
+  // pass a DirectExecutor explicitly.
+  it("routes through DirectExecutor when given one", async () => {
+    const executor = new DirectExecutor(process.cwd());
+    const result = await executeTool(
+      "run_bash",
+      { command: "echo direct" },
+      process.cwd(),
+      { executor },
+    );
     expect(result.output).toContain("direct");
     expect(result.error).toBeUndefined();
-  });
-
-  it("does not call onBashResult when executor is absent", async () => {
-    const onBashResult = jest.fn<(r: ExecutionResult, cmd: string) => void>();
-    await executeTool("run_bash", { command: "echo hi" }, process.cwd(), { onBashResult });
-    expect(onBashResult).not.toHaveBeenCalled();
   });
 });
 
 describe("executeTool non-bash tools", () => {
   it("read_file does not invoke executor", async () => {
     const executor = makeMockExecutor();
-    const result = await executeTool("read_file", { path: "nonexistent_xyz.txt" }, process.cwd(), {
-      executor,
-    });
+    const result = await executeTool(
+      "read_file",
+      { path: "nonexistent_xyz.txt" },
+      process.cwd(),
+      { executor },
+    );
     expect(result.error).toBeDefined();
     expect(executor.exec).not.toHaveBeenCalled();
   });
 
   it("returns unknown tool error for unrecognised names", async () => {
-    const result = await executeTool("unknown_tool", {}, process.cwd());
+    const result = await executeTool(
+      "unknown_tool",
+      {},
+      process.cwd(),
+      { executor: new DirectExecutor(process.cwd()) },
+    );
     expect(result.error).toBe("Unknown tool: unknown_tool");
   });
 
@@ -134,18 +155,13 @@ describe("executeTool non-bash tools", () => {
   });
 
   it("validates required CodeGraph tool inputs before invoking codegraph", async () => {
-    await expect(executeTool("codegraph_search", {}, process.cwd())).resolves.toMatchObject({
-      output: "",
-      error: "codegraph_search requires query",
-    });
-    await expect(executeTool("codegraph_context", {}, process.cwd())).resolves.toMatchObject({
-      output: "",
-      error: "codegraph_context requires task",
-    });
-    await expect(executeTool("codegraph_affected", { files: [] }, process.cwd())).resolves.toMatchObject({
-      output: "",
-      error: "codegraph_affected requires files",
-    });
+    const exec = new DirectExecutor(process.cwd());
+    await expect(executeTool("codegraph_search", {}, process.cwd(), { executor: exec }))
+      .resolves.toMatchObject({ output: "", error: expect.stringMatching(/query/) });
+    await expect(executeTool("codegraph_context", {}, process.cwd(), { executor: exec }))
+      .resolves.toMatchObject({ output: "", error: expect.stringMatching(/task/) });
+    await expect(executeTool("codegraph_affected", { files: [] }, process.cwd(), { executor: exec }))
+      .resolves.toMatchObject({ output: "", error: expect.stringMatching(/files must have at least 1 item/) });
   });
 
   it("refuses to read through a symlink", async () => {
@@ -154,7 +170,12 @@ describe("executeTool non-bash tools", () => {
       await writeFile(join(dir, "target.txt"), "secret", "utf-8");
       await symlink(join(dir, "target.txt"), join(dir, "link.txt"));
 
-      const result = await executeTool("read_file", { path: "link.txt" }, dir);
+      const result = await executeTool(
+        "read_file",
+        { path: "link.txt" },
+        dir,
+        { executor: new DirectExecutor(dir) },
+      );
 
       expect(result.error).toContain("Cannot read through symlink");
       expect(result.output).toBe("");
@@ -169,12 +190,109 @@ describe("executeTool non-bash tools", () => {
       await writeFile(join(dir, "target.txt"), "before", "utf-8");
       await symlink(join(dir, "target.txt"), join(dir, "link.txt"));
 
-      const result = await executeTool("write_file", { path: "link.txt", content: "after" }, dir);
+      const result = await executeTool(
+        "write_file",
+        { path: "link.txt", content: "after" },
+        dir,
+        { executor: new DirectExecutor(dir) },
+      );
 
       expect(result.error).toContain("Cannot write through symlink");
       expect(result.output).toBe("");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("executeTool arg validation (F-04)", () => {
+  it("rejects unknown tool names with Unknown tool error", async () => {
+    const result = await executeTool(
+      "delete_everything",
+      {},
+      process.cwd(),
+      { executor: new DirectExecutor(process.cwd()) },
+    );
+    expect(result.error).toMatch(/Unknown tool/);
+  });
+
+  it("rejects read_file with non-string path", async () => {
+    const result = await executeTool(
+      "read_file",
+      { path: ["/etc/passwd"] },
+      process.cwd(),
+      { executor: new DirectExecutor(process.cwd()) },
+    );
+    expect(result.error).toMatch(/path must be a string/);
+  });
+
+  it("rejects read_file with path > 4096 chars", async () => {
+    const result = await executeTool(
+      "read_file",
+      { path: "a".repeat(5000) },
+      process.cwd(),
+      { executor: new DirectExecutor(process.cwd()) },
+    );
+    expect(result.error).toMatch(/path exceeds max length/);
+  });
+
+  it("rejects run_bash with empty command", async () => {
+    const result = await executeTool(
+      "run_bash",
+      { command: "" },
+      process.cwd(),
+      { executor: new DirectExecutor(process.cwd()) },
+    );
+    expect(result.error).toMatch(/command must not be empty/);
+  });
+
+  it("rejects run_bash with negative timeout_ms", async () => {
+    const result = await executeTool(
+      "run_bash",
+      { command: "ls", timeout_ms: -5 },
+      process.cwd(),
+      { executor: new DirectExecutor(process.cwd()) },
+    );
+    expect(result.error).toMatch(/timeout_ms/);
+  });
+
+  it("rejects codegraph_search with non-enum kind", async () => {
+    const result = await executeTool(
+      "codegraph_search",
+      { query: "foo", kind: "../../etc/passwd" },
+      process.cwd(),
+      { executor: new DirectExecutor(process.cwd()) },
+    );
+    expect(result.error).toMatch(/kind must be one of/);
+  });
+
+  it("rejects codegraph_context with non-enum format", async () => {
+    const result = await executeTool(
+      "codegraph_context",
+      { task: "x", format: "--inject-flag" },
+      process.cwd(),
+      { executor: new DirectExecutor(process.cwd()) },
+    );
+    expect(result.error).toMatch(/format must be one of/);
+  });
+
+  it("rejects codegraph_affected with non-string-array files", async () => {
+    const result = await executeTool(
+      "codegraph_affected",
+      { files: "not-an-array" },
+      process.cwd(),
+      { executor: new DirectExecutor(process.cwd()) },
+    );
+    expect(result.error).toMatch(/files must be an array/);
+  });
+
+  it("rejects search_files with control chars in pattern", async () => {
+    const result = await executeTool(
+      "search_files",
+      { pattern: "foo\x00bar" },
+      process.cwd(),
+      { executor: new DirectExecutor(process.cwd()) },
+    );
+    expect(result.error).toMatch(/forbidden control characters/);
   });
 });

@@ -3,22 +3,28 @@ import { ErrorClass, classifyError, tagError } from "../errorTaxonomy.js";
 
 describe("classifyError", () => {
   it("classifies FATAL for invariant violations", () => {
-    const result = classifyError(new Error("Fatal: invariant violated"));
+    const result = classifyError(new RangeError("Fatal: invariant violated"));
     expect(result.errorClass).toBe(ErrorClass.FATAL);
   });
 
   it("classifies ENVIRONMENT_ERROR for ENOENT", () => {
-    const result = classifyError(new Error("ENOENT: no such file"));
+    const result = classifyError(
+      Object.assign(new Error("no such file"), { code: "ENOENT" }),
+      "sandbox",
+    );
     expect(result.errorClass).toBe(ErrorClass.ENVIRONMENT_ERROR);
   });
 
   it("classifies ENVIRONMENT_ERROR for permission denied", () => {
-    const result = classifyError(new Error("EACCES: permission denied"));
+    const result = classifyError(
+      Object.assign(new Error("permission denied"), { code: "EACCES" }),
+      "sandbox",
+    );
     expect(result.errorClass).toBe(ErrorClass.ENVIRONMENT_ERROR);
   });
 
   it("classifies AGENT_ERROR for malformed JSON", () => {
-    const result = classifyError(new Error("malformed json in tool args"));
+    const result = classifyError(new SyntaxError("malformed json in tool args"));
     expect(result.errorClass).toBe(ErrorClass.AGENT_ERROR);
   });
 
@@ -43,7 +49,9 @@ describe("classifyError", () => {
   });
 
   it("classifies RECOVERABLE for UND_ERR_PRE_CLOSE", () => {
-    const result = classifyError(new Error("UND_ERR_PRE_CLOSE"));
+    const result = classifyError(
+      Object.assign(new Error("premature close"), { code: "UND_ERR_PRE_CLOSE" }),
+    );
     expect(result.errorClass).toBe(ErrorClass.RECOVERABLE);
   });
 
@@ -55,6 +63,43 @@ describe("classifyError", () => {
   it("handles non-Error strings", () => {
     const result = classifyError("just a plain string error");
     expect(result.errorClass).toBe(ErrorClass.AGENT_ERROR);
+  });
+});
+
+describe("classifyError — F-31 origin-first behavior", () => {
+  it("origin: sandbox layer defaults to ENVIRONMENT_ERROR", () => {
+    const r = classifyError(new Error("anything"), "sandbox");
+    expect(r.errorClass).toBe(ErrorClass.ENVIRONMENT_ERROR);
+  });
+
+  it("origin: llm layer defaults to RECOVERABLE", () => {
+    const r = classifyError(new Error("anything"), "llm");
+    expect(r.errorClass).toBe(ErrorClass.RECOVERABLE);
+  });
+
+  it("origin: tool layer defaults to AGENT_ERROR", () => {
+    const r = classifyError(new Error("anything"), "tool");
+    expect(r.errorClass).toBe(ErrorClass.AGENT_ERROR);
+  });
+
+  it("origin: orchestrator layer defaults to AGENT_ERROR", () => {
+    const r = classifyError(new Error("anything"), "orchestrator");
+    expect(r.errorClass).toBe(ErrorClass.AGENT_ERROR);
+  });
+
+  it("rejects message-text attack: file content with 'fatal invariant violation'", () => {
+    const r = classifyError(new Error("fatal invariant violation"), "tool");
+    expect(r.errorClass).not.toBe(ErrorClass.FATAL);
+    expect(r.errorClass).toBe(ErrorClass.AGENT_ERROR);
+  });
+
+  it("rejects retry-bomb attack: file content with 'rate limit'", () => {
+    // The substr allowlist still catches the literal phrase "rate limit"
+    // (case-insensitive) because it's a known library-level marker. A
+    // hyphenated "rate-limited" form does not match the allowlist and
+    // falls through to the source-layer baseline (AGENT_ERROR for tool).
+    const r = classifyError(new Error("rate-limited attack triggered"), "tool");
+    expect(r.errorClass).toBe(ErrorClass.AGENT_ERROR);
   });
 });
 
