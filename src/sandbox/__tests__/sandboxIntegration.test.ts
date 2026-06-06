@@ -75,7 +75,7 @@ describe("Sandbox exec basic behavior", () => {
 
   it("executes a simple command and returns output", async () => {
     const { Sandbox, isSandboxAvailable } = await import("../sandboxer.js");
-    const sb = new Sandbox({ workDir });
+    const sb = new Sandbox({ workDir, legacySandbox: true });
     const result = await sb.exec("echo hello");
     if (!isSandboxAvailable()) {
       expect(result.exitCode).toBe(-1);
@@ -88,7 +88,7 @@ describe("Sandbox exec basic behavior", () => {
 
   it("returns non-zero exit code on failure", async () => {
     const { Sandbox, isSandboxAvailable } = await import("../sandboxer.js");
-    const sb = new Sandbox({ workDir });
+    const sb = new Sandbox({ workDir, legacySandbox: true });
     const result = await sb.exec("exit 1");
     if (!isSandboxAvailable()) {
       expect(result.exitCode).toBe(-1);

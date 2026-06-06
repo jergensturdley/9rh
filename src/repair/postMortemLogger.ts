@@ -1,5 +1,5 @@
 import { readFile, writeFile, readdir, mkdir } from "fs/promises";
-import { join } from "path";
+import { join, resolve, normalize, sep } from "path";
 import type { TaggedError } from "./errorTaxonomy.js";
 import { type ErrorClass } from "./errorTaxonomy.js";
 
@@ -25,12 +25,68 @@ export interface PlaybookEntry {
 }
 
 const INCIDENT_DIR = "./logs/incidents";
-const PLAYBOOK_PATH = "./src/repair/repairPlaybook.json";
+// F-32: the playbook path is now configurable. Default is preserved
+// for back-compat. Callers can override per-invocation. We also
+// validate that the resolved path lies under the project root (the
+// directory that contains src/) so a misconfigured caller can't
+// trick appendPlaybookEntry into writing a playbook into a sensitive
+// location (e.g. ~/.ssh/).
+const DEFAULT_PLAYBOOK_PATH = "./src/repair/repairPlaybook.json";
+const DEFAULT_PLAYBOOK_ROOT = process.cwd();
 
 async function ensureDir(dir: string): Promise<void> {
   try {
     await mkdir(dir, { recursive: true });
   } catch {}
+}
+
+// F-32: validate that `target` is inside `root` after resolve().
+// Returns the normalized absolute path on success, throws on escape.
+function assertInsideRoot(target: string, root: string): string {
+  const absRoot = resolve(root);
+  const absTarget = resolve(absRoot, target);
+  const withSep = absRoot.endsWith(sep) ? absRoot : absRoot + sep;
+  if (absTarget !== absRoot && !absTarget.startsWith(withSep)) {
+    throw new Error(
+      `path ${target} escapes the allowed root ${absRoot} (resolved to ${absTarget})`,
+    );
+  }
+  return absTarget;
+}
+
+// F-32: validate a PlaybookEntry before it's persisted. The entry's
+// text fields are written to disk and later loaded by future agent
+// runs; the agent's repair logic reads them to decide what fix to
+// apply automatically. So a malicious incident message could inject
+// fix text that's later followed by a future agent. Keep fields
+// bounded and reject control characters that have no business in
+// repair instructions.
+function validatePlaybookEntry(entry: PlaybookEntry): void {
+  if (!entry || typeof entry !== "object") {
+    throw new Error("playbook entry must be an object");
+  }
+  if (typeof entry.id !== "string" || !/^pb-[a-zA-Z0-9_-]{1,40}$/.test(entry.id)) {
+    throw new Error("playbook entry id has invalid shape");
+  }
+  if (typeof entry.pattern !== "string" || entry.pattern.length === 0 || entry.pattern.length > 200) {
+    throw new Error("playbook entry pattern must be a 1-200 char string");
+  }
+  if (typeof entry.errorClass !== "string" || !/^(RECOVERABLE|AGENT_ERROR|ENVIRONMENT_ERROR|FATAL)$/.test(entry.errorClass)) {
+    throw new Error("playbook entry errorClass has invalid value");
+  }
+  if (typeof entry.suggestedFix !== "string" || entry.suggestedFix.length === 0 || entry.suggestedFix.length > 1000) {
+    throw new Error("playbook entry suggestedFix must be a 1-1000 char string");
+  }
+  if (typeof entry.autoApply !== "boolean") {
+    throw new Error("playbook entry autoApply must be a boolean");
+  }
+  // Reject control characters in any text field. These are not
+  // legitimate in repair instructions and would be a vector for
+  // smuggling terminal escape sequences into future prompts.
+  const bad = /[\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0b\x0c\x0e-\x1f\x7f]/;
+  if (bad.test(entry.id) || bad.test(entry.pattern) || bad.test(entry.suggestedFix)) {
+    throw new Error("playbook entry contains forbidden control characters");
+  }
 }
 
 export async function logIncident(
@@ -77,12 +133,24 @@ export async function generatePlaybookEntry(
   };
 }
 
-export async function appendPlaybookEntry(entry: PlaybookEntry): Promise<void> {
+export async function appendPlaybookEntry(
+  entry: PlaybookEntry,
+  opts: { path?: string; root?: string } = {},
+): Promise<void> {
   try {
-    const raw = await readFile(PLAYBOOK_PATH, "utf-8");
+    // F-32: validate the entry first. The entry's `pattern` and
+    // `suggestedFix` flow from a runtime error message and are later
+    // loaded as repair instructions by future agent runs. Treat
+    // them as untrusted.
+    validatePlaybookEntry(entry);
+    const target = assertInsideRoot(
+      opts.path ?? DEFAULT_PLAYBOOK_PATH,
+      opts.root ?? DEFAULT_PLAYBOOK_ROOT,
+    );
+    const raw = await readFile(target, "utf-8");
     const existing: PlaybookEntry[] = JSON.parse(raw);
     existing.push(entry);
-    await writeFile(PLAYBOOK_PATH, JSON.stringify(existing, null, 2), "utf-8");
+    await writeFile(target, JSON.stringify(existing, null, 2), "utf-8");
   } catch (err) {
     console.warn("[postMortemLogger] appendPlaybookEntry failed:", err);
   }

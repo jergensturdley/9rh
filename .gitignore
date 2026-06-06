@@ -14,6 +14,7 @@ examples/
 *.secret
 *.credentials
 .local/
+.serena/
 .sisyphus/
 .jcode/
 .claude/
@@ -40,16 +41,19 @@ temp/
 .DS_Store
 dist/
 
+# Scratch / probe / one-off artifacts (leading-underscore convention)
+_*
+!_*/
+
 # Generated test artifacts (snapshots, fixtures, output — not source test files)
 test-bed/
 test-snapshots/
 snapshots/
 *.snap
-CLAUDE.md
-SANDBOX_SECURITY_ROADMAP.md
 
 # Understand Anything (analysis artifacts)
 .understand-anything/
 !.understand-anything/.understandignore
 *.bak.*
 *fuzz*
+SANDBOX_SECURITY_ROADMAP.md

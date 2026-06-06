@@ -76,6 +76,35 @@ export class FaultInjector {
   }
 
   private createFault(type: FaultType, message?: string): Error {
-    return new Error(message ?? FAULT_MESSAGES[type]);
+    const msg = message ?? FAULT_MESSAGES[type];
+    // F-31: classifyError reads `name` and `code` first, then a small
+    // substr allowlist, then the source-layer baseline. Attach a typed
+    // name / code so the injected fault routes to the right class
+    // reliably. The `message` is preserved so existing tests that
+    // match /timeout/i, /eacces/i, etc. still work.
+    switch (type) {
+      case "malformed_json":
+        return new SyntaxError(msg);
+      case "invalid_tool_args":
+        return new TypeError(msg);
+      case "invariant_violation":
+        return new RangeError(msg);
+      case "network_reset":
+        return Object.assign(new Error(msg), { code: "ECONNRESET" });
+      case "premature_close":
+        return Object.assign(new Error(msg), { code: "UND_ERR_PRE_CLOSE" });
+      case "enospc":
+        return Object.assign(new Error(msg), { code: "ENOSPC" });
+      case "eacces":
+        return Object.assign(new Error(msg), { code: "EACCES" });
+      case "sandbox_crash":
+        return Object.assign(new Error(msg), { code: "ESANDBOX_CRASH" });
+      case "missing_env_var":
+        return Object.assign(new Error(msg), { code: "MISSING_ENV_VAR" });
+      case "circuit_breaker_open":
+        return Object.assign(new Error(msg), { code: "CIRCUIT_OPEN" });
+      default:
+        return new Error(msg);
+    }
   }
 }

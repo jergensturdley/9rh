@@ -1,4 +1,4 @@
-export { Sandbox, isSandboxAvailable, getDefaultSandboxConfig } from "./sandboxer.js";
+export { Sandbox, isSandboxAvailable, getSandboxStatus, getDefaultSandboxConfig } from "./sandboxer.js";
 export type { SandboxConfig } from "./sandboxer.js";
 
 export {

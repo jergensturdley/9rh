@@ -1,7 +1,7 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
 import type { SandboxConfig } from "./sandboxer.js";
-import { Sandbox, isSandboxAvailable, getDefaultSandboxConfig } from "./sandboxer.js";
+import { Sandbox, isSandboxAvailable, getSandboxStatus, getDefaultSandboxConfig } from "./sandboxer.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -146,10 +146,34 @@ interface ExecutionRecord extends ExecutionResult {
 
 export function createExecutor(
   workDir: string,
-  opts: { useSandbox?: boolean; sandboxConfig?: Partial<SandboxConfig> } = {},
+  opts: { useSandbox?: boolean; sandboxConfig?: Partial<SandboxConfig>; strict?: boolean } = {},
 ): SandboxProvider {
-  if (opts.useSandbox && isSandboxAvailable()) {
-    return new SandboxExecutor(workDir, opts.sandboxConfig);
+  if (opts.useSandbox) {
+    if (isSandboxAvailable()) {
+      return new SandboxExecutor(workDir, opts.sandboxConfig);
+    }
+    // Sandbox was requested but isn't available. Two options:
+    //   - strict=true  → throw, fail closed
+    //   - strict=false (default) → warn + fall back to DirectExecutor
+    if (opts.strict) {
+      const status = getSandboxStatus();
+      throw new Error(
+        `Sandbox requested but unavailable: ${status.kind === "unavailable" ? status.reason : "unknown reason"}. ` +
+        `Refusing to fall back to direct execution in strict mode.`,
+      );
+    }
+    // Default: fall back with a one-time stderr warning. The agent
+    // constructor also surfaces this via the sandbox_health event.
+    if (!createExecutor._warned) {
+      process.stderr.write(
+        `\n[9rh] WARNING: sandbox unavailable; falling back to DirectExecutor. ` +
+        `run_bash will execute with full user permissions. Set strict:true ` +
+        `or run on macOS to enable isolation.\n\n`,
+      );
+      createExecutor._warned = true;
+    }
   }
   return new DirectExecutor(workDir);
 }
+// Module-level flag to ensure the fallback warning only fires once.
+createExecutor._warned = false;

@@ -8,6 +8,7 @@ import type {
   CheckpointEvent,
 } from "./eventSchema.js";
 import { executeTool } from "../tools.js";
+import type { SandboxProvider } from "../sandbox/index.js";
 import type { DivergenceReport } from "./divergenceDetector.js";
 import { restoreSnapshot } from "../repair/snapshotManager.js";
 
@@ -19,6 +20,22 @@ export interface ReplayOptions {
   onEvent?: (event: ReplayEvent) => void;
   onDivergence?: (report: DivergenceReport) => void;
   llmProvider?: LLMProvider;
+  // F-14: replay re-executes recorded tool calls; require the caller
+  // to pass an executor (sandboxed or explicit Direct) so we never
+  // implicitly run tool calls with the user's full permissions.
+  executor: SandboxProvider;
+  // F-26: by default, replay is DRY-RUN. Tool calls are observed but
+  // NOT executed, to prevent planted log entries from triggering
+  // arbitrary `run_bash` and `write_file` actions. Set execute: true
+  // explicitly to opt in to live replay. The dry-run path still
+  // invokes the executor for read-only / observable tools but never
+  // for run_bash or write_file unless execute: true.
+  execute?: boolean;
+  // F-26: if a signature is provided, the log is verified on load.
+  // The signature is an HMAC-SHA256 of the JSONL contents with the
+  // supplied key. An unsigned or mismatched log refuses to execute
+  // even if execute: true.
+  signatureKey?: string;
 }
 
 export interface LLMProvider {
@@ -36,20 +53,47 @@ export class ReplayEngine {
   private stepIndex = 0;
   private diverged = false;
   private recordedOutputs: Map<string, string> = new Map();
+  private effectiveExecute: boolean;  // F-26: resolved at construction
 
   constructor(options: ReplayOptions) {
     this.options = options;
+    this.effectiveExecute = options.execute === true;
   }
 
   async load(): Promise<void> {
     const raw = await readFile(this.options.eventLogPath, "utf-8");
     const lines = raw.split("\n").filter(Boolean);
+    // F-26: verify signature if one is provided. The expected signature
+    // lives in a sidecar file "<log>.sig" containing the hex HMAC.
+    if (this.options.signatureKey) {
+      const sigPath = this.options.eventLogPath + ".sig";
+      let expected = "";
+      try {
+        expected = (await readFile(sigPath, "utf-8")).trim();
+      } catch {
+        throw new Error(
+          `Replay log signature missing: expected ${sigPath}. ` +
+          `Refusing to replay an unverified log.`,
+        );
+      }
+      const { createHmac } = await import("crypto");
+      const got = createHmac("sha256", this.options.signatureKey)
+        .update(raw)
+        .digest("hex");
+      if (got !== expected) {
+        throw new Error(
+          `Replay log signature mismatch: file is signed by a different key ` +
+          `or has been tampered with. Refusing to execute replay.`,
+        );
+      }
+    }
     this.events = lines.map((l) => JSON.parse(l) as ReplayEvent);
   }
 
-  async replay(): Promise<{ eventCount: number; divergenceReport: DivergenceReport | null }> {
+  async replay(): Promise<{ eventCount: number; divergenceReport: DivergenceReport | null; dryRun: boolean }> {
     const fromStep = this.options.fromStep ?? 0;
     let eventCount = 0;
+    const dryRun = !this.effectiveExecute;
 
     for (const event of this.events) {
       this.eventIndex++;
@@ -77,8 +121,21 @@ export class ReplayEngine {
 
       if (event.type === "tool_call" && !this.diverged) {
         const tc = event as ToolCallEvent;
+        // F-26: in dry-run mode, observe the recorded call but do NOT
+        // execute it. We still emit the event to the consumer so
+        // visibility/diffing works. This blocks planted tool_call
+        // events from triggering arbitrary `run_bash` / `write_file`.
+        if (!this.effectiveExecute) {
+          eventCount++;
+          continue;
+        }
         try {
-          const freshResult = await executeTool(tc.payload.toolName, tc.payload.args, this.options.workDir);
+          const freshResult = await executeTool(
+            tc.payload.toolName,
+            tc.payload.args,
+            this.options.workDir,
+            { executor: this.options.executor },
+          );
           const recordedOutput = this.recordedOutputs.get(tc.payload.callId);
           if (recordedOutput !== undefined && this.options.stopOnDivergence) {
             if (freshResult.output !== recordedOutput) {
@@ -122,7 +179,7 @@ export class ReplayEngine {
       }
     }
 
-    return { eventCount, divergenceReport: null };
+    return { eventCount, divergenceReport: null, dryRun };
   }
 
   isDiverged(): boolean {

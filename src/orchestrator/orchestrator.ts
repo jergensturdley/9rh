@@ -81,11 +81,36 @@ function stripMarkdownFences(raw: string): string {
   return raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
 }
 
-function parseRoleOutput<T>(output: string, fallback: T): T {
+/**
+ * Parse JSON-shaped role output. F-23: the previous version silently
+ * swallowed JSON parse errors and returned the fallback, which made
+ * orchestrator misclassifications invisible. Now we:
+ *   - on success: return the parsed value and ok=true
+ *   - on failure: log a warning with the first 200 chars of the raw
+ *     output, return the fallback and ok=false so callers can
+ *     surface the issue.
+ */
+export type ParseResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; value: T; error: string; rawPreview: string };
+
+function parseRoleOutput<T>(output: string, fallback: T, roleName?: string): ParseResult<T> {
+  if (!output || !output.trim()) {
+    const err = `empty ${roleName ?? "role"} output`;
+    return { ok: false, value: fallback, error: err, rawPreview: "" };
+  }
   try {
-    return JSON.parse(stripMarkdownFences(output)) as T;
-  } catch {
-    return fallback;
+    const value = JSON.parse(stripMarkdownFences(output)) as T;
+    return { ok: true, value };
+  } catch (e) {
+    const err = (e as Error).message;
+    const preview = output.slice(0, 200);
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[9rh] orchestrator: failed to parse ${roleName ?? "role"} output as JSON: ${err}\n` +
+      `First 200 chars: ${preview.replace(/\n/g, "\\n")}`,
+    );
+    return { ok: false, value: fallback, error: err, rawPreview: preview };
   }
 }
 
@@ -145,7 +170,7 @@ export class Orchestrator {
       requiresTestStrategy: requiresTestStrategy(state.originalTask),
       isTrivial: isTrivialEdit(state.originalTask),
       successCriteria: ["Task completed as described"],
-    });
+    }, "architect").value;
 
     cachePlan(this.cache, taskHash, plan);
     return plan;
@@ -172,7 +197,7 @@ export class Orchestrator {
       filesModified: [],
       testResults: "not_run",
       diff: output,
-    });
+    }, "implementer").value;
   }
 
   private async runReviewer(state: TaskState): Promise<ReviewResult> {
@@ -189,7 +214,7 @@ export class Orchestrator {
       issues: [],
       requiredChanges: [],
       justification: output,
-    });
+    }, "reviewer").value;
   }
 
   private async runSecurityAuditor(state: TaskState): Promise<SecurityAuditResult> {
@@ -206,7 +231,7 @@ export class Orchestrator {
       vulnerabilities: [],
       conditions: [],
       justification: output,
-    });
+    }, "security_auditor").value;
   }
 
   private async runTestStrategist(state: TaskState): Promise<TestStrategyResult> {
@@ -233,7 +258,7 @@ export class Orchestrator {
       coverageGaps: [],
       requiredAdditions: [],
       justification: output,
-    });
+    }, "test_strategist").value;
 
     cacheTestStrategy(this.cache, cacheKey, result);
     return result;

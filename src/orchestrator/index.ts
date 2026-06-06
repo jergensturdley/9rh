@@ -1,8 +1,8 @@
 export { Orchestrator } from "./orchestrator.js";
 export type { OrchestratorConfig, OrchestratorEvent, OrchestratorResult, RoleInvoker } from "./orchestrator.js";
 
-export { ROLE_DEFINITIONS, classifyRisk, requiresSecurityAudit, requiresTestStrategy, isTrivialEdit } from "./roles.js";
-export type { RoleName, RiskLevel, RoleDefinition } from "./roles.js";
+export { ROLE_DEFINITIONS, classifyRisk, requiresSecurityAudit, requiresTestStrategy, isTrivialEdit, assessToolRisk, riskAtOrAbove, DEFAULT_TOOL_RISK_THRESHOLD } from "./roles.js";
+export type { RoleName, RiskLevel, RoleDefinition, ToolCall, ToolRiskLevel } from "./roles.js";
 
 export {
   createTaskState,
