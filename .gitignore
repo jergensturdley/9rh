@@ -1,5 +1,5 @@
 node_modules/
-examples/
+/examples/
 
 # Environment, secrets, and local identity
 .env
@@ -41,9 +41,20 @@ temp/
 .DS_Store
 dist/
 
-# Scratch / probe / one-off artifacts (leading-underscore convention)
-_*
-!_*/
+# Scratch / probe / one-off artifacts (leading-underscore convention).
+# Match by extension so legitimate test fixtures or files like
+# `_dump.test.ts` aren't swept up. The leading-underscore convention
+# is enforced by code review, not by accidentally broad globs.
+_*.cjs
+_*.js
+_*.mjs
+_*.ts
+_*.sh
+_*.py
+_*.json
+_*.md
+_*.html
+_*.txt
 
 # Generated test artifacts (snapshots, fixtures, output — not source test files)
 test-bed/
@@ -57,3 +68,4 @@ snapshots/
 *.bak.*
 *fuzz*
 SANDBOX_SECURITY_ROADMAP.md
+skills/writing-skills/examples/CLAUDE_MD_TESTING.md
