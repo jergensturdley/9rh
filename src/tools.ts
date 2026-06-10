@@ -12,6 +12,10 @@ const MIN_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 120_000;
 const PATH_CACHE_LIMIT = 512;
 const CODEGRAPH_TIMEOUT_MS = 30_000;
+const WEB_FETCH_TIMEOUT_MS = 30_000;
+const WEB_FETCH_MAX_BYTES = 2_000_000;
+const WEB_FETCH_TEXT_LIMIT = 40_000;
+const SKILL_NAME_REGEX = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 
 const realWorkDirCache = new Map<string, string>();
 const sandboxPathCache = new Map<string, string>();
@@ -308,6 +312,95 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "web_fetch",
+      description:
+        "Fetch a URL over HTTPS and return its content as plain text. HTML responses are stripped of tags, scripts, and styles. Useful for reading documentation, SKILL.md files, or any public web page. Read-only — no side effects. Times out after 30s. Output is truncated to ~40KB.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: {
+            type: "string",
+            description: "Absolute URL to fetch. Must be http:// or https://.",
+          },
+          max_bytes: {
+            type: "number",
+            description:
+              "Optional: maximum response body size in bytes (default 2000000, max 5000000).",
+          },
+        },
+        required: ["url"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "web_search",
+      description:
+        "Search the web via the Hacker News Algolia search API (no API key required). Returns a list of {title, url, author, date, points, comments, snippet} results. Read-only — no side effects. Use when you need to find documentation, a SKILL.md, library recommendations, or technical answers. (General web pages, marketing content, and current events are not well-covered by this backend — for those, fetch a known URL directly with web_fetch.)",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Search query string.",
+          },
+          num_results: {
+            type: "number",
+            description: "Optional: maximum results to return (default 10, max 20).",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "install_skill",
+      description:
+        "Fetch a SKILL.md from a URL and install it into ~/.9rh/skills/<name>/SKILL.md (the 9rh-native skills directory). The name must be a short kebab/snake-case identifier (a-z, 0-9, hyphens, underscores, max 64 chars). " +
+        "This tool is GATED on human approval (risk=high): the user will be shown the source URL and a preview of the content before anything is written. " +
+        "Use this when the user explicitly asks the agent to install a skill from the web, or when the user provides a URL and says 'use this as a skill'.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: {
+            type: "string",
+            description: "Absolute URL to a raw SKILL.md (or similar markdown skill spec).",
+          },
+          name: {
+            type: "string",
+            description:
+              "Local skill identifier. Lowercase letters, digits, hyphens, underscores. Max 64 chars.",
+          },
+        },
+        required: ["url", "name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "load_skill",
+      description:
+        "Load the full body of a previously installed skill by name. The system prompt lists every available skill with a one-line description; call this tool with the matching name to pull the full instructions into context. Use this when a skill's description matches the current task and you need its detailed guidance. Read-only — no side effects. Skills are searched in ~/.9rh/skills/ first, then ~/.hermes/skills/, then the current workdir's skills/ folders.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description:
+              "Skill name as listed in the system prompt's 'Available skills' section.",
+          },
+        },
+        required: ["name"],
+      },
+    },
+  },
 ];
 
 export interface ToolResult {
@@ -318,6 +411,13 @@ export interface ToolResult {
 export interface ExecuteToolOptions {
   executor: SandboxProvider;  // F-14: now required (no optional bypass)
   onBashResult?: (result: ExecutionResult, command: string) => void;
+  /**
+   * Pass-through of AgentConfig.allowSkillInstall. When false
+   * (the default), `install_skill` calls return a tool error and
+   * nothing is written to disk. The agent receives the error
+   * message and can continue with a different approach.
+   */
+  allowSkillInstall?: boolean;
 }
 
 // ---------- Argument validators ----------
@@ -567,6 +667,49 @@ function validateToolArgs(name: string, args: Record<string, unknown>): string |
       }
       break;
     }
+    case "web_fetch": {
+      const r1 = asString(args.url, "url", { allowEmpty: false, maxLen: 2048 });
+      if (!r1.ok) errors.push(r1.error);
+      else if (!/^https?:\/\//i.test(r1.value)) {
+        errors.push("url must start with http:// or https://");
+      }
+      if (args.max_bytes !== undefined) {
+        const r = asNumber(args.max_bytes, "max_bytes", { int: true, min: 1024, max: 5_000_000 });
+        if (!r.ok) errors.push(r.error);
+      }
+      break;
+    }
+    case "web_search": {
+      const r1 = asString(args.query, "query", { allowEmpty: false, maxLen: 512 });
+      if (!r1.ok) errors.push(r1.error);
+      if (args.num_results !== undefined) {
+        const r = asNumber(args.num_results, "num_results", { int: true, min: 1, max: 20 });
+        if (!r.ok) errors.push(r.error);
+      }
+      break;
+    }
+    case "install_skill": {
+      const r1 = asString(args.url, "url", { allowEmpty: false, maxLen: 2048 });
+      if (!r1.ok) errors.push(r1.error);
+      else if (!/^https?:\/\//i.test(r1.value)) {
+        errors.push("url must start with http:// or https://");
+      }
+      const r2 = asString(args.name, "name", { allowEmpty: false, maxLen: 64 });
+      if (!r2.ok) {
+        errors.push(r2.error);
+      } else if (!SKILL_NAME_REGEX.test(r2.value)) {
+        errors.push("name must match [a-z0-9][a-z0-9_-]{0,63} (case-insensitive)");
+      }
+      break;
+    }
+    case "load_skill": {
+      const r1 = asString(args.name, "name", { allowEmpty: false, maxLen: 64 });
+      if (!r1.ok) errors.push(r1.error);
+      else if (!SKILL_NAME_REGEX.test(r1.value)) {
+        errors.push("name must match [a-z0-9][a-z0-9_-]{0,63} (case-insensitive)");
+      }
+      break;
+    }
   }
   return errors.length === 0 ? null : errors.join("; ");
 }
@@ -583,12 +726,29 @@ export async function executeTool(
     read_file: 1, write_file: 1, run_bash: 1, list_files: 1, search_files: 1,
     codegraph_search: 1, codegraph_context: 1, codegraph_files: 1,
     codegraph_affected: 1, codegraph_status: 1,
+    web_fetch: 1, web_search: 1, install_skill: 1, load_skill: 1,
   }, name)) {
     return { output: "", error: `Unknown tool: ${name}` };
   }
   const validationError = validateToolArgs(name, args);
   if (validationError) {
     return { output: "", error: `Invalid tool arguments: ${validationError}` };
+  }
+  // install_skill is default-deny. It writes a SKILL.md to the
+  // user's skills directory and changes agent behavior on every
+  // future run, so we require explicit opt-in via
+  // AgentConfig.allowSkillInstall (or the --allow-skill-install
+  // CLI flag). The agent gets a clear tool error explaining how
+  // to enable it and can try a different approach.
+  if (name === "install_skill" && options.allowSkillInstall !== true) {
+    return {
+      output: "",
+      error:
+        "install_skill is disabled by default. To enable it, " +
+        "either run 9rh in an interactive TTY (the user will be " +
+        "prompted to approve) or pass --allow-skill-install on " +
+        "the command line for non-interactive sessions.",
+    };
   }
   try {
     switch (name) {
@@ -612,6 +772,14 @@ export async function executeTool(
         return await toolCodegraphAffected(args, workDir);
       case "codegraph_status":
         return await toolCodegraphStatus(args, workDir);
+      case "web_fetch":
+        return await toolWebFetch(args, workDir);
+      case "web_search":
+        return await toolWebSearch(args, workDir);
+      case "install_skill":
+        return await toolInstallSkill(args, workDir);
+      case "load_skill":
+        return await toolLoadSkill(args, workDir);
       default:
         // Should be unreachable thanks to the validation above.
         return { output: "", error: `Unknown tool: ${name}` };
@@ -829,4 +997,263 @@ async function toolCodegraphStatus(args: Record<string, unknown>, workDir: strin
   const cgArgs = ["status", workDir];
   if (args.json) cgArgs.push("--json");
   return runCodegraph(cgArgs, workDir);
+}
+
+// ---------- Web tools ----------
+
+// Lightweight HTML → text converter. Not a full parser — strips
+// <script>/<style>/<noscript> blocks, then tags, then collapses
+// whitespace. Good enough for documentation, skill files, and
+// general web reading. The goal is "agent can read this", not
+// "render perfectly in a browser".
+function htmlToText(html: string): string {
+  let s = html;
+  // Strip entire blocks whose content is not text.
+  s = s.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, " ");
+  s = s.replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, " ");
+  s = s.replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript\s*>/gi, " ");
+  s = s.replace(/<svg\b[^>]*>[\s\S]*?<\/svg\s*>/gi, " ");
+  // Drop all remaining tags.
+  s = s.replace(/<[^>]+>/g, " ");
+  // Decode the most common HTML entities.
+  s = s
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'");
+  // Collapse runs of whitespace into single spaces/newlines.
+  s = s.replace(/[ \t]+/g, " ");
+  s = s.replace(/\s*\n\s*/g, "\n");
+  s = s.replace(/\n{3,}/g, "\n\n");
+  return s.trim();
+}
+
+// Shared HTTP fetch used by web_fetch and (transitively) by
+// install_skill. Uses Node 18+ built-in fetch. No new dependencies.
+async function httpFetchText(
+  url: string,
+  maxBytes: number
+): Promise<{ ok: true; status: number; contentType: string; text: string; truncated: boolean }
+          | { ok: false; error: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), WEB_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "9rh/1.0 (+https://github.com/) web_fetch",
+        "Accept": "text/html, text/plain, text/markdown, application/json;q=0.9, */*;q=0.5",
+      },
+    });
+    if (!res.ok) {
+      return { ok: false, error: `HTTP ${res.status} ${res.statusText}` };
+    }
+    const contentType = res.headers.get("content-type") ?? "";
+    // Cap the read to maxBytes so a giant response can't OOM the process.
+    const reader = res.body?.getReader();
+    if (!reader) return { ok: false, error: "response has no body" };
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    let truncated = false;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        const room = maxBytes - (total - value.byteLength);
+        if (room > 0) chunks.push(value.subarray(0, room));
+        truncated = true;
+        break;
+      }
+      chunks.push(value);
+    }
+    const joined = new Uint8Array(chunks.reduce((n, c) => n + c.byteLength, 0));
+    let offset = 0;
+    for (const c of chunks) { joined.set(c, offset); offset += c.byteLength; }
+    // Decode as UTF-8, fall back to latin1 on bad bytes.
+    let text: string;
+    try { text = new TextDecoder("utf-8", { fatal: false }).decode(joined); }
+    catch { text = new TextDecoder("latin1").decode(joined); }
+    return { ok: true, status: res.status, contentType, text, truncated };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.toLowerCase().includes("abort")) {
+      return { ok: false, error: `request timed out after ${WEB_FETCH_TIMEOUT_MS}ms` };
+    }
+    return { ok: false, error: `fetch failed: ${msg}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function toolWebFetch(
+  args: Record<string, unknown>,
+  _workDir: string
+): Promise<ToolResult> {
+  const url = String(args.url);
+  const maxBytes = typeof args.max_bytes === "number" ? args.max_bytes : WEB_FETCH_MAX_BYTES;
+  const result = await httpFetchText(url, Math.min(maxBytes, 5_000_000));
+  if (!result.ok) return { output: "", error: result.error };
+  const ct = result.contentType.toLowerCase();
+  const isHtml = ct.includes("text/html") || ct.includes("application/xhtml");
+  const isJson = ct.includes("application/json");
+  let body = result.text;
+  if (isHtml) body = htmlToText(body);
+  if (isJson && body.length > WEB_FETCH_TEXT_LIMIT) {
+    body = body.slice(0, WEB_FETCH_TEXT_LIMIT);
+  }
+  const header = [
+    `URL: ${url}`,
+    `Status: ${result.status}`,
+    `Content-Type: ${result.contentType || "(none)"}`,
+    result.truncated ? `Body: truncated at ${maxBytes} bytes` : `Body: ${body.length} chars`,
+    "",
+  ].join("\n");
+  return { output: truncateOutput(header + body) };
+}
+
+async function toolWebSearch(
+  args: Record<string, unknown>,
+  _workDir: string
+): Promise<ToolResult> {
+  const query = String(args.query);
+  const numResults = typeof args.num_results === "number" ? args.num_results : 10;
+  // HN Algolia Search API: keyless, public, returns clean JSON.
+  // Picked over DuckDuckGo's HTML endpoint because DDG started
+  // serving bot-challenge CAPTCHAs to most datacenter IPs. HN
+  // Algolia is also developer-focused, which fits an agent
+  // harness's use case (docs, libraries, technical answers).
+  const url =
+    `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}` +
+    `&hitsPerPage=${Math.min(numResults, 20)}`;
+  const result = await httpFetchText(url, WEB_FETCH_MAX_BYTES);
+  if (!result.ok) return { output: "", error: result.error };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(result.text);
+  } catch {
+    return { output: "", error: "search backend returned non-JSON response" };
+  }
+  if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as { hits?: unknown }).hits)) {
+    return { output: "", error: "search backend returned unexpected shape" };
+  }
+  const hits = (parsed as { hits: Array<Record<string, unknown>> }).hits;
+  if (hits.length === 0) {
+    return { output: `Search: ${query}\nNo results.` };
+  }
+  const lines = [`Search: ${query} (${hits.length} results)\n`];
+  hits.forEach((h, i) => {
+    // Comments don't have a top-level title/url — use the parent
+    // story's fields as fallback so the result line is informative.
+    const title =
+      (typeof h.title === "string" && h.title) ||
+      (typeof h.story_title === "string" && h.story_title) ||
+      "(no title)";
+    const link =
+      (typeof h.url === "string" && h.url) ||
+      (typeof h.story_url === "string" && h.story_url) ||
+      "(no url)";
+    const author = typeof h.author === "string" ? h.author : "";
+    const createdAt = typeof h.created_at === "string" ? h.created_at : "";
+    const storyText = typeof h.story_text === "string" ? h.story_text : "";
+    const commentText = typeof h.comment_text === "string" ? h.comment_text : "";
+    const points = typeof h.points === "number" ? h.points : null;
+    const numComments = typeof h.num_comments === "number" ? h.num_comments : null;
+    const isComment = Array.isArray(h._tags) && (h._tags as string[]).includes("comment");
+    lines.push(`${i + 1}. ${isComment ? `[comment] ${title}` : title}`);
+    lines.push(`   ${link}`);
+    const meta: string[] = [];
+    if (author) meta.push(`by ${author}`);
+    if (createdAt) meta.push(createdAt.slice(0, 10));
+    if (points !== null) meta.push(`${points} pts`);
+    if (numComments !== null) meta.push(`${numComments} comments`);
+    if (meta.length) lines.push(`   ${meta.join(" · ")}`);
+    const snippet = (storyText || commentText).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    if (snippet) {
+      const trimmed = snippet.length > 300 ? snippet.slice(0, 300) + "…" : snippet;
+      lines.push(`   ${trimmed}`);
+    }
+    lines.push("");
+  });
+  return { output: truncateOutput(lines.join("\n")) };
+}
+
+async function toolInstallSkill(
+  args: Record<string, unknown>,
+  workDir: string
+): Promise<ToolResult> {
+  const url = String(args.url);
+  const name = String(args.name);
+  // NOTE: This function runs AFTER the agent-level approval gate in
+  // executeToolWithRepair() has classified the call as risk=high and
+  // (if a callback is configured) prompted the user. By the time we
+  // reach this body, the user has explicitly approved installing this
+  // exact skill from this exact URL. We still sanitize the response
+  // and refuse to write outside the 9rh skills directory.
+  const result = await httpFetchText(url, WEB_FETCH_MAX_BYTES);
+  if (!result.ok) return { output: "", error: result.error };
+  let body = result.text;
+  const ct = result.contentType.toLowerCase();
+  if (ct.includes("text/html")) body = htmlToText(body);
+  if (body.length > WEB_FETCH_TEXT_LIMIT) {
+    body = body.slice(0, WEB_FETCH_TEXT_LIMIT);
+  }
+  if (!body.trim()) return { output: "", error: "fetched content is empty" };
+  // Final defense: reject any path-traversal attempt. The validator
+  // already enforces the regex, but double-check after string coercion.
+  if (!SKILL_NAME_REGEX.test(name)) {
+    return { output: "", error: "name failed safety check; refusing to write" };
+  }
+  // Skill lives at ~/.9rh/skills/<name>/SKILL.md. The directory is
+  // OUTSIDE the agent's workDir sandbox on purpose — these skills
+  // persist across runs and are the agent's own long-term memory.
+  const { mkdir, writeFile } = await import("fs/promises");
+  const { join } = await import("path");
+  const { homedir } = await import("os");
+  const skillsRoot = join(homedir(), ".9rh", "skills", name);
+  const skillPath = join(skillsRoot, "SKILL.md");
+  try {
+    await mkdir(skillsRoot, { recursive: true });
+    await writeFile(skillPath, body, "utf-8");
+  } catch (err) {
+    return { output: "", error: `failed to write skill: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  return {
+    output:
+      `Installed skill "${name}" to ${skillPath}\n` +
+      `Source: ${url}\n` +
+      `Bytes: ${body.length}\n` +
+      `This skill will be available on subsequent 9rh runs.`,
+  };
+}
+
+async function toolLoadSkill(
+  args: Record<string, unknown>,
+  workDir: string
+): Promise<ToolResult> {
+  const { readSkill } = await import("./skills.js");
+  const name = String(args.name);
+  try {
+    const { entry, content } = await readSkill(name, workDir);
+    const header = [
+      `# Skill: ${entry.name}`,
+      `Source: ${entry.source} (${entry.path})`,
+      `Loaded: ${new Date().toISOString()}`,
+      "",
+      "The body below is the skill's full instructions. Follow them for the rest of this task; you do not need to call load_skill again for the same name in this session.",
+      "",
+      "---",
+      "",
+    ].join("\n");
+    return { output: truncateOutput(header + content) };
+  } catch (err) {
+    return { output: "", error: err instanceof Error ? err.message : String(err) };
+  }
 }

@@ -148,6 +148,24 @@ export function assessToolRisk(call: ToolCall): ToolRiskLevel {
   if (call.name.startsWith("codegraph_")) {
     return "low";
   }
+  // web_fetch / web_search are read-only network reads; no side effects.
+  if (call.name === "web_fetch" || call.name === "web_search") {
+    return "low";
+  }
+  // load_skill reads a SKILL.md from disk and returns it as text.
+  // Read-only — the agent has already seen the (name, description) in
+  // its system prompt, and read access to the local skills tree is
+  // not a privilege escalation over what `read_file` would allow.
+  if (call.name === "load_skill") {
+    return "low";
+  }
+  // install_skill writes a SKILL.md to ~/.9rh/skills/<name>/, which
+  // is the 9rh-native skills directory. Persists across runs and
+  // changes agent behavior on every future run. Gating it on human
+  // approval is mandatory.
+  if (call.name === "install_skill") {
+    return "high";
+  }
   // write_file — escalate based on path and content.
   if (call.name === "write_file") {
     const path = typeof call.args.path === "string" ? call.args.path : "";

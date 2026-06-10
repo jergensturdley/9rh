@@ -16,6 +16,7 @@ function state(apiKey = "session-key"): SessionState {
     queue: [],
     _runStartMs: undefined,
     _toolCallCount: {},
+    allowSkillInstall: false,
   };
 }
 

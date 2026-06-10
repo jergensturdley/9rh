@@ -1,7 +1,7 @@
-import { describe, expect, it, jest } from "@jest/globals";
-import { mkdtemp, rm, symlink, writeFile } from "fs/promises";
+import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { join } from "path";
-import { tmpdir } from "os";
+import { homedir, tmpdir } from "os";
+import { mkdtemp, rm, stat, symlink, writeFile } from "fs/promises";
 import { TOOL_DEFINITIONS, executeTool } from "../tools.js";
 import { DirectExecutor } from "../sandbox/index.js";
 import type { ExecutionResult, SandboxProvider } from "../sandbox/index.js";
@@ -294,5 +294,75 @@ describe("executeTool arg validation (F-04)", () => {
       { executor: new DirectExecutor(process.cwd()) },
     );
     expect(result.error).toMatch(/forbidden control characters/);
+  });
+});
+
+describe("executeTool install_skill default-deny policy", () => {
+  // These tests cover the agent-level policy that install_skill
+  // is blocked by default. Even with valid args, the tool
+  // returns a clear error and does NOT touch the filesystem.
+  const VALID_ARGS = {
+    url: "https://example.com/skill.md",
+    name: "test-blocked-skill",
+  };
+
+  it("returns a tool error when allowSkillInstall is not set", async () => {
+    const result = await executeTool(
+      "install_skill",
+      VALID_ARGS,
+      process.cwd(),
+      { executor: new DirectExecutor(process.cwd()) },
+    );
+    expect(result.output).toBe("");
+    expect(result.error).toBeDefined();
+    expect(result.error).toMatch(/install_skill is disabled by default/);
+    expect(result.error).toMatch(/--allow-skill-install/);
+  });
+
+  it("returns a tool error when allowSkillInstall is explicitly false", async () => {
+    const result = await executeTool(
+      "install_skill",
+      VALID_ARGS,
+      process.cwd(),
+      { executor: new DirectExecutor(process.cwd()), allowSkillInstall: false },
+    );
+    expect(result.error).toMatch(/install_skill is disabled by default/);
+  });
+
+  it("does NOT call the network or write a file when blocked", async () => {
+    // Use a name that would be visually obvious in the skills dir
+    // if anything slipped through. The test passes if and only if
+    // nothing is created.
+    const result = await executeTool(
+      "install_skill",
+      { url: "https://example.invalid/never-resolves", name: "policy-test-should-not-write" },
+      process.cwd(),
+      { executor: new DirectExecutor(process.cwd()) },
+    );
+    expect(result.error).toBeDefined();
+    // Defensive: if some future refactor accidentally lets the
+    // install through, the test still fails clearly.
+    const skillPath = join(homedir(), ".9rh", "skills", "policy-test-should-not-write", "SKILL.md");
+    const exists = await stat(skillPath).then(() => true).catch(() => false);
+    expect(exists).toBe(false);
+  });
+
+  it("bypasses the guard when allowSkillInstall is true (proceeds to network)", async () => {
+    // We don't actually want the network call to succeed in a unit
+    // test — we just want to confirm the guard does NOT fire and
+    // execution proceeds to the tool body. Using a deliberately
+    // unreachable host means the call will fail with a network
+    // error, NOT with "install_skill is disabled by default".
+    const result = await executeTool(
+      "install_skill",
+      { url: "https://example.invalid/never-resolves", name: "policy-test-allow-on" },
+      process.cwd(),
+      { executor: new DirectExecutor(process.cwd()), allowSkillInstall: true },
+    );
+    expect(result.error).toBeDefined();
+    expect(result.error).not.toMatch(/install_skill is disabled by default/);
+    // Cleanup: the call will have failed, but be paranoid.
+    const skillDir = join(homedir(), ".9rh", "skills", "policy-test-allow-on");
+    await rm(skillDir, { recursive: true, force: true }).catch(() => {});
   });
 });

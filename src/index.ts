@@ -81,6 +81,7 @@ program
   .option("--continue-switch-after <n>", "Continuation round that triggers model switch", DEFAULTS.continuationSwitchAfter)
   .option("--repl", "Start interactive REPL session")
   .option("--no-color", "Disable colored output")
+  .option("--allow-skill-install", "Allow the agent to call install_skill without prompting (default: blocked in non-TTY, prompted in TTY)")
   .option("--set-default-model [model]", "Persist a default model for future runs; omit model to pick from the model list")
   .option("--set-default-provider <provider>", "Persist a default provider/prefix for future runs")
   .option("--show-config", "Show persisted 9rh defaults and exit")
@@ -114,6 +115,7 @@ const opts = program.opts<{
   color: boolean;
   doctor: boolean;
   showConfig: boolean;
+  allowSkillInstall?: boolean;
   setDefaultModel?: string | boolean;
   setDefaultProvider?: string;
 }>();
@@ -285,6 +287,7 @@ function makeAgent(state: SessionState, onEvent: (e: AgentEvent) => void) {
     continuationPolicy: state.continuationPolicy,
     reportPath,
     keepReports: _userConfigKeepReports,
+    allowSkillInstall: opts.allowSkillInstall,
     onToolApproval: (req: ToolApprovalRequest): Promise<ToolApprovalDecision> =>
       interactiveToolApproval(req, state.useColor),
   });
@@ -921,6 +924,7 @@ const state: SessionState = {
   continuationPolicy: parseContinuationPolicy(),
   queue: [],
   lastReportPath: null, // null = "auto" (write to default). false = disabled. string = override.
+  allowSkillInstall: opts.allowSkillInstall === true,
   _runStartMs: undefined,
   _toolCallCount: {},
 };

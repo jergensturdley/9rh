@@ -22,6 +22,10 @@ export interface SessionState {
    *  `null` means "no report yet" (read by /report).
    *  `false` means reports are disabled (--no-report). */
   lastReportPath?: string | null | false;
+  // install_skill policy. Defaults to false. When false, the agent's
+  // install_skill calls return a tool error and the agent is told to
+  // try a different approach. Flip with /allow-skill-install.
+  allowSkillInstall: boolean;
   // Queue / interrupt state
   queue: string[];
   history?: string[];
@@ -445,6 +449,7 @@ const COMMANDS: Record<string, CommandDef> = {
         model: state.model,
         maxIterations: 100,
         workDir: state.workDir,
+        allowSkillInstall: state.allowSkillInstall,
         // F-05: gate high/critical tool calls on a confirmation prompt.
         onToolApproval: async (req) => {
           const riskColor =
@@ -483,6 +488,30 @@ const COMMANDS: Record<string, CommandDef> = {
         const msg = e instanceof Error ? e.message : String(e);
         return (state.useColor ? chalk.red(`\n  Failed to run once: ${msg}\n`) : `\n  Failed to run once: ${msg}\n`);
       }
+    },
+  },
+
+  "allow-skill-install": {
+    usage: "/allow-skill-install [on|off|status]",
+    description: "Toggle install_skill policy for this session. Default: off (agent's install_skill calls return a tool error).",
+    handler: async (args, state) => {
+      const arg = (args[0] ?? "").toLowerCase();
+      const c = state.useColor;
+      if (arg === "" || arg === "status") {
+        const tag = c
+          ? (state.allowSkillInstall ? chalk.green("ON") : chalk.yellow("OFF"))
+          : (state.allowSkillInstall ? "ON" : "OFF");
+        return `\n  install_skill is currently ${tag}.\n  Use \`/allow-skill-install on\` to enable, \`off\` to disable.\n  (This only affects the running session. To make it default in non-interactive one-shots, pass --allow-skill-install on the 9rh command line.)\n`;
+      }
+      if (arg === "on" || arg === "true" || arg === "1") {
+        state.allowSkillInstall = true;
+        return "\n  install_skill is now ENABLED for this session. The agent's install_skill calls will be auto-approved (or prompted in a TTY).\n";
+      }
+      if (arg === "off" || arg === "false" || arg === "0") {
+        state.allowSkillInstall = false;
+        return "\n  install_skill is now DISABLED for this session. The agent's install_skill calls will return a tool error.\n";
+      }
+      return `\n  Unrecognised argument: ${arg}\n  Usage: /allow-skill-install [on|off|status]\n`;
     },
   },
 
