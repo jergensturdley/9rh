@@ -319,22 +319,6 @@ export class Sandbox {
   }
 }
 
-export function isSandboxAvailable(): boolean {
-  if (process.platform === "darwin") {
-    try {
-      execFileSync(
-        "/usr/bin/sandbox-exec",
-        ["-p", "(version 1)(allow default)", "/usr/bin/true"],
-        { timeout: 5000 },
-      );
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  return false;
-}
-
 /**
  * Richer sandbox status. Use this to give the user actionable feedback
  * when sandboxing is requested but not available.
@@ -343,7 +327,33 @@ export type SandboxStatus =
   | { kind: "available"; backend: "darwin-sandbox-exec" }
   | { kind: "unavailable"; reason: string; platform: NodeJS.Platform };
 
+// Cached results so callers inside async/hot paths don't pay a
+// synchronous execFileSync penalty on every invocation.
+let _sandboxAvailableCache: boolean | null = null;
+let _sandboxStatusCache: SandboxStatus | null = null;
+
+export function isSandboxAvailable(): boolean {
+  if (_sandboxAvailableCache !== null) return _sandboxAvailableCache;
+  if (process.platform === "darwin") {
+    try {
+      execFileSync(
+        "/usr/bin/sandbox-exec",
+        ["-p", "(version 1)(allow default)", "/usr/bin/true"],
+        { timeout: 5000 },
+      );
+      _sandboxAvailableCache = true;
+      return true;
+    } catch {
+      _sandboxAvailableCache = false;
+      return false;
+    }
+  }
+  _sandboxAvailableCache = false;
+  return false;
+}
+
 export function getSandboxStatus(): SandboxStatus {
+  if (_sandboxStatusCache !== null) return _sandboxStatusCache;
   const platform = process.platform as NodeJS.Platform;
   if (platform === "darwin") {
     try {
@@ -352,16 +362,18 @@ export function getSandboxStatus(): SandboxStatus {
         ["-p", "(version 1)(allow default)", "/usr/bin/true"],
         { timeout: 5000 },
       );
-      return { kind: "available", backend: "darwin-sandbox-exec" };
+      _sandboxStatusCache = { kind: "available", backend: "darwin-sandbox-exec" };
+      return _sandboxStatusCache;
     } catch (e) {
-      return {
+      _sandboxStatusCache = {
         kind: "unavailable",
         reason: `sandbox-exec probe failed: ${(e as Error).message}`,
         platform,
       };
+      return _sandboxStatusCache;
     }
   }
-  return {
+  _sandboxStatusCache = {
     kind: "unavailable",
     reason:
       `9rh relies on macOS sandbox-exec for command isolation, but you are ` +
@@ -370,6 +382,7 @@ export function getSandboxStatus(): SandboxStatus {
       `isolation (Docker, firejail, bubblewrap).`,
     platform,
   };
+  return _sandboxStatusCache;
 }
 
 export function getDefaultSandboxConfig(workDir: string): SandboxConfig {
