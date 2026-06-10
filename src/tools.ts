@@ -249,7 +249,7 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
           max_nodes: { type: "number", description: "Maximum graph nodes to include, default 50." },
           max_code: { type: "number", description: "Maximum code blocks to include, default 10." },
           no_code: { type: "boolean", description: "Exclude code blocks for lighter context." },
-          format: { type: "string", enum: ["markdown", "json"], description: "Output format." },
+          format: { type: "string", enum: ["md", "json", "text", "compact"], description: "Output format." },
         },
         required: ["task"],
       },
@@ -384,7 +384,11 @@ const CODEGRAPH_KINDS = new Set([
   "function", "class", "method", "interface", "type", "variable",
   "import", "export", "call", "all",
 ]);
+// Formats for codegraph commands that produce text/structured output
+// (context, search, status, affected).
 const CODEGRAPH_FORMATS = new Set(["text", "json", "yaml", "md", "compact"]);
+// Formats specific to `codegraph files` — entirely different vocabulary.
+const CODEGRAPH_FILES_FORMATS = new Set(["tree", "flat", "grouped"]);
 
 function asEnum<T extends string>(v: unknown, name: string, allowed: Set<T>): ArgResult<T> {
   const s = asString(v, name, { allowEmpty: false });
@@ -518,7 +522,7 @@ function validateToolArgs(name: string, args: Record<string, unknown>): string |
         if (!r.ok) errors.push(r.error);
       }
       if (args.format !== undefined) {
-        const r = asEnum(args.format, "format", CODEGRAPH_FORMATS);
+        const r = asEnum(args.format, "format", CODEGRAPH_FILES_FORMATS);
         if (!r.ok) errors.push(r.error);
       }
       if (args.max_depth !== undefined) {
@@ -769,6 +773,8 @@ const CG_KIND_ENUM = new Set([
   "import", "export", "call", "all",
 ]);
 const CG_FORMAT_ENUM = new Set(["text", "json", "yaml", "md", "compact"]);
+// `codegraph files` uses a different --format vocabulary.
+const CG_FILES_FORMAT_ENUM = new Set(["tree", "flat", "grouped"]);
 
 function addEnumFlag(args: string[], flag: string, value: unknown, allowed: Set<string>): void {
   if (typeof value === "string" && allowed.has(value)) args.push(flag, value);
@@ -799,7 +805,7 @@ async function toolCodegraphFiles(args: Record<string, unknown>, workDir: string
   const cgArgs = ["files", "--path", workDir];
   addStringFlag(cgArgs, "--filter", args.filter);
   addStringFlag(cgArgs, "--pattern", args.pattern);
-  addEnumFlag(cgArgs, "--format", args.format, CG_FORMAT_ENUM);
+  addEnumFlag(cgArgs, "--format", args.format, CG_FILES_FORMAT_ENUM);
   addNumberFlag(cgArgs, "--max-depth", args.max_depth);
   if (args.no_metadata) cgArgs.push("--no-metadata");
   if (args.json) cgArgs.push("--json");

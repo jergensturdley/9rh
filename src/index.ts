@@ -3,7 +3,7 @@ import { createInterface, cursorTo, emitKeypressEvents, moveCursor, clearScreenD
 import { resolve } from "path";
 import { program } from "commander";
 import chalk from "chalk";
-import { Agent, type AgentEvent, type ContinuationPolicy } from "./agent.js";
+import { Agent, type AgentEvent, type ContinuationPolicy, type ToolApprovalRequest, type ToolApprovalDecision } from "./agent.js";
 import { executeSlashCommand, fetchModels, filterModels, type ModelInfo, type SessionState, toArray, getSlashCommands } from "./commands.js";
 import { ensureRouter, readFirstApiKey, getCliToken } from "./init.js";
 import { createTuiRenderer, printSplash } from "./tui.js";
@@ -209,6 +209,61 @@ async function loadUserConfigKeepReports(): Promise<boolean | undefined> {
   return _userConfigKeepReports;
 }
 
+/**
+ * Interactive tool-approval callback for CLI/REPL mode.
+ *
+ * High-risk commands (e.g. `sudo`, `git reset --hard`) require explicit
+ * confirmation when stdin is a TTY; they are auto-approved when stdin is
+ * piped so non-interactive scripts keep working. Critical commands always
+ * prompt or are rejected in non-TTY mode.
+ */
+async function interactiveToolApproval(
+  req: ToolApprovalRequest,
+  useColor: boolean,
+): Promise<ToolApprovalDecision> {
+  const argsPreview = JSON.stringify(req.args).slice(0, 120);
+  const header = useColor
+    ? chalk.yellow(`\n  ⚠  High-risk tool call detected`) + chalk.dim(` [${req.risk}]\n`) +
+      `  ${chalk.bold(req.name)}  ${chalk.dim(argsPreview)}\n`
+    : `\n  ⚠  High-risk tool call [${req.risk}]\n  ${req.name}  ${argsPreview}\n`;
+
+  process.stderr.write(header);
+
+  // Non-TTY stdin: auto-approve high, reject critical.
+  if (!process.stdin.isTTY) {
+    if (req.risk === "critical") {
+      process.stderr.write("  ✗ Critical command rejected in non-interactive mode.\n");
+      return { approved: false, reason: "critical command rejected in non-interactive mode" };
+    }
+    process.stderr.write("  ✓ Auto-approved (non-interactive mode).\n");
+    return { approved: true };
+  }
+
+  // TTY: single-keypress confirmation.
+  const question = useColor
+    ? chalk.dim("  Allow? [y/N] ")
+    : "  Allow? [y/N] ";
+  process.stderr.write(question);
+
+  const answer = await new Promise<string>((resolve) => {
+    const wasRaw = (process.stdin as NodeJS.ReadStream & { isRaw?: boolean }).isRaw ?? false;
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    const onData = (chunk: Buffer) => {
+      process.stdin.off("data", onData);
+      try { process.stdin.setRawMode(wasRaw); } catch {}
+      resolve(chunk.toString("utf8").toLowerCase().trim());
+    };
+    process.stdin.once("data", onData);
+  });
+
+  process.stderr.write(answer + "\n");
+  if (answer === "y") {
+    return { approved: true };
+  }
+  return { approved: false, reason: "rejected by user" };
+}
+
 function makeAgent(state: SessionState, onEvent: (e: AgentEvent) => void) {
   // state.lastReportPath semantics:
   //   null  → "use the Agent's default" (default: ~/.9rh/last-run.html)
@@ -230,6 +285,8 @@ function makeAgent(state: SessionState, onEvent: (e: AgentEvent) => void) {
     continuationPolicy: state.continuationPolicy,
     reportPath,
     keepReports: _userConfigKeepReports,
+    onToolApproval: (req: ToolApprovalRequest): Promise<ToolApprovalDecision> =>
+      interactiveToolApproval(req, state.useColor),
   });
 }
 

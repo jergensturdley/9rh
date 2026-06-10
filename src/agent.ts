@@ -1199,6 +1199,17 @@ export class Agent {
               finishReason: "tool_calls",
             },
           });
+        } else {
+          // Text-only (final) response — still needs a replay event.
+          this.logReplay({
+            type: "llm_response",
+            step: this.stepContext(),
+            payload: {
+              text,
+              toolCalls: [],
+              finishReason: "stop",
+            },
+          });
         }
 
         return { text, toolCalls };
