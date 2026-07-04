@@ -216,8 +216,55 @@ function cols(): number {
   return process.stdout.columns ?? 80;
 }
 
+function rows(): number {
+  return process.stdout.rows ?? 24;
+}
+
+function dashboardWidth(termWidth = cols()): number {
+  return Math.max(36, Math.min(Math.floor(termWidth * 0.28), 48));
+}
+
 function boxWidth(): number {
   return Math.min(cols() - 4, 76);
+}
+
+function contentWidth(): number {
+  if (!process.stdout.isTTY) return boxWidth();
+  return computeGeometry(cols(), rows()).wrapWidth;
+}
+
+/**
+ * Two-column TUI geometry — pure function (testable in isolation).
+ *
+ * Right column: dashboard panel of `dashWidth` cols starting at `dashCol`.
+ * Left column: `leftColWidth` cols with a 1-col gutter before the dashboard.
+ *   `leftInner` accounts for the 2-space indent already used by spinners,
+ *   tool lines, and the done-summary block. `wrapWidth` is what wrapText()
+ *   sees.
+ *
+ * A non-positive terminal dimension (no TTY / piped output / unconfigured
+ * CI) falls back to the 80×24 defaults so callers don't need to handle
+ * the degenerate case at every site.
+ */
+export interface Geometry {
+  termCols: number;
+  termRows: number;
+  dashWidth: number;
+  dashCol: number;
+  leftColWidth: number;
+  leftInner: number;
+  wrapWidth: number;
+}
+
+export function computeGeometry(termCols: number, termRows: number): Geometry {
+  if (!Number.isFinite(termCols) || termCols <= 0) termCols = 80;
+  if (!Number.isFinite(termRows) || termRows <= 0) termRows = 24;
+  const dashWidth = dashboardWidth(termCols);
+  const dashCol = termCols - dashWidth + 1;
+  const leftColWidth = termCols - dashWidth - 1;
+  const leftInner = Math.max(0, leftColWidth - 2);
+  const wrapWidth = leftInner;
+  return { termCols, termRows, dashWidth, dashCol, leftColWidth, leftInner, wrapWidth };
 }
 
 function drawBox(
@@ -225,8 +272,9 @@ function drawBox(
   body: string,
   borderFn: (s: string) => string,
   useColor: boolean,
+  width: number = boxWidth(),
 ): string {
-  const w = boxWidth();
+  const w = width;
   const inner = w - 2;
   const labelFull = ` ${label} `;
   const dashCount = Math.max(0, inner - labelFull.length - 1);
@@ -294,6 +342,70 @@ function wrapText(text: string, width: number): string {
   }
   if (current) lines.push(current);
   return lines.join("\n");
+}
+
+/**
+ * Pad a list of dashboard lines to `target` rows by appending blank
+ * `│…│` rows sized to `innerWidth` content. If the input already exceeds
+ * `target`, the input is returned unchanged (truncation is the caller's
+ * responsibility — see drawDashboard).
+ */
+export function padDashboardToHeight(
+  lines: string[],
+  target: number,
+  innerWidth: number,
+): string[] {
+  if (target <= 0) return lines;
+  if (lines.length >= target) return lines;
+  // Clamp at minimum 1 inner space so a 0-width slot still emits `│ │`,
+  // preserving the panel visual contract.
+  const fill = " ".repeat(Math.max(1, innerWidth));
+  const blank = `│${fill}│`;
+  const padRows: string[] = [];
+  for (let i = 0; i < target - lines.length; i++) padRows.push(blank);
+  return [...lines, ...padRows];
+}
+
+/**
+ * Wrap each `\n`-delimited line of `text` to `width` chars independently,
+ * preserving newlines (distinct from `wrapText`, which collapses paragraphs).
+ * Returns each line wrapped via greedy word-wrap with hard-break for
+ * overlong tokens. Empty / whitespace-only lines emit "" so row count
+ * is preserved.
+ *
+ * ANSI in input: defer to caller. Wrap is per-character; an escape that
+ * spans a wrap boundary will be split. Callers should strip ANSI before
+ * passing (e.g. via `visibleLength` aware re-flow) if the source can
+ * contain styled text.
+ */
+export function wrapStreamChunk(text: string, width: number): string {
+  if (width <= 0) return text;
+  const out: string[] = [];
+  for (const rawLine of text.split("\n")) {
+    if (rawLine.trim().length === 0) {
+      out.push("");
+      continue;
+    }
+    const words = rawLine.split(/\s+/).filter((w) => w.length > 0);
+    let buf = "";
+    for (const w of words) {
+      if (buf.length === 0) {
+        buf = w;
+      } else if (buf.length + 1 + w.length <= width) {
+        buf = `${buf} ${w}`;
+      } else {
+        out.push(buf);
+        buf = w;
+      }
+    }
+    // Hard-break any remaining oversize token
+    while (buf.length > width) {
+      out.push(buf.slice(0, width));
+      buf = buf.slice(width);
+    }
+    if (buf.length > 0) out.push(buf);
+  }
+  return out.join("\n");
 }
 
 function normalizeWhitespace(text: string): string {
@@ -629,6 +741,21 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
     toolHistory: [],
   };
   let lastDashboardHeight = 0;
+  let geometry = computeGeometry(cols(), rows());
+  let drawing = false; // SIGWINCH mid-write guard (R2)
+
+  function recomputeGeometry(): void {
+    geometry = computeGeometry(cols(), rows());
+  }
+  // SIGWINCH — re-anchor dashboard + re-wrap streamed output on terminal
+  // resize. Listener-removal (dispose()) is deferred — out of scope here.
+  // TODO(resize-cleanup): expose dispose() once a caller owns this lifetime.
+  if (process.stdout.isTTY) {
+    process.stdout.on("resize", () => {
+      recomputeGeometry();
+      drawDashboard();
+    });
+  }
 
   function stringifyArgs(args: Record<string, unknown>): string {
     const cached = argsStringCache.get(args);
@@ -640,23 +767,32 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
 
   function drawDashboard(): void {
     if (!process.stdout.isTTY) return;
-    const termWidth = cols();
-    const dashWidth = Math.max(36, Math.min(Math.floor(termWidth * 0.28), 48));
-    const dashCol = termWidth - dashWidth + 1;
-    const lines = renderDashboardLines(dashboard, opts.useColor, dashWidth, visualization);
-    if (lines.length === 0) return;
-    process.stdout.write("\x1b[s");
-    // Clear previous dashboard area
-    const maxRows = Math.max(lines.length, lastDashboardHeight);
-    for (let i = 0; i < maxRows; i++) {
-      process.stdout.write(`\x1b[${2 + i};${dashCol}H\x1b[0K`);
+    if (drawing) return; // R2 — drop a redraw rather than corrupt the screen
+    drawing = true;
+    try {
+      const dashWidth = geometry.dashWidth;
+      const dashCol = geometry.dashCol;
+      const lines = renderDashboardLines(dashboard, opts.useColor, dashWidth, visualization);
+      if (lines.length === 0) return;
+      // Pad to fill the right column from row 2 down to (termRows - 1).
+      // Cap at termRows - 1 to avoid clearing the last terminal row.
+      const target = Math.max(lines.length, geometry.termRows - 1);
+      const padded = padDashboardToHeight(lines, target, Math.max(0, dashWidth - 2));
+      process.stdout.write("\x1b[s");
+      // Clear previous dashboard area (the larger of the previous height and current padded height)
+      const maxRows = Math.max(padded.length, lastDashboardHeight);
+      for (let i = 0; i < maxRows; i++) {
+        process.stdout.write(`\x1b[${2 + i};${dashCol}H\x1b[0K`);
+      }
+      // Draw padded lines
+      for (let i = 0; i < padded.length; i++) {
+        process.stdout.write(`\x1b[${2 + i};${dashCol}H${padded[i]}`);
+      }
+      lastDashboardHeight = padded.length;
+      process.stdout.write("\x1b[u");
+    } finally {
+      drawing = false;
     }
-    // Draw new lines
-    for (let i = 0; i < lines.length; i++) {
-      process.stdout.write(`\x1b[${2 + i};${dashCol}H${lines[i]}`);
-    }
-    lastDashboardHeight = lines.length;
-    process.stdout.write("\x1b[u");
   }
 
   function printThinkingSnapshot(): void {
@@ -665,9 +801,11 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
     if (now - lastThinkingSnapshot < 1000) return;
     lastThinkingSnapshot = now;
     const snippet = normalizeWhitespace(activeThinking).slice(-200);
+    const wrapWidth = Math.max(1, geometry.wrapWidth - 2);
+    const wrapped = wrapStreamChunk(snippet, wrapWidth);
     process.stdout.write("\n  ⚡ ");
-    if (opts.useColor) process.stdout.write(chalk.cyan(snippet));
-    else process.stdout.write(snippet);
+    if (opts.useColor) process.stdout.write(chalk.cyan(wrapped));
+    else process.stdout.write(wrapped);
     // Update dashboard with latest thinking state
     dashboard.thinkingCharCount = activeThinking.length;
     dashboard.thinkingPreview = activeThinking.slice(-200);
@@ -720,7 +858,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
   }
 
   function printIterHeader(): void {
-    const w = boxWidth() + 2;
+    const w = contentWidth() + 2;
     const inner = w - 2;
     const model = opts.getModel();
     const dir = opts.getWorkDir().replace(process.env.HOME ?? "", "~");
@@ -840,11 +978,12 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
           const content = [event.error, event.output].filter(Boolean).join("\n");
           const borderFn = opts.useColor ? chalk.red : (s: string) => s;
           process.stdout.write(
-            "\n" + drawBox("✗  error", content, borderFn, opts.useColor) + "\n",
+            "\n" + drawBox("✗  error", content, borderFn, opts.useColor, geometry.wrapWidth + 2) + "\n",
           );
         } else {
           const lines = event.output.split("\n");
           const preview = lines.slice(0, 6).join("\n");
+          const wrappedPreview = wrapStreamChunk(preview, Math.max(1, geometry.wrapWidth - 4));
           const moreHint =
             lines.length > 6
               ? opts.useColor
@@ -853,7 +992,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
               : "";
           const tick = opts.useColor ? chalk.green("✓") : "✓";
           process.stdout.write(
-            `\n  ${tick}  ${opts.useColor ? chalk.dim(preview) : preview}${moreHint}\n`,
+            `\n  ${tick}  ${opts.useColor ? chalk.dim(wrappedPreview) : wrappedPreview}${moreHint}\n`,
           );
         }
         drawDashboard();
@@ -903,7 +1042,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
       case "spec_plan": {
         stopSpinner();
         const borderFn = opts.useColor ? chalk.magentaBright : (s: string) => s;
-        process.stdout.write("\n" + drawBox("☑  generated test plan", event.summary, borderFn, opts.useColor) + "\n");
+        process.stdout.write("\n" + drawBox("☑  generated test plan", event.summary, borderFn, opts.useColor, geometry.wrapWidth + 2) + "\n");
         drawDashboard();
         thinkingActive = false;
         break;
@@ -911,7 +1050,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
 
       case "done": {
         stopSpinner();
-        const w = boxWidth() + 2;
+        const w = contentWidth() + 2;
         const sep = "═".repeat(w - 2);
         const body = "  ✓  done".padEnd(w - 2);
         process.stdout.write("\n\n");
@@ -935,8 +1074,8 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
           const header = opts.useColor ? chalk.bold.cyan("  summary") : "  summary";
           process.stdout.write(`${header}\n`);
           const indent = "  ";
-          const wrapWidth = boxWidth();
-          const wrapped = wrapText(shown, wrapWidth - indent.length);
+          const wrapWidth = Math.max(1, geometry.wrapWidth - 2);
+          const wrapped = wrapStreamChunk(shown, wrapWidth);
           for (const line of wrapped.split("\n")) {
             process.stdout.write(`${indent}${line}\n`);
           }
@@ -995,15 +1134,17 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         if (event.policy) details.push(`policy:\n${event.policy}`);
         if (!details.length) break;
         const borderFn = opts.useColor ? chalk.blueBright : (s: string) => s;
-        process.stdout.write("\n" + drawBox(`▸ inspect ${event.stepId}`, details.join("\n\n"), borderFn, opts.useColor) + "\n");
+        process.stdout.write("\n" + drawBox(`▸ inspect ${event.stepId}`, details.join("\n\n"), borderFn, opts.useColor, geometry.wrapWidth + 2) + "\n");
         drawDashboard();
         break;
       }
       case "partial_output": {
         const step = visualization.steps.find((s) => s.id === event.stepId);
         if (step) {
-          if (opts.useColor) process.stdout.write(chalk.dim(event.text));
-          else process.stdout.write(event.text);
+          const wrapWidth = Math.max(1, geometry.wrapWidth - 2);
+          const wrapped = wrapStreamChunk(event.text, wrapWidth);
+          if (opts.useColor) process.stdout.write(chalk.dim(wrapped));
+          else process.stdout.write(wrapped);
         }
         break;
       }
