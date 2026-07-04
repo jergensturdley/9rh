@@ -14,6 +14,8 @@ import { readUserConfig, resolveConfiguredModel, updateUserConfig } from "./conf
 import { showSpinner, hideSpinner, pulseQueueBadge, showRightStats, hideRightStats, refreshStatusLine, formatStats, type StatsSnapshot } from "./ui.js";
 import { existsSync, statSync } from "fs";
 import { spawn } from "child_process";
+import { Orchestrator, type OrchestratorEvent } from "./orchestrator/index.js";
+import { shouldUseOrchestrator } from "./orchestrator/dispatch.js";
 
 async function maybeAutoIndexCodeGraph(workDir: string): Promise<void> {
   const codegraphDir = resolve(workDir, ".codegraph");
@@ -85,7 +87,8 @@ program
   .option("--set-default-model [model]", "Persist a default model for future runs; omit model to pick from the model list")
   .option("--set-default-provider <provider>", "Persist a default provider/prefix for future runs")
   .option("--show-config", "Show persisted 9rh defaults and exit")
-  .option("--doctor", "Run pre-flight diagnostics and exit");
+  .option("--doctor", "Run pre-flight diagnostics and exit")
+  .option("--orchestrate", "Route the task through the multi-role Orchestrator pipeline (architect → implementer → security audit → test strategist → reviewer loop) instead of the streaming Agent loop. Without this flag, dispatch falls back to the heuristic in `shouldUseOrchestrator`.");
 
 const rawArgs = process.argv.slice(2);
 const isInit = rawArgs[0] === "init";
@@ -118,6 +121,7 @@ const opts = program.opts<{
   allowSkillInstall?: boolean;
   setDefaultModel?: string | boolean;
   setDefaultProvider?: string;
+  orchestrate?: boolean;
 }>();
 
 const task = program.args[0];
@@ -294,7 +298,72 @@ function makeAgent(state: SessionState, onEvent: (e: AgentEvent) => void) {
 }
 
 
+/**
+ * Telemetry — one-line stderr log per OrchestratorEvent so the user can
+ * follow the multi-role pipeline in real time without the TUI plumbing.
+ */
+function emitOrchestratorTelemetry(useColor: boolean, event: OrchestratorEvent): void {
+  let line = "";
+  switch (event.type) {
+    case "role_start":
+      line = `▸ ${event.role}`;
+      break;
+    case "role_complete":
+      line = `✓ ${event.role}`;
+      break;
+    case "role_skip":
+      line = `⊘ ${event.role} (${event.reason})`;
+      break;
+    case "conflict":
+      line = `⚠ conflict resolved: ${event.resolution}`;
+      break;
+    case "cache_hit":
+      line = `↻ ${event.role} (cache hit)`;
+      break;
+    case "escalation":
+      line = `↑ escalated: ${event.reason}`;
+      break;
+    case "task_complete":
+      line = `done · ${event.status}`;
+      break;
+    case "task_failed":
+      line = `✗ failed · ${event.error}`;
+      break;
+  }
+  if (!line) return;
+  const prefix = "  ";
+  if (useColor) process.stderr.write(prefix + chalk.dim(line) + "\n");
+  else process.stderr.write(prefix + line + "\n");
+}
+
 async function runTask(state: SessionState, t: string): Promise<void> {
+  const compressed = compressUserInput(t);
+  if (compressed.notices.length > 0) {
+    process.stderr.write(compressed.notices.map((notice) => `  ⧉ ${notice}`).join("\n") + "\n");
+  }
+
+  // Path A — wire Orchestrator.orchestrate into CLI dispatch when the
+  // gate decides the task is structured enough to benefit from the
+  // multi-role pipeline (architect → implementer → security audit →
+  // test strategist → reviewer loop).
+  if (shouldUseOrchestrator(compressed.text, { force: state.useOrchestrate === true })) {
+    const orchestrator = new Orchestrator({
+      baseURL: state.baseURL,
+      apiKey: state.apiKey,
+      model: state.model,
+      workDir: state.workDir,
+      onEvent: (event) => emitOrchestratorTelemetry(state.useColor, event),
+    });
+    const result = await orchestrator.orchestrate(compressed.text);
+    // Map OrchestratorResult → final-response shape (string). The REPL
+    // downstream just prints whatever runTask emits; we write a short
+    // banner plus the summary so users can see the pipeline output.
+    process.stdout.write(`\n  orchestrator\n`);
+    process.stdout.write(`${result.summary}\n`);
+    return;
+  }
+
+  // Streaming Agent loop (default).
   const tui = createTuiRenderer({
     getModel: () => state.model,
     getWorkDir: () => state.workDir,
@@ -304,10 +373,6 @@ async function runTask(state: SessionState, t: string): Promise<void> {
     onReportWritten: (path) => { state.lastReportPath = path; },
   });
   const agent = makeAgent(state, tui);
-  const compressed = compressUserInput(t);
-  if (compressed.notices.length > 0) {
-    process.stderr.write(compressed.notices.map((notice) => `  ⧉ ${notice}`).join("\n") + "\n");
-  }
   await agent.run(compressed.text);
 }
 
@@ -925,6 +990,7 @@ const state: SessionState = {
   queue: [],
   lastReportPath: null, // null = "auto" (write to default). false = disabled. string = override.
   allowSkillInstall: opts.allowSkillInstall === true,
+  useOrchestrate: opts.orchestrate === true,
   _runStartMs: undefined,
   _toolCallCount: {},
 };

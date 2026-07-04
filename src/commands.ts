@@ -2,7 +2,7 @@ import chalk from "chalk";
 import { resolve } from "path";
 import { stat } from "fs/promises";
 import { getCliToken, readFirstApiKey } from "./init.js";
-import { createExecutor, isSandboxAvailable } from "./sandbox/index.js";
+import { SandboxExecutor, isSandboxAvailable } from "./sandbox/index.js";
 import type { ContinuationPolicy } from "./agent.js";
 import { updateUserConfig } from "./config.js";
 
@@ -26,6 +26,13 @@ export interface SessionState {
   // install_skill calls return a tool error and the agent is told to
   // try a different approach. Flip with /allow-skill-install.
   allowSkillInstall: boolean;
+  /**
+   * When true, tasks are routed through `Orchestrator.orchestrate()`
+   * regardless of the complexity heuristic. Set via the `--orchestrate`
+   * CLI flag. When false/undefined, `shouldUseOrchestrator()` consults
+   * the heuristic — see src/orchestrator/dispatch.ts.
+   */
+  useOrchestrate?: boolean;
   // Queue / interrupt state
   queue: string[];
   history?: string[];
@@ -97,8 +104,9 @@ const PROVIDER_FALLBACK_MODELS: Record<string, string[]> = {
 const ROUTER_CONFIG_CACHE_TTL_MS = 5_000;
 
 function sandboxBackendName(workDir: string): "macos-sandbox" | "direct" {
-  const executor = createExecutor(workDir, { useSandbox: true });
-  return executor.constructor.name === "SandboxExecutor" ? "macos-sandbox" : "direct";
+  if (!isSandboxAvailable()) return "direct";
+  const executor = new SandboxExecutor(workDir, { warnOnProfileFallback: false });
+  return executor.getProfile() === "(version 1)(allow default)" ? "direct" : "macos-sandbox";
 }
 
 class HTTPError extends Error {
@@ -978,6 +986,9 @@ const COMMANDS: Record<string, CommandDef> = {
         "  fail-closed: not yet configurable; direct fallback is used when sandbox is unavailable",
         "",
       ];
+      if (available && !sandboxed) {
+        lines.splice(5, 0, "  restrictive profile: rejected by sandbox-exec; direct fallback active");
+      }
       if (!sandboxed) {
         lines.push("  Warning: shell commands are currently running without OS-level isolation.");
         lines.push("");
