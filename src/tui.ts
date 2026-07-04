@@ -741,20 +741,48 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
     toolHistory: [],
   };
   let lastDashboardHeight = 0;
+  let lastDashboardCol = 0;
   let geometry = computeGeometry(cols(), rows());
   let drawing = false; // SIGWINCH mid-write guard (R2)
+  let resizeDebounce: ReturnType<typeof setTimeout> | null = null;
+  let resizePending = false;
 
   function recomputeGeometry(): void {
     geometry = computeGeometry(cols(), rows());
   }
   // SIGWINCH — re-anchor dashboard + re-wrap streamed output on terminal
-  // resize. Listener-removal (dispose()) is deferred — out of scope here.
-  // TODO(resize-cleanup): expose dispose() once a caller owns this lifetime.
+  // resize. Debounced: 'resize' can fire dozens of times during a single
+  // drag-resize (and on some terminals fires on every cursor move). Without
+  // a debounce, the synchronous write storm stalls stdout and the agent
+  // appears to hang. Listener-removal (dispose()) is deferred — out of
+  // scope here. TODO(resize-cleanup): expose dispose() once a caller owns
+  // this lifetime.
   if (process.stdout.isTTY) {
     process.stdout.on("resize", () => {
-      recomputeGeometry();
-      drawDashboard();
+      if (resizeDebounce) {
+        resizePending = true;
+        return;
+      }
+      resizeDebounce = setTimeout(() => {
+        resizeDebounce = null;
+        if (!resizePending) return;
+        resizePending = false;
+        recomputeGeometry();
+        // Erase the previous dashboard footprint BEFORE redrawing — the old
+        // dashCol may now be inside the new left column, and characters
+        // left there would ghost over the streamed body.
+        erasePreviousDashboard();
+        drawDashboard();
+      }, 80);
     });
+  }
+
+  function erasePreviousDashboard(): void {
+    if (!process.stdout.isTTY) return;
+    if (lastDashboardHeight === 0 || lastDashboardCol <= 0) return;
+    for (let i = 0; i < lastDashboardHeight; i++) {
+      process.stdout.write(`\x1b[${2 + i};${lastDashboardCol}H\x1b[0K`);
+    }
   }
 
   function stringifyArgs(args: Record<string, unknown>): string {
@@ -778,10 +806,16 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
       // Cap at termRows - 1 to avoid clearing the last terminal row.
       const target = Math.max(lines.length, geometry.termRows - 1);
       const padded = padDashboardToHeight(lines, target, Math.max(0, dashWidth - 2));
-      process.stdout.write("\x1b[s");
-      // Clear previous dashboard area (the larger of the previous height and current padded height)
-      const maxRows = Math.max(padded.length, lastDashboardHeight);
-      for (let i = 0; i < maxRows; i++) {
+      // Erase the OLD footprint first (lastDashboardCol / lastDashboardHeight)
+      // — after a shrink the previous dashCol may now overlap the body
+      // column, so clearing only the new position would leave ghosts.
+      if (lastDashboardHeight > 0 && lastDashboardCol > 0) {
+        for (let i = 0; i < lastDashboardHeight; i++) {
+          process.stdout.write(`\x1b[${2 + i};${lastDashboardCol}H\x1b[0K`);
+        }
+      }
+      // Clear current column for the new padded area
+      for (let i = 0; i < padded.length; i++) {
         process.stdout.write(`\x1b[${2 + i};${dashCol}H\x1b[0K`);
       }
       // Draw padded lines
@@ -789,7 +823,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         process.stdout.write(`\x1b[${2 + i};${dashCol}H${padded[i]}`);
       }
       lastDashboardHeight = padded.length;
-      process.stdout.write("\x1b[u");
+      lastDashboardCol = dashCol;
     } finally {
       drawing = false;
     }
