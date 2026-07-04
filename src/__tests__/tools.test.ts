@@ -11,9 +11,14 @@ function makeMockExecutor(overrides: Partial<ExecutionResult> = {}): SandboxProv
     output: overrides.output ?? "executor output",
     error: overrides.error,
     exitCode: overrides.exitCode ?? 0,
+    signal: overrides.signal ?? null,
+    killed: overrides.killed ?? false,
     timedOut: overrides.timedOut ?? false,
     durationMs: overrides.durationMs ?? 5,
     sandboxUsed: overrides.sandboxUsed ?? true,
+    requestedTimeoutMs: overrides.requestedTimeoutMs ?? 60_000,
+    effectiveTimeoutMs: overrides.effectiveTimeoutMs ?? 60_000,
+    clampedTimeout: overrides.clampedTimeout ?? false,
   };
   return {
     exec: jest.fn<SandboxProvider["exec"]>().mockResolvedValue(result),
@@ -34,9 +39,14 @@ describe("executeTool run_bash with executor", () => {
     const execResult: ExecutionResult = {
       output: "hello",
       exitCode: 0,
+      signal: null,
+      killed: false,
       timedOut: false,
       durationMs: 3,
       sandboxUsed: true,
+      requestedTimeoutMs: 60_000,
+      effectiveTimeoutMs: 60_000,
+      clampedTimeout: false,
     };
     const executor: SandboxProvider = {
       exec: jest.fn<SandboxProvider["exec"]>().mockResolvedValue(execResult),

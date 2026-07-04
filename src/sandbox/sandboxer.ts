@@ -19,14 +19,28 @@ export interface SandboxConfig {
    * profile doesn't enumerate (e.g. specific mach lookups).
    */
   legacySandbox?: boolean;
+  /** Suppress the low-level restrictive-profile downgrade warning. */
+  warnOnProfileFallback?: boolean;
+  /**
+   * Maximum allowed `effectiveTimeoutMs` for sandboxed exec calls.
+   * Default 600_000 (10 min). The caller can request any `timeoutMs`
+   * per-call, but it will be clamped to this value. Set `Infinity`
+   * to disable the cap. Surfaced on `ExecutionResult.effectiveTimeoutMs`
+   * and `clampedTimeout` so callers can detect when their request was
+   * silently reduced.
+   */
+  maxTimeoutMs?: number;
 }
 
 interface SpawnResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  signal: NodeJS.Signals | null;
+  killed: boolean;
   timedOut: boolean;
   durationMs: number;
+  effectiveTimeoutMs: number;
 }
 
 interface SandboxProfile {
@@ -56,17 +70,18 @@ async function sandboxPath(rawPath: string, workDir: string): Promise<string> {
   return normalized;
 }
 
-function clampTimeout(timeoutMs: number): number {
-  if (!Number.isFinite(timeoutMs) || timeoutMs < 1000) return 1000;
-  if (timeoutMs > 120_000) return 120_000;
-  return timeoutMs;
+function clampTimeout(timeoutMs: number, maxTimeoutMs: number = 600_000): number {
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 1000) {
+    return Math.min(1000, maxTimeoutMs);
+  }
+  return Math.min(timeoutMs, maxTimeoutMs);
 }
 
 // One-shot stderr warning when the restrictive profile is rejected by the
 // host's sandbox-exec (e.g. macOS 26 SIGABRTs on file-read* subpath rules).
 let _legacyFallbackWarned = false;
 
-function probeOrFallback(profile: string): string {
+function probeOrFallback(profile: string, warn = true): string {
   const probePath = `/tmp/9rh-sb-probe-${process.pid}-${Date.now()}.sb`;
   try {
     writeFileSync(probePath, profile, "utf-8");
@@ -76,11 +91,11 @@ function probeOrFallback(profile: string): string {
     });
     return profile;
   } catch {
-    if (!_legacyFallbackWarned) {
+    if (warn && !_legacyFallbackWarned) {
       process.stderr.write(
         "\n[9rh] WARNING: restrictive sandbox profile rejected by sandbox-exec on this host; " +
-        "falling back to (allow default). run_bash will execute with full user permissions. " +
-        "Set legacySandbox:true explicitly to suppress this probe.\n\n",
+        "strict command isolation is unavailable for this profile. " +
+        "Set legacySandbox:true to opt into the unrestrictive compatibility profile.\n\n",
       );
       _legacyFallbackWarned = true;
     }
@@ -189,6 +204,8 @@ export class Sandbox {
       timeoutMs: config.timeoutMs ?? 60_000,
       user: config.user ?? "nobody",
       legacySandbox: config.legacySandbox ?? false,
+      warnOnProfileFallback: config.warnOnProfileFallback ?? true,
+      maxTimeoutMs: config.maxTimeoutMs ?? 600_000,
     };
     this.platform = process.platform;
     const profileBuilder = new DarwinSandboxProfile();
@@ -199,7 +216,7 @@ export class Sandbox {
       this.config.legacySandbox,
     );
     if (process.platform === "darwin" && this.profile !== "(version 1)(allow default)") {
-      this.profile = probeOrFallback(this.profile);
+      this.profile = probeOrFallback(this.profile, this.config.warnOnProfileFallback);
     }
   }
 
@@ -242,7 +259,8 @@ export class Sandbox {
     command: string,
     options?: { timeoutMs?: number; env?: Record<string, string> },
   ): Promise<SpawnResult> {
-    const timeoutMs = clampTimeout(options?.timeoutMs ?? this.config.timeoutMs);
+    const requestedTimeoutMs = options?.timeoutMs ?? this.config.timeoutMs;
+    const effectiveTimeoutMs = clampTimeout(requestedTimeoutMs, this.config.maxTimeoutMs);
     const startMs = Date.now();
     let timedOut = false;
 
@@ -251,8 +269,11 @@ export class Sandbox {
         stdout: "",
         stderr: `sandbox execution is unavailable on ${this.platform}; use createExecutor() to fall back to direct execution explicitly`,
         exitCode: -1,
+        signal: null,
+        killed: false,
         timedOut: false,
         durationMs: Date.now() - startMs,
+        effectiveTimeoutMs,
       };
     }
 
@@ -260,7 +281,16 @@ export class Sandbox {
     try {
       await writeFile(profilePath, this.profile, "utf-8");
     } catch {
-      return { stdout: "", stderr: "failed to write sandbox profile", exitCode: -1, timedOut: false, durationMs: Date.now() - startMs };
+      return {
+        stdout: "",
+        stderr: "failed to write sandbox profile",
+        exitCode: -1,
+        signal: null,
+        killed: false,
+        timedOut: false,
+        durationMs: Date.now() - startMs,
+        effectiveTimeoutMs,
+      };
     }
 
     return new Promise((resolve) => {
@@ -284,23 +314,28 @@ export class Sandbox {
       const timer = setTimeout(() => {
         timedOut = true;
         proc.kill("SIGKILL");
-      }, timeoutMs);
+      }, effectiveTimeoutMs);
 
       proc.on("close", (code, signal) => {
         try { unlinkSync(profilePath); } catch {}
         clearTimeout(timer);
+        const sig = (signal ?? null) as NodeJS.Signals | null;
+        const killed = sig !== null;
         if ((code ?? -1) !== 0 && process.env["9RH_SANDBOX_DEBUG"]) {
           process.stderr.write(`[9rh-sandbox-debug] exit=${code} signal=${signal} stderr=${truncateOutput(stderr)}\n`);
         }
-        if (code === null && signal) {
-          stderr = (stderr ? stderr + "\n" : "") + `sandbox-exec killed by signal=${signal}`;
+        if (code === null && sig) {
+          stderr = (stderr ? stderr + "\n" : "") + `sandbox-exec killed by signal=${sig}`;
         }
         resolve({
           stdout: truncateOutput(stdout),
           stderr: truncateOutput(stderr),
           exitCode: code ?? -1,
+          signal: sig,
+          killed,
           timedOut,
           durationMs: Date.now() - startMs,
+          effectiveTimeoutMs,
         });
       });
 
@@ -311,8 +346,11 @@ export class Sandbox {
           stdout: truncateOutput(stdout),
           stderr: truncateOutput(stderr) + "\nsandbox-exec error: " + err.message,
           exitCode: -1,
+          signal: null,
+          killed: false,
           timedOut: false,
           durationMs: Date.now() - startMs,
+          effectiveTimeoutMs,
         });
       });
     });
