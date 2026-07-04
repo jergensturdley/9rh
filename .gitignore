@@ -26,6 +26,7 @@ node_modules/
 .antigravitycli/
 .codex/
 .opencode/
+.openclaude/
 .cursor/
 .vscode/
 .idea/
@@ -41,6 +42,12 @@ tmp/
 temp/
 .DS_Store
 dist/
+
+# Generated knowledge-graph output — regenerable via `graphify extract`.
+# The CLI itself treats graphify-out/ as a cache (its `uninstall --purge`
+# flag deletes it). Keep it local; do not commit the 6.8MB of prebuilt
+# graph chunks / HTML render / etc.
+graphify-out/
 
 # Scratch / probe / one-off artifacts (leading-underscore convention).
 # Match by extension so legitimate test fixtures or files like
