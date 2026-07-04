@@ -8,14 +8,47 @@ const execFileAsync = promisify(execFile);
 export interface ExecutionResult {
   output: string;
   error?: string;
-  exitCode: number;
+  /**
+   * Process exit code. `null` iff the process was killed by an OS signal
+   * (see the `signal` field); for normal exits and timed-out processes
+   * this holds the numeric code.
+   */
+  exitCode: number | null;
+  /**
+   * The OS signal that killed the process, if any. `null` for normal exits,
+   * timeouts, and command-not-found style failures. Surfaced via Node's
+   * `ChildProcess.execFile` rejection path so observers can distinguish
+   * SIGKILL/SIGTERM from non-signal exits.
+   */
+  signal: NodeJS.Signals | null;
+  /** True iff the process was killed by an OS signal (not a timeout). */
+  killed: boolean;
   timedOut: boolean;
   durationMs: number;
   sandboxUsed: boolean;
+  /** The timeoutMs the caller requested (or the default if none). */
+  requestedTimeoutMs: number;
+  /** The actual timeoutMs applied after the executor's cap. */
+  effectiveTimeoutMs: number;
+  /** True iff effectiveTimeoutMs < requestedTimeoutMs (cap was hit). */
+  clampedTimeout: boolean;
+}
+
+export interface ExecOptions {
+  timeoutMs?: number;
+}
+
+/** DirectExecutor-specific options. */
+export interface DirectExecOptions extends ExecOptions {
+  /**
+   * Default cap (10 min). Pass `Infinity` to disable the cap entirely.
+   * The `effectiveTimeoutMs` field on the result reflects what was used.
+   */
+  maxTimeoutMs?: number;
 }
 
 export interface SandboxProvider {
-  exec(command: string, options?: { timeoutMs?: number }): Promise<ExecutionResult>;
+  exec(command: string, options?: ExecOptions): Promise<ExecutionResult>;
   validatePath(filePath: string): Promise<string>;
 }
 
@@ -31,15 +64,23 @@ export class SandboxExecutor implements SandboxProvider {
     this.sandbox = new Sandbox(cfg);
   }
 
-  async exec(command: string, options?: { timeoutMs?: number }): Promise<ExecutionResult> {
-    const result = await this.sandbox.exec(command, { timeoutMs: options?.timeoutMs });
+  async exec(command: string, options?: ExecOptions): Promise<ExecutionResult> {
+    const requestedTimeoutMs = options?.timeoutMs ?? this.config.timeoutMs;
+    const result = await this.sandbox.exec(command, { timeoutMs: requestedTimeoutMs });
+    const effectiveTimeoutMs = result.effectiveTimeoutMs ?? requestedTimeoutMs;
+    const clampedTimeout = effectiveTimeoutMs < requestedTimeoutMs;
     return {
       output: result.stdout,
       error: result.exitCode !== 0 ? `exit ${result.exitCode}` : undefined,
       exitCode: result.exitCode,
+      signal: result.signal,
+      killed: result.killed,
       timedOut: result.timedOut,
       durationMs: result.durationMs,
       sandboxUsed: true,
+      requestedTimeoutMs,
+      effectiveTimeoutMs,
+      clampedTimeout,
     };
   }
 
@@ -64,42 +105,87 @@ export class DirectExecutor implements SandboxProvider {
     this.workDir = workDir;
   }
 
-  async exec(command: string, options?: { timeoutMs?: number }): Promise<ExecutionResult> {
+  async exec(command: string, options?: DirectExecOptions): Promise<ExecutionResult> {
     const startMs = Date.now();
-    const timeoutMs = Math.min(options?.timeoutMs ?? 60_000, 120_000);
+    const requestedTimeoutMs = options?.timeoutMs ?? 60_000;
+    const maxTimeoutMs = options?.maxTimeoutMs ?? 600_000;
+    const effectiveTimeoutMs = Math.min(requestedTimeoutMs, maxTimeoutMs);
+    const clampedTimeout = effectiveTimeoutMs < requestedTimeoutMs;
     try {
       const { stdout, stderr } = await execFileAsync("sh", ["-c", command], {
         cwd: this.workDir,
-        timeout: timeoutMs,
+        timeout: effectiveTimeoutMs,
         maxBuffer: 1024 * 1024 * 4,
       });
       const out = [stdout, stderr].filter(Boolean).join("\n--- stderr ---\n");
       return {
         output: out || "(no output)",
         exitCode: 0,
+        signal: null,
+        killed: false,
         timedOut: false,
         durationMs: Date.now() - startMs,
         sandboxUsed: false,
+        requestedTimeoutMs,
+        effectiveTimeoutMs,
+        clampedTimeout,
       };
     } catch (err: unknown) {
-      const e = err as { stdout?: string; stderr?: string; message?: string; code?: number };
+      const e = err as {
+        stdout?: string;
+        stderr?: string;
+        message?: string;
+        code?: number;
+        signal?: NodeJS.Signals;
+      };
       const combined = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n");
+      const sig = (e.signal ?? null) as NodeJS.Signals | null;
+      const killed = sig !== null;
       return {
         output: combined || "(command failed)",
-        error: "exit non-zero",
-        exitCode: e.code ?? -1,
+        error: killed ? `killed by signal ${sig}` : "exit non-zero",
+        exitCode: killed ? null : (e.code ?? -1),
+        signal: sig,
+        killed,
         timedOut: false,
         durationMs: Date.now() - startMs,
         sandboxUsed: false,
+        requestedTimeoutMs,
+        effectiveTimeoutMs,
+        clampedTimeout,
       };
     }
   }
 
-  async validatePath(_filePath: string): Promise<string> {
-    const cached = this.pathValidationCache.get(_filePath);
+  async validatePath(filePath: string): Promise<string> {
+    const cached = this.pathValidationCache.get(filePath);
     if (cached) return cached;
-    this.pathValidationCache.set(_filePath, _filePath);
-    return _filePath;
+    const { isAbsolute, resolve, relative } = await import("node:path");
+    const { realpath } = await import("node:fs/promises");
+    const abs = isAbsolute(filePath) ? resolve(filePath) : resolve(this.workDir, filePath);
+    // realpath follows symlinks. If the file doesn't exist yet, fall back
+    // to the lexical path so write_file of a new file still validates.
+    let realAbs: string;
+    try {
+      realAbs = await realpath(abs);
+    } catch {
+      realAbs = abs;
+    }
+    let realRoot: string;
+    try {
+      realRoot = await realpath(this.workDir);
+    } catch {
+      realRoot = resolve(this.workDir);
+    }
+    const rel = relative(realRoot, realAbs);
+    const escapes = rel.startsWith("..") || isAbsolute(rel);
+    if (escapes) {
+      throw new Error(
+        `path escapes sandbox workDir: ${filePath} (resolved ${realAbs})`,
+      );
+    }
+    this.pathValidationCache.set(filePath, realAbs);
+    return realAbs;
   }
 
   getProfile(): string {
@@ -150,7 +236,27 @@ export function createExecutor(
 ): SandboxProvider {
   if (opts.useSandbox) {
     if (isSandboxAvailable()) {
-      return new SandboxExecutor(workDir, opts.sandboxConfig);
+      const executor = new SandboxExecutor(workDir, {
+        ...opts.sandboxConfig,
+        warnOnProfileFallback: false,
+      });
+      if (executor.getProfile() !== "(version 1)(allow default)" || opts.sandboxConfig?.legacySandbox) {
+        return executor;
+      }
+      if (opts.strict) {
+        throw new Error(
+          "Sandbox requested but restrictive macOS sandbox profile was rejected by sandbox-exec. " +
+          "Refusing to fall back to direct execution in strict mode.",
+        );
+      }
+      if (!createExecutor._warned) {
+        process.stderr.write(
+          `\n[9rh] WARNING: restrictive sandbox profile unavailable; falling back to DirectExecutor. ` +
+          `run_bash will execute with full user permissions.\n\n`,
+        );
+        createExecutor._warned = true;
+      }
+      return new DirectExecutor(workDir);
     }
     // Sandbox was requested but isn't available. Two options:
     //   - strict=true  → throw, fail closed
