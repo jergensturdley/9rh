@@ -9,8 +9,14 @@
  *
  * Public API:
  *   - detectBackend(opts) — auto-detect, with overrides from CLI/env/persisted
- *   - DirectBackend, RouterBackend — concrete impls (EmbeddedBackend: TODO)
+ *   - DirectBackend, RouterBackend — concrete impls
  *   - The Backend interface and supporting types
+ *
+ * Note: `EmbeddedBackend` (9rh-spawned 9router supervisor) was a planned
+ * third mode that was deprioritized — see docs/orchestrator-wiring-spec.md
+ * (Path B). The `BackendName` type still includes "embedded" for forward
+ * compatibility, but no implementation is shipped today; `detectBackend`
+ * currently falls back to RouterBackend when "embedded" is selected.
  */
 
 export type {

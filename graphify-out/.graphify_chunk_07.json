@@ -1,0 +1,554 @@
+{
+  "nodes": [
+    {
+      "id": "spec_specdriventesting_parsetaskspecification",
+      "label": "parseTaskSpecification",
+      "file_type": "code",
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_specdriventesting_synthesizetestplan",
+      "label": "synthesizeTestPlan",
+      "file_type": "code",
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_specdriventesting_formatspecdrivenprompt",
+      "label": "formatSpecDrivenPrompt",
+      "file_type": "code",
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_specdriventesting_shouldusespecdriventesting",
+      "label": "shouldUseSpecDrivenTesting",
+      "file_type": "code",
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_specdriventesting_classifystatement",
+      "label": "classifyStatement",
+      "file_type": "code",
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_specdriventesting_isfailurepathrequirement",
+      "label": "isFailurePathRequirement",
+      "file_type": "code",
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_specdriventesting_splitstatements",
+      "label": "splitStatements",
+      "file_type": "code",
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_specdriventesting_addtest",
+      "label": "addTest",
+      "file_type": "code",
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_specdriventesting_requirementkind",
+      "label": "RequirementKind type",
+      "file_type": "code",
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_specdriventesting_testtype",
+      "label": "TestType type",
+      "file_type": "code",
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_specdriventesting_parsedspecification",
+      "label": "ParsedSpecification interface",
+      "file_type": "code",
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_specdriventesting_synthesizedtest",
+      "label": "SynthesizedTest interface",
+      "file_type": "code",
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_specdriventesting_synthesizedtestplan",
+      "label": "SynthesizedTestPlan interface",
+      "file_type": "code",
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_specdriventesting_coverageentry",
+      "label": "CoverageEntry interface",
+      "file_type": "code",
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_specdriventesting_requirementstatement",
+      "label": "RequirementStatement interface",
+      "file_type": "code",
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_specdriventesting_spec_driven_testing_principle",
+      "label": "Spec-driven testing principle (test generation as first-class artifact, not side effect)",
+      "file_type": "rationale",
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_specdriventesting_tight_loop_rationale",
+      "label": "Tight implementation loop rationale (fail-test-first for explicit bugs)",
+      "file_type": "rationale",
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_specdriventesting_ambiguity_pause_rationale",
+      "label": "Pause-on-ambiguity rationale (do not proceed broadly when ambiguities materially affect behavior)",
+      "file_type": "rationale",
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "sandbox_tests_sandboxintegration_sandbox_pathtest",
+      "label": "sandboxIntegration test: sandboxPath escape protection",
+      "file_type": "code",
+      "source_file": "src/sandbox/__tests__/sandboxIntegration.test.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "sandbox_tests_sandboxintegration_exec_basictest",
+      "label": "sandboxIntegration test: Sandbox exec basic behavior",
+      "file_type": "code",
+      "source_file": "src/sandbox/__tests__/sandboxIntegration.test.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_tests_specdriventestingtest",
+      "label": "specDrivenTesting unit tests",
+      "file_type": "code",
+      "source_file": "src/spec/__tests__/specDrivenTesting.test.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spec_specdriventesting_replayspecplan_artifact",
+      "label": "ReplayEvent spec_plan durability (artifact for review)",
+      "file_type": "concept",
+      "source_file": "src/spec/specDrivenTesting.test.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "sandbox_tests_sandboxintegration_symlink_escape_protection",
+      "label": "Symlink escape protection invariant (sandbox)",
+      "file_type": "concept",
+      "source_file": "src/sandbox/__tests__/sandboxIntegration.test.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "spec_specdriventesting_parsetaskspecification",
+      "target": "spec_specdriventesting_splitstatements",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_specdriventesting_parsetaskspecification",
+      "target": "spec_specdriventesting_classifystatement",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_specdriventesting_synthesizetestplan",
+      "target": "spec_specdriventesting_isfailurepathrequirement",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_specdriventesting_synthesizetestplan",
+      "target": "spec_specdriventesting_addtest",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_specdriventesting_formatspecdrivenprompt",
+      "target": "spec_specdriventesting_parsetaskspecification",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_specdriventesting_formatspecdrivenprompt",
+      "target": "spec_specdriventesting_synthesizetestplan",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_specdriventesting_parsetaskspecification",
+      "target": "spec_specdriventesting_parsedspecification",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_specdriventesting_synthesizetestplan",
+      "target": "spec_specdriventesting_synthesizedtestplan",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_specdriventesting_addtest",
+      "target": "spec_specdriventesting_synthesizedtest",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_specdriventesting_synthesizetestplan",
+      "target": "spec_specdriventesting_coverageentry",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_specdriventesting_parsetaskspecification",
+      "target": "spec_specdriventesting_requirementstatement",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_specdriventesting_addtest",
+      "target": "spec_specdriventesting_testtype",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_specdriventesting_classifystatement",
+      "target": "spec_specdriventesting_requirementkind",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_specdriventesting_formatspecdrivenprompt",
+      "target": "spec_specdriventesting_spec_driven_testing_principle",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_specdriventesting_synthesizetestplan",
+      "target": "spec_specdriventesting_tight_loop_rationale",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_specdriventesting_synthesizetestplan",
+      "target": "spec_specdriventesting_ambiguity_pause_rationale",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_tests_specdriventestingtest",
+      "target": "spec_specdriventesting_parsetaskspecification",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/spec/__tests__/specDrivenTesting.test.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_tests_specdriventestingtest",
+      "target": "spec_specdriventesting_synthesizetestplan",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/spec/__tests__/specDrivenTesting.test.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_tests_specdriventestingtest",
+      "target": "spec_specdriventesting_formatspecdrivenprompt",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/spec/__tests__/specDrivenTesting.test.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_tests_specdriventestingtest",
+      "target": "spec_specdriventesting_shouldusespecdriventesting",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/spec/__tests__/specDrivenTesting.test.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_tests_specdriventestingtest",
+      "target": "spec_specdriventesting_replayspecplan_artifact",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/spec/__tests__/specDrivenTesting.test.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "sandbox_tests_sandboxintegration_sandbox_pathtest",
+      "target": "sandbox_tests_sandboxintegration_symlink_escape_protection",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "src/sandbox/__tests__/sandboxIntegration.test.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "sandbox_tests_sandboxintegration_exec_basictest",
+      "target": "sandbox_tests_sandboxintegration_symlink_escape_protection",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.55,
+      "source_file": "src/sandbox/__tests__/sandboxIntegration.test.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_specdriventesting_ambiguity_pause_rationale",
+      "target": "spec_specdriventesting_spec_driven_testing_principle",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spec_specdriventesting_tight_loop_rationale",
+      "target": "spec_specdriventesting_spec_driven_testing_principle",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "src/spec/specDrivenTesting.ts",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "spec_driven_pipeline",
+      "label": "Spec-driven testing pipeline (parse -> classify -> synthesize -> format)",
+      "nodes": [
+        "spec_specdriventesting_parsetaskspecification",
+        "spec_specdriventesting_synthesizetestplan",
+        "spec_specdriventesting_formatspecdrivenprompt",
+        "spec_specdriventesting_shouldusespecdriventesting"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "src/spec/specDrivenTesting.ts"
+    },
+    {
+      "id": "spec_requirement_taxonomy",
+      "label": "Requirement taxonomy (functional / edge / constraint / non-goal / bug / ambiguous)",
+      "nodes": [
+        "spec_specdriventesting_requirementkind",
+        "spec_specdriventesting_requirementstatement",
+        "spec_specdriventesting_parsedspecification",
+        "spec_specdriventesting_classifystatement"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "src/spec/specDrivenTesting.ts"
+    },
+    {
+      "id": "sandbox_isolation_invariants",
+      "label": "Sandbox isolation invariants (path escape + exec sandboxed)",
+      "nodes": [
+        "sandbox_tests_sandboxintegration_sandbox_pathtest",
+        "sandbox_tests_sandboxintegration_exec_basictest",
+        "sandbox_tests_sandboxintegration_symlink_escape_protection"
+      ],
+      "relation": "implement",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "src/sandbox/__tests__/sandboxIntegration.test.ts"
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}
