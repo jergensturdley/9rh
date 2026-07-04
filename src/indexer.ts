@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from "fs";
+import { existsSync, readdirSync, realpathSync, statSync } from "fs";
 import { join, resolve } from "path";
 import { mkdir, readFile, writeFile } from "fs/promises";
 import { createHash } from "crypto";
@@ -44,17 +44,37 @@ function isVcsRoot(dir: string): boolean {
   return false;
 }
 
-/** Walk up to `maxDepth` looking for repo roots. Returns sorted deduped paths. */
+/**
+ * Walk `root` looking for git/mercurial/svn repo roots, then return them as
+ * realpath-deduped sorted absolute paths.
+ *
+ * Traversal rules:
+ *  - `.git`/`.hg`/`.svn` directories are skipped at every depth (not just
+ *    top-level) — descending into `.git/objects` would be wasted I/O and
+ *    a security smell.
+ *  - Dotted directories other than `.config` are skipped at every depth.
+ *  - Build / cache directories (`node_modules`, `target`, `dist`, `build`,
+ *    `__pycache__`, `.venv`, `vendor`) are skipped.
+ *
+ * Symlink handling:
+ *  - Each directory is resolved via `realpathSync` before being recorded,
+ *    so the `seen` set deduplicates entries reached via different paths
+ *    (e.g. a symlink to a sibling repo doesn't cause it to be reported
+ *    twice). Returned paths are realpath-canonical.
+ *
+ * Errors (permission denied, broken symlinks) are skipped silently — the
+ * walker tolerates a missing path without aborting the whole traversal.
+ */
 export function findRepos(root: string, maxDepth = 6): string[] {
   const results = new Set<string>();
   const seen = new Set<string>();
 
   function walk(dir: string, depth: number): void {
     if (depth > maxDepth) return;
-    const resolved = resolve(dir);
-    if (seen.has(resolved)) return;
-    seen.add(resolved);
     try {
+      const resolved = realpathSync(dir);
+      if (seen.has(resolved)) return;
+      seen.add(resolved);
       if (isVcsRoot(resolved)) {
         results.add(resolved);
         // Still recurse into children in case of monorepo
@@ -159,13 +179,11 @@ function loadStore(workDir: string): Store {
   return { version: 1, repos: [] };
 }
 
-function saveStore(workDir: string, store: Store): void {
+async function saveStore(workDir: string, store: Store): Promise<void> {
   const dir = repoDir(workDir);
-  if (!existsSync(dir)) {
-    mkdir(dir, { recursive: true }).catch(() => {});
-  }
+  await mkdir(dir, { recursive: true });
   // Compact JSON — no extra whitespace
-  writeFile(dbPath(workDir), JSON.stringify(store), "utf-8").catch(() => {});
+  await writeFile(dbPath(workDir), JSON.stringify(store), "utf-8");
 }
 
 // Needed for sync loadStore
@@ -183,7 +201,7 @@ export class RepoIndexer {
   }
 
   /** Full refresh: scan, hash, prune stale, persist. */
-  refresh(): RefreshResult {
+  async refresh(): Promise<RefreshResult> {
     const startMs = Date.now();
     const now = Date.now();
     const repos = findRepos(this.workDir);
@@ -221,8 +239,9 @@ export class RepoIndexer {
     // Prune: delete stale entries older than 24h
     const pruned = updated.filter(r => !(r.stale === 1 && now - r.lastSeen > 24 * 60 * 60 * 1000));
 
-    this.store = { version: 1, repos: pruned };
-    saveStore(this.workDir, this.store);
+    const next: Store = { version: 1, repos: pruned };
+    await saveStore(this.workDir, next);
+    this.store = next;
 
     return {
       elapsedMs: Date.now() - startMs,
@@ -256,15 +275,23 @@ export class RepoIndexer {
     };
   }
 
-  /** Prune stale entries immediately */
-  prune(): number {
+  /** Prune stale entries immediately. Persists before mutating in-memory
+   *  state — same contract as refresh() (audit-fix A5). If saveStore throws,
+   *  this.store must NOT be mutated and the caller is forced to handle the
+   *  error. */
+  async prune(): Promise<number> {
     const now = Date.now();
     const before = this.store.repos.length;
-    this.store.repos = this.store.repos.filter(
-      r => !(r.stale === 1 && now - r.lastSeen > 24 * 60 * 60 * 1000)
-    );
-    const removed = before - this.store.repos.length;
-    saveStore(this.workDir, this.store);
+    const next = {
+      version: 1 as const,
+      repos: this.store.repos.filter(
+        r => !(r.stale === 1 && now - r.lastSeen > 24 * 60 * 60 * 1000)
+      ),
+    };
+    const removed = before - next.repos.length;
+    if (removed === 0) return 0;
+    await saveStore(this.workDir, next);
+    this.store = next;
     return removed;
   }
 

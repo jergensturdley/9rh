@@ -1,0 +1,3 @@
+/Volumes/M.2 2TB/code/9rh/src/sandbox/__tests__/sandboxIntegration.test.ts
+/Volumes/M.2 2TB/code/9rh/src/spec/specDrivenTesting.ts
+/Volumes/M.2 2TB/code/9rh/src/spec/__tests__/specDrivenTesting.test.ts

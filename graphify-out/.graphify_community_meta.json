@@ -1,0 +1,2072 @@
+{
+  "0": {
+    "size": 105,
+    "top_file": "src/orchestrator/orchestrator.ts",
+    "top_files": [
+      [
+        "src/orchestrator/orchestrator.ts",
+        29
+      ],
+      [
+        "src/orchestrator/roles.ts",
+        28
+      ],
+      [
+        "src/orchestrator/taskState.ts",
+        17
+      ],
+      [
+        "src/orchestrator/performanceCache.ts",
+        14
+      ],
+      [
+        "src/orchestrator/conflictResolver.ts",
+        9
+      ]
+    ],
+    "top_labels": [
+      "conflictResolver.ts",
+      "canOverride()",
+      "Conflict"
+    ],
+    "sample_nodes": [
+      "orchestrator_conflictresolver",
+      "orchestrator_conflictresolver_canoverride",
+      "orchestrator_conflictresolver_conflict",
+      "orchestrator_conflictresolver_conflictlog",
+      "orchestrator_conflictresolver_conflictparty",
+      "orchestrator_conflictresolver_conflictresolution",
+      "orchestrator_conflictresolver_createconflictlog",
+      "orchestrator_conflictresolver_recordconflict",
+      "orchestrator_conflictresolver_resolveconflict",
+      "orchestrator_f23_parseroleoutput"
+    ]
+  },
+  "1": {
+    "size": 82,
+    "top_file": "src/repair/circuitBreaker.ts",
+    "top_files": [
+      [
+        "src/repair/circuitBreaker.ts",
+        13
+      ],
+      [
+        "src/replay/checkpointManager.ts",
+        13
+      ],
+      [
+        "src/repair/errorTaxonomy.ts",
+        12
+      ],
+      [
+        "src/repair/postMortemLogger.ts",
+        11
+      ],
+      [
+        "src/repair/repairAgent.ts",
+        11
+      ]
+    ],
+    "top_labels": [
+      ".constructor()",
+      "RepairResult",
+      "ensureDir()"
+    ],
+    "sample_nodes": [
+      "repair_circuitbreaker",
+      "repair_circuitbreaker_circuitbreaker",
+      "repair_circuitbreaker_circuitbreaker_constructor",
+      "repair_circuitbreaker_circuitbreaker_getconsecutivefailures",
+      "repair_circuitbreaker_circuitbreaker_getstate",
+      "repair_circuitbreaker_circuitbreaker_isopen",
+      "repair_circuitbreaker_circuitbreaker_recordfailure",
+      "repair_circuitbreaker_circuitbreaker_recordsuccess",
+      "repair_circuitbreaker_circuitstate",
+      "repair_circuitbreaker_isopen"
+    ]
+  },
+  "2": {
+    "size": 69,
+    "top_file": "src/sandbox/sandboxer.ts",
+    "top_files": [
+      [
+        "src/sandbox/sandboxer.ts",
+        29
+      ],
+      [
+        "src/sandbox/executor.ts",
+        24
+      ],
+      [
+        "src/sandbox/__tests__/sandbox.test.ts",
+        4
+      ],
+      [
+        "src/agent.ts",
+        3
+      ],
+      [
+        "src/sandbox/index.ts",
+        2
+      ]
+    ],
+    "top_labels": [
+      ".constructor()",
+      ".exec()",
+      ".getProfile()"
+    ],
+    "sample_nodes": [
+      "orchestrator_roles_toolrisklevel",
+      "replay_replayengine_test",
+      "sandbox_executor",
+      "sandbox_executor_clamped_timeout",
+      "sandbox_executor_createexecutor",
+      "sandbox_executor_directexecutor",
+      "sandbox_executor_directexecutor_constructor",
+      "sandbox_executor_directexecutor_exec",
+      "sandbox_executor_directexecutor_getprofile",
+      "sandbox_executor_directexecutor_validatepath"
+    ]
+  },
+  "3": {
+    "size": 67,
+    "top_file": "src/backends/router.ts",
+    "top_files": [
+      [
+        "src/backends/router.ts",
+        22
+      ],
+      [
+        "src/init.ts",
+        11
+      ],
+      [
+        "src/backends/direct.ts",
+        9
+      ],
+      [
+        "src/backends/backend.ts",
+        8
+      ],
+      [
+        "src/backends/detect.ts",
+        8
+      ]
+    ],
+    "top_labels": [
+      ".constructor()",
+      ".describe()",
+      ".health()"
+    ],
+    "sample_nodes": [
+      "backends_backend",
+      "backends_backend_backend",
+      "backends_backend_backendname",
+      "backends_backend_comboinfo",
+      "backends_backend_healthsnapshot",
+      "backends_backend_keyinfo",
+      "backends_backend_modelinfo",
+      "backends_backend_providerinfo",
+      "backends_detect",
+      "backends_detect_build"
+    ]
+  },
+  "4": {
+    "size": 62,
+    "top_file": "src/tui.ts",
+    "top_files": [
+      [
+        "src/tui.ts",
+        39
+      ],
+      [
+        "src/splash.ts",
+        16
+      ],
+      [
+        "src/visualization.ts",
+        3
+      ],
+      [
+        "src/ui.ts",
+        2
+      ],
+      [
+        "src/__tests__/splash.test.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "splash.ts",
+      "AURORA_COLORS",
+      "cloneEmptyFrame()"
+    ],
+    "sample_nodes": [
+      "src_splash",
+      "src_splash_aurora_colors",
+      "src_splash_cloneemptyframe",
+      "src_splash_colorizeframe",
+      "src_splash_empty_frame",
+      "src_splash_frame_colors",
+      "src_splash_frame_ramp",
+      "src_splash_generateplasmaframe",
+      "src_splash_logo",
+      "src_splash_logo_colors"
+    ]
+  },
+  "5": {
+    "size": 61,
+    "top_file": "src/faultInjection/types.ts",
+    "top_files": [
+      [
+        "src/faultInjection/types.ts",
+        15
+      ],
+      [
+        "src/faultInjection/registry.ts",
+        13
+      ],
+      [
+        "src/faultInjection/evaluator.ts",
+        10
+      ],
+      [
+        "src/faultInjection/injector.ts",
+        9
+      ],
+      [
+        "src/faultInjection/report.ts",
+        7
+      ]
+    ],
+    "top_labels": [
+      ".reset()",
+      ".register()",
+      "RecoveryEvaluator class"
+    ],
+    "sample_nodes": [
+      "faultinjection_evaluator",
+      "faultinjection_evaluator_computeresiliencescore",
+      "faultinjection_evaluator_recoveryevaluator",
+      "faultinjection_evaluator_recoveryevaluator_computeresiliencescore",
+      "faultinjection_evaluator_recoveryevaluator_onfaultdetected",
+      "faultinjection_evaluator_recoveryevaluator_onfaultinjected",
+      "faultinjection_evaluator_recoveryevaluator_onrecovery",
+      "faultinjection_evaluator_recoveryevaluator_reset",
+      "faultinjection_evaluator_recoveryevaluator_scorescenario",
+      "faultinjection_evaluator_scorescenario"
+    ]
+  },
+  "6": {
+    "size": 59,
+    "top_file": "src/tools.ts",
+    "top_files": [
+      [
+        "src/tools.ts",
+        48
+      ],
+      [
+        "src/skills.ts",
+        11
+      ]
+    ],
+    "top_labels": [
+      "skills.ts",
+      "buildSkillsSection()",
+      "defaultSkillRoots()"
+    ],
+    "sample_nodes": [
+      "src_skills",
+      "src_skills_buildskillssection",
+      "src_skills_defaultskillroots",
+      "src_skills_discoverskills",
+      "src_skills_infername",
+      "src_skills_parsedfrontmatter",
+      "src_skills_parsefrontmatter",
+      "src_skills_progressive_disclosure",
+      "src_skills_readskill",
+      "src_skills_skillmanifestentry"
+    ]
+  },
+  "7": {
+    "size": 42,
+    "top_file": "src/reports/runReport.ts",
+    "top_files": [
+      [
+        "src/reports/runReport.ts",
+        20
+      ],
+      [
+        "src/reports/runReportData.ts",
+        12
+      ],
+      [
+        "src/reports/workdirSnapshot.ts",
+        6
+      ],
+      [
+        "src/reports/index.ts",
+        2
+      ],
+      [
+        "src/__tests__/runReport.test.ts",
+        2
+      ]
+    ],
+    "top_labels": [
+      "index.ts",
+      "Reports module barrel export",
+      "runReport.ts"
+    ],
+    "sample_nodes": [
+      "reports_index",
+      "reports_index_module",
+      "reports_runreport",
+      "reports_runreport_computelinediff",
+      "reports_runreport_diffrow",
+      "reports_runreport_escapehtml",
+      "reports_runreport_formatduration",
+      "reports_runreport_formattokens",
+      "reports_runreport_pure_renderer",
+      "reports_runreport_rendercompactionssection"
+    ]
+  },
+  "8": {
+    "size": 41,
+    "top_file": "skills/receiving-code-review/SKILL.md",
+    "top_files": [
+      [
+        "skills/receiving-code-review/SKILL.md",
+        5
+      ],
+      [
+        "skills/systematic-debugging/SKILL.md",
+        5
+      ],
+      [
+        "skills/test-driven-development/SKILL.md",
+        5
+      ],
+      [
+        "skills/dispatching-parallel-agents/SKILL.md",
+        4
+      ],
+      [
+        "skills/finishing-a-development-branch/SKILL.md",
+        4
+      ]
+    ],
+    "top_labels": [
+      "Single Responsibility Per File Rule",
+      "Code Reviewer Output Format (Strengths, Issues, Recommendations, Assessment)",
+      "Severity Calibration (Critical/Important/Minor)"
+    ],
+    "sample_nodes": [
+      "code_quality_reviewer_single_responsibility",
+      "code_reviewer_output_format",
+      "code_reviewer_severity_calibration",
+      "dispatching_parallel_agents_agent_prompt_structure",
+      "dispatching_parallel_agents_independent_domains",
+      "dispatching_parallel_agents_skill",
+      "dispatching_parallel_agents_when_to_use",
+      "executing_plans_skill",
+      "executing_plans_stop_and_ask",
+      "executing_plans_three_step_process"
+    ]
+  },
+  "9": {
+    "size": 41,
+    "top_file": "src/agent.ts",
+    "top_files": [
+      [
+        "src/agent.ts",
+        29
+      ],
+      [
+        "src/__tests__/agent.test.ts",
+        12
+      ]
+    ],
+    "top_labels": [
+      "Agent",
+      ".abort()",
+      ".applyContinuationModelSwitch()"
+    ],
+    "sample_nodes": [
+      "src_agent_agent",
+      "src_agent_agent_abort",
+      "src_agent_agent_applycontinuationmodelswitch",
+      "src_agent_agent_buildagentstate",
+      "src_agent_agent_collectrepostate",
+      "src_agent_agent_compactcontext",
+      "src_agent_agent_constructor",
+      "src_agent_agent_currentmodel",
+      "src_agent_agent_emit",
+      "src_agent_agent_executetoolwithrepair"
+    ]
+  },
+  "10": {
+    "size": 35,
+    "top_file": "package.json",
+    "top_files": [
+      [
+        "package.json",
+        35
+      ]
+    ],
+    "top_labels": [
+      "package.json",
+      "bin",
+      "9rh"
+    ],
+    "sample_nodes": [
+      "package",
+      "package_bin",
+      "package_bin_9rh",
+      "package_dependencies",
+      "package_dependencies_chalk",
+      "package_dependencies_commander",
+      "package_dependencies_express",
+      "package_dependencies_openai",
+      "package_dependencies_readline",
+      "package_description"
+    ]
+  },
+  "11": {
+    "size": 34,
+    "top_file": "src/commands.ts",
+    "top_files": [
+      [
+        "src/commands.ts",
+        30
+      ],
+      [
+        "src/init.ts",
+        3
+      ],
+      [
+        "src/index.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "commands.ts",
+      "base()",
+      "cacheKey()"
+    ],
+    "sample_nodes": [
+      "src_commands",
+      "src_commands_base",
+      "src_commands_cachekey",
+      "src_commands_clearrouterconfigcache",
+      "src_commands_commanddef",
+      "src_commands_commands",
+      "src_commands_connectionalias",
+      "src_commands_connectionmodelids",
+      "src_commands_fetchcachednativejson",
+      "src_commands_fetchjson"
+    ]
+  },
+  "12": {
+    "size": 32,
+    "top_file": "src/indexer.ts",
+    "top_files": [
+      [
+        "src/indexer.ts",
+        28
+      ],
+      [
+        "src/reports/workdirSnapshot.ts",
+        2
+      ],
+      [
+        "src/__tests__/indexer.test.ts",
+        2
+      ]
+    ],
+    "top_labels": [
+      "toRel()",
+      "walk()",
+      "indexer.ts"
+    ],
+    "sample_nodes": [
+      "reports_workdirsnapshot_torel",
+      "reports_workdirsnapshot_walk",
+      "src_indexer",
+      "src_indexer_db_fields",
+      "src_indexer_dbpath",
+      "src_indexer_ensurerepoindex",
+      "src_indexer_findrepos",
+      "src_indexer_forcereindex",
+      "src_indexer_getindexer",
+      "src_indexer_getrepoindexstatus"
+    ]
+  },
+  "13": {
+    "size": 31,
+    "top_file": "src/spec/specDrivenTesting.ts",
+    "top_files": [
+      [
+        "src/spec/specDrivenTesting.ts",
+        28
+      ],
+      [
+        "src/spec/__tests__/specDrivenTesting.test.ts",
+        2
+      ],
+      [
+        "src/spec/specDrivenTesting.test.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "specDrivenTesting.ts",
+      "addTest",
+      "Pause-on-ambiguity rationale (do not proceed broadly when ambiguities materially affect behavior)"
+    ],
+    "sample_nodes": [
+      "spec_specdriventesting",
+      "spec_specdriventesting_addtest",
+      "spec_specdriventesting_ambiguity_pause_rationale",
+      "spec_specdriventesting_classifystatement",
+      "spec_specdriventesting_containsany",
+      "spec_specdriventesting_coverageentry",
+      "spec_specdriventesting_formatspecdrivenprompt",
+      "spec_specdriventesting_implementation_verbs",
+      "spec_specdriventesting_isfailurepathrequirement",
+      "spec_specdriventesting_makerequirement"
+    ]
+  },
+  "14": {
+    "size": 28,
+    "top_file": "AGENTS.md",
+    "top_files": [
+      [
+        "AGENTS.md",
+        7
+      ],
+      [
+        "docs/bug-fix-spec.md",
+        6
+      ],
+      [
+        ".gitnexus/meta.json",
+        4
+      ],
+      [
+        "CLAUDE.md",
+        3
+      ],
+      [
+        "security-review.md",
+        2
+      ]
+    ],
+    "top_labels": [
+      "9rh Agent Guide (project instructions)",
+      "9rh Top-Level Modules Documentation",
+      "9rh (local coding-agent harness)"
+    ],
+    "sample_nodes": [
+      "agents_md_project",
+      "claude_md_top_level",
+      "concept_9rh",
+      "concept_9router",
+      "concept_backend_abstraction",
+      "concept_bug_findRepos_doc",
+      "concept_bug_hasRouterHint",
+      "concept_bug_saveStore",
+      "concept_bug_signal",
+      "concept_bug_timeout_clamp"
+    ]
+  },
+  "15": {
+    "size": 27,
+    "top_file": "src/visualization.ts",
+    "top_files": [
+      [
+        "src/visualization.ts",
+        22
+      ],
+      [
+        "src/agent.ts",
+        2
+      ],
+      [
+        "src/main.ts",
+        1
+      ],
+      [
+        "src/ui.ts",
+        1
+      ],
+      [
+        "src/__tests__/visualization.test.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "AgentEvent",
+      "ContinuationModelSwitch",
+      "main.ts"
+    ],
+    "sample_nodes": [
+      "src_agent_agentevent",
+      "src_agent_continuationmodelswitch",
+      "src_main",
+      "src_ui_renderdashboardlines",
+      "src_visualization",
+      "src_visualization_addedge",
+      "src_visualization_applyagentevent",
+      "src_visualization_applyreplayevent",
+      "src_visualization_exportrunvisualization",
+      "src_visualization_exportrunvisualizationgraphviz"
+    ]
+  },
+  "16": {
+    "size": 26,
+    "top_file": "src/index.ts",
+    "top_files": [
+      [
+        "src/index.ts",
+        13
+      ],
+      [
+        "src/commands.ts",
+        6
+      ],
+      [
+        "src/__tests__/commands.test.ts",
+        5
+      ],
+      [
+        "src/agent.ts",
+        2
+      ]
+    ],
+    "top_labels": [
+      "ContinuationPolicy",
+      "ToolApprovalDecision",
+      "executeSlashCommand()"
+    ],
+    "sample_nodes": [
+      "src_agent_continuationpolicy",
+      "src_agent_toolapprovaldecision",
+      "src_commands_executeslashcommand",
+      "src_commands_filtermodels",
+      "src_commands_formatmodelslist",
+      "src_commands_getslashcommands",
+      "src_commands_modelinfo",
+      "src_commands_sessionstate",
+      "src_index",
+      "src_index_defaults"
+    ]
+  },
+  "17": {
+    "size": 25,
+    "top_file": "src/semanticDiff.ts",
+    "top_files": [
+      [
+        "src/semanticDiff.ts",
+        22
+      ],
+      [
+        "src/main.ts",
+        1
+      ],
+      [
+        "src/skills.ts",
+        1
+      ],
+      [
+        "src/__tests__/semanticDiff.test.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "main public API re-exports",
+      "semanticDiff.ts",
+      "addChange()"
+    ],
+    "sample_nodes": [
+      "src_main_re_exports",
+      "src_semanticdiff",
+      "src_semanticdiff_addchange",
+      "src_semanticdiff_analyzefile",
+      "src_semanticdiff_assessintent",
+      "src_semanticdiff_behaviortype",
+      "src_semanticdiff_changedline",
+      "src_semanticdiff_collectfunctions",
+      "src_semanticdiff_createplaindiff",
+      "src_semanticdiff_createsemanticreview"
+    ]
+  },
+  "18": {
+    "size": 24,
+    "top_file": "src/replay/eventSchema.ts",
+    "top_files": [
+      [
+        "src/replay/eventSchema.ts",
+        13
+      ],
+      [
+        "src/replay/divergenceDetector.ts",
+        6
+      ],
+      [
+        "src/replay/replayEngine.ts",
+        3
+      ],
+      [
+        "src/replay/index.ts",
+        1
+      ],
+      [
+        "src/replay/__tests__/divergenceDetector.test.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "divergenceDetector.ts",
+      "compareEventLogs",
+      "detectLLMDivergence"
+    ],
+    "sample_nodes": [
+      "replay_divergencedetector",
+      "replay_divergencedetector_compareeventlogs",
+      "replay_divergencedetector_detectllmdivergence",
+      "replay_divergencedetector_detecttooldivergence",
+      "replay_divergencedetector_divergence",
+      "replay_divergencedetector_divergencereport",
+      "replay_eventschema",
+      "replay_eventschema_branchcreateevent",
+      "replay_eventschema_checkpointevent",
+      "replay_eventschema_compactevent"
+    ]
+  },
+  "19": {
+    "size": 21,
+    "top_file": "docs/bug-fix-spec.md",
+    "top_files": [
+      [
+        "docs/bug-fix-spec.md",
+        21
+      ]
+    ],
+    "top_labels": [
+      "Bug Fix Specification",
+      "Bug 10: Rate limiter bypass via header injection",
+      "Bug 11: Path traversal via symlink resolution"
+    ],
+    "sample_nodes": [
+      "docs_bug_fix_spec",
+      "docs_bug_fix_spec_bug_10_rate_limit",
+      "docs_bug_fix_spec_bug_11_path_traversal",
+      "docs_bug_fix_spec_bug_12_path_normalization",
+      "docs_bug_fix_spec_bug_13_sandbox_exec_subpath",
+      "docs_bug_fix_spec_bug_14_log_injection",
+      "docs_bug_fix_spec_bug_15_stream_parser",
+      "docs_bug_fix_spec_bug_16_session_persistence",
+      "docs_bug_fix_spec_bug_17_input_validation",
+      "docs_bug_fix_spec_bug_18_signal_killed"
+    ]
+  },
+  "20": {
+    "size": 20,
+    "top_file": "src/reasoner/reasoner.ts",
+    "top_files": [
+      [
+        "src/reasoner/reasoner.ts",
+        16
+      ],
+      [
+        "src/replay/eventSchema.ts",
+        2
+      ],
+      [
+        "src/reasoner/__tests__/reasoner.test.ts",
+        2
+      ]
+    ],
+    "top_labels": [
+      "Expected vs Observed Deviation Detection",
+      "Reasoner Class",
+      "Reasoner.hasActivePlan"
+    ],
+    "sample_nodes": [
+      "reasoner_deviation_detection",
+      "reasoner_reasoner",
+      "reasoner_reasoner_hasactiveplan",
+      "reasoner_reasoner_plan",
+      "reasoner_reasoner_reasoner",
+      "reasoner_reasoner_reasoner_constructor",
+      "reasoner_reasoner_reasoner_hasactiveplan",
+      "reasoner_reasoner_reasoner_plan",
+      "reasoner_reasoner_reasoner_reset",
+      "reasoner_reasoner_reasoner_summarize"
+    ]
+  },
+  "21": {
+    "size": 18,
+    "top_file": "src/longHorizonMemory.ts",
+    "top_files": [
+      [
+        "src/longHorizonMemory.ts",
+        17
+      ],
+      [
+        "src/__tests__/longHorizonMemory.test.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "longHorizonMemory.ts",
+      "buildLongHorizonMemory",
+      "classify()"
+    ],
+    "sample_nodes": [
+      "src_longhorizonmemory",
+      "src_longhorizonmemory_buildlonghorizonmemory",
+      "src_longhorizonmemory_classify",
+      "src_longhorizonmemory_extractidentifiers",
+      "src_longhorizonmemory_hashtext",
+      "src_longhorizonmemory_longhorizonmemory",
+      "src_longhorizonmemory_memoryitem",
+      "src_longhorizonmemory_memoryprovenance",
+      "src_longhorizonmemory_memorytier",
+      "src_longhorizonmemory_renderlonghorizonmemory"
+    ]
+  },
+  "22": {
+    "size": 16,
+    "top_file": "src/replay/branchManager.ts",
+    "top_files": [
+      [
+        "src/replay/branchManager.ts",
+        15
+      ],
+      [
+        "src/replay/__tests__/branchManager.test.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "branchManager.ts",
+      "Branch",
+      "BranchConfig"
+    ],
+    "sample_nodes": [
+      "replay_branchmanager",
+      "replay_branchmanager_branch",
+      "replay_branchmanager_branchconfig",
+      "replay_branchmanager_branchmanager",
+      "replay_branchmanager_branchmanager_archivebranch",
+      "replay_branchmanager_branchmanager_constructor",
+      "replay_branchmanager_branchmanager_createbranch",
+      "replay_branchmanager_branchmanager_getbranch",
+      "replay_branchmanager_branchmanager_getbranchesforrun",
+      "replay_branchmanager_branchmanager_getlineage"
+    ]
+  },
+  "23": {
+    "size": 16,
+    "top_file": "src/config.ts",
+    "top_files": [
+      [
+        "src/config.ts",
+        9
+      ],
+      [
+        "src/index.ts",
+        4
+      ],
+      [
+        "src/__tests__/config.test.ts",
+        3
+      ]
+    ],
+    "top_labels": [
+      "config.ts",
+      "cleanString()",
+      "configDir()"
+    ],
+    "sample_nodes": [
+      "src_config",
+      "src_config_cleanstring",
+      "src_config_configdir",
+      "src_config_configpath",
+      "src_config_readuserconfig",
+      "src_config_resolveconfiguredmodel",
+      "src_config_updateuserconfig",
+      "src_config_userconfig",
+      "src_config_writeuserconfig",
+      "src_index_hasoption"
+    ]
+  },
+  "24": {
+    "size": 16,
+    "top_file": "src/ui.ts",
+    "top_files": [
+      [
+        "src/ui.ts",
+        16
+      ]
+    ],
+    "top_labels": [
+      "ui.ts",
+      "clearStatus()",
+      "cursorToStatus()"
+    ],
+    "sample_nodes": [
+      "src_ui",
+      "src_ui_clearstatus",
+      "src_ui_cursortostatus",
+      "src_ui_formatstats",
+      "src_ui_hidebusy",
+      "src_ui_hiderightstats",
+      "src_ui_hidespinner",
+      "src_ui_pulsequeuebadge",
+      "src_ui_refreshstatusline",
+      "src_ui_showbusy"
+    ]
+  },
+  "25": {
+    "size": 15,
+    "top_file": "src/inputCompression.ts",
+    "top_files": [
+      [
+        "src/inputCompression.ts",
+        14
+      ],
+      [
+        "src/__tests__/inputCompression.test.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "inputCompression.ts",
+      "buildFrugalLargeTextSummary()",
+      "byteLengthFromBase64()"
+    ],
+    "sample_nodes": [
+      "src_inputcompression",
+      "src_inputcompression_buildfrugallargetextsummary",
+      "src_inputcompression_bytelengthfrombase64",
+      "src_inputcompression_compressionoptions",
+      "src_inputcompression_compressionresult",
+      "src_inputcompression_compresslargetext",
+      "src_inputcompression_compressterminaltraceback",
+      "src_inputcompression_compressuserinput",
+      "src_inputcompression_extractcodefencesummaries",
+      "src_inputcompression_hashtext"
+    ]
+  },
+  "26": {
+    "size": 15,
+    "top_file": "tsconfig.json",
+    "top_files": [
+      [
+        "tsconfig.json",
+        15
+      ]
+    ],
+    "top_labels": [
+      "tsconfig.json",
+      "compilerOptions",
+      "declaration"
+    ],
+    "sample_nodes": [
+      "tsconfig",
+      "tsconfig_compileroptions",
+      "tsconfig_compileroptions_declaration",
+      "tsconfig_compileroptions_esmoduleinterop",
+      "tsconfig_compileroptions_isolatedmodules",
+      "tsconfig_compileroptions_module",
+      "tsconfig_compileroptions_moduleresolution",
+      "tsconfig_compileroptions_outdir",
+      "tsconfig_compileroptions_rootdir",
+      "tsconfig_compileroptions_skiplibcheck"
+    ]
+  },
+  "27": {
+    "size": 13,
+    "top_file": "src/replInput.ts",
+    "top_files": [
+      [
+        "src/replInput.ts",
+        11
+      ],
+      [
+        "src/__tests__/replInput.test.ts",
+        2
+      ]
+    ],
+    "top_labels": [
+      "replInput.ts",
+      "DEFAULT_OPTIONS",
+      "ReplInputCoalescer"
+    ],
+    "sample_nodes": [
+      "src_replinput",
+      "src_replinput_default_options",
+      "src_replinput_replinputcoalescer",
+      "src_replinput_replinputcoalescer_constructor",
+      "src_replinput_replinputcoalescer_currentdelayms",
+      "src_replinput_replinputcoalescer_flush",
+      "src_replinput_replinputcoalescer_haspending",
+      "src_replinput_replinputcoalescer_pushline",
+      "src_replinput_replinputcoalescer_reschedule",
+      "src_replinput_replinputcoalescercallbacks"
+    ]
+  },
+  "28": {
+    "size": 12,
+    "top_file": "src/reasoner/validation.ts",
+    "top_files": [
+      [
+        "src/reasoner/validation.ts",
+        10
+      ],
+      [
+        "src/reasoner/index.ts",
+        1
+      ],
+      [
+        "src/reasoner/__tests__/validation.test.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "Best-Effort Event Repair",
+      "Reasoner Module Index",
+      "Validation.validateReasoningPlan"
+    ],
+    "sample_nodes": [
+      "reasoner_event_repair",
+      "reasoner_index",
+      "reasoner_validatereasoningplan",
+      "reasoner_validatereasoningsummary",
+      "reasoner_validation",
+      "reasoner_validation_repairevent",
+      "reasoner_validation_validateandrepair",
+      "reasoner_validation_validateevent",
+      "reasoner_validation_validatereasoningplan",
+      "reasoner_validation_validatereasoningsummary"
+    ]
+  },
+  "29": {
+    "size": 12,
+    "top_file": "src/reasoner/redactor.ts",
+    "top_files": [
+      [
+        "src/reasoner/redactor.ts",
+        7
+      ],
+      [
+        "src/replay/eventLogger.ts",
+        3
+      ],
+      [
+        "src/replay/__tests__/eventLogger.test.ts",
+        1
+      ],
+      [
+        "src/reasoner/__tests__/redactor.test.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "Secret Redaction Allowlist (ENV_VAR/TOKEN/AWS/GitHub/npm)",
+      "Redactor (Secret Scrubber)",
+      "Redactor.recursivelyRedact"
+    ],
+    "sample_nodes": [
+      "reasoner_redaction_allowlist",
+      "reasoner_redactor",
+      "reasoner_redactor_recursivelyredact",
+      "reasoner_redactor_redact",
+      "reasoner_redactor_redactevent",
+      "reasoner_redactor_secret_patterns",
+      "reasoner_redactor_sensitive_keys",
+      "replay_eventlogger",
+      "replay_eventlogger_eventloggerconfig",
+      "replay_eventlogger_readeventlog"
+    ]
+  },
+  "30": {
+    "size": 11,
+    "top_file": "src/replay/replayEngine.ts",
+    "top_files": [
+      [
+        "src/replay/replayEngine.ts",
+        7
+      ],
+      [
+        "src/replay/__tests__/replayEngine.test.ts",
+        2
+      ],
+      [
+        "src/replay/eventSchema.ts",
+        1
+      ],
+      [
+        "src/agent.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "ReplayEvent union type",
+      "ReplayEngine",
+      ".constructor()"
+    ],
+    "sample_nodes": [
+      "replay_eventschema_replayevent",
+      "replay_replayengine_replayengine",
+      "replay_replayengine_replayengine_constructor",
+      "replay_replayengine_replayengine_geteventat",
+      "replay_replayengine_replayengine_geteventcount",
+      "replay_replayengine_replayengine_isdiverged",
+      "replay_replayengine_replayengine_load",
+      "replay_replayengine_replayengine_replay",
+      "src_agent_replayconfig",
+      "tests_replayengine_test"
+    ]
+  },
+  "31": {
+    "size": 10,
+    "top_file": "src/replay/eventLogger.ts",
+    "top_files": [
+      [
+        "src/replay/eventLogger.ts",
+        10
+      ]
+    ],
+    "top_labels": [
+      "EventLogger",
+      ".constructor()",
+      ".drainPending()"
+    ],
+    "sample_nodes": [
+      "replay_eventlogger_eventlogger",
+      "replay_eventlogger_eventlogger_constructor",
+      "replay_eventlogger_eventlogger_drainpending",
+      "replay_eventlogger_eventlogger_finalize",
+      "replay_eventlogger_eventlogger_flush",
+      "replay_eventlogger_eventlogger_getlogpath",
+      "replay_eventlogger_eventlogger_init",
+      "replay_eventlogger_eventlogger_log",
+      "replay_eventlogger_eventlogger_scheduledrain",
+      "replay_eventlogger_eventlogger_waitfordrain"
+    ]
+  },
+  "32": {
+    "size": 9,
+    "top_file": "src/replay/replayEngine.ts",
+    "top_files": [
+      [
+        "src/replay/replayEngine.ts",
+        4
+      ],
+      [
+        "src/replay/checkpointManager.ts",
+        2
+      ],
+      [
+        "src/replay/branchManager.ts",
+        1
+      ],
+      [
+        "src/replay/eventLogger.ts",
+        1
+      ],
+      [
+        "src/replay/index.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "BranchManager class",
+      "captureGitState",
+      "CheckpointManager class"
+    ],
+    "sample_nodes": [
+      "replay_branchmanager_class",
+      "replay_checkpointmanager_capturegitstate",
+      "replay_checkpointmanager_class",
+      "replay_dry_run_safety",
+      "replay_eventlogger_class",
+      "replay_index_module",
+      "replay_replayengine_class",
+      "replay_sandboxed_executor_required",
+      "replay_signature_verification"
+    ]
+  },
+  "33": {
+    "size": 9,
+    "top_file": "src/contextCompression.ts",
+    "top_files": [
+      [
+        "src/contextCompression.ts",
+        8
+      ],
+      [
+        "src/__tests__/contextCompression.test.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "contextCompression.ts",
+      "cleanLine()",
+      "compressContextText()"
+    ],
+    "sample_nodes": [
+      "src_contextcompression",
+      "src_contextcompression_cleanline",
+      "src_contextcompression_compresscontexttext",
+      "src_contextcompression_compresstoolresultforcontext",
+      "src_contextcompression_contextcompressionoptions",
+      "src_contextcompression_contextcompressionresult",
+      "src_contextcompression_hashtext",
+      "src_contextcompression_uniquesignals",
+      "tests_contextcompression_test"
+    ]
+  },
+  "34": {
+    "size": 9,
+    "top_file": "skills/writing-skills/render-graphs.js",
+    "top_files": [
+      [
+        "skills/writing-skills/render-graphs.js",
+        9
+      ]
+    ],
+    "top_labels": [
+      "render-graphs.js",
+      "combineGraphs()",
+      "{ execSync }"
+    ],
+    "sample_nodes": [
+      "writing_skills_render_graphs",
+      "writing_skills_render_graphs_combinegraphs",
+      "writing_skills_render_graphs_execsync",
+      "writing_skills_render_graphs_extractdotblocks",
+      "writing_skills_render_graphs_extractgraphbody",
+      "writing_skills_render_graphs_fs",
+      "writing_skills_render_graphs_main",
+      "writing_skills_render_graphs_path",
+      "writing_skills_render_graphs_rendertosvg"
+    ]
+  },
+  "35": {
+    "size": 8,
+    "top_file": "src/__tests__/agent-graceful-exit.test.ts",
+    "top_files": [
+      [
+        "src/__tests__/agent-graceful-exit.test.ts",
+        8
+      ]
+    ],
+    "top_labels": [
+      "agent-graceful-exit.test.ts",
+      "AgentPrivate",
+      "createAbortError()"
+    ],
+    "sample_nodes": [
+      "tests_agent_graceful_exit_test",
+      "tests_agent_graceful_exit_test_agentprivate",
+      "tests_agent_graceful_exit_test_createaborterror",
+      "tests_agent_graceful_exit_test_done",
+      "tests_agent_graceful_exit_test_makeconfig",
+      "tests_agent_graceful_exit_test_spystream",
+      "tests_agent_graceful_exit_test_streamresult",
+      "tests_agent_graceful_exit_test_tool_call"
+    ]
+  },
+  "36": {
+    "size": 6,
+    "top_file": "skills/brainstorming/visual-companion.md",
+    "top_files": [
+      [
+        "skills/brainstorming/visual-companion.md",
+        2
+      ],
+      [
+        "skills/brainstorming/scripts/frame-template.html",
+        1
+      ],
+      [
+        "skills/brainstorming/scripts/helper.js",
+        1
+      ],
+      [
+        "skills/brainstorming/scripts/start-server.sh",
+        1
+      ],
+      [
+        "skills/brainstorming/scripts/stop-server.sh",
+        1
+      ]
+    ],
+    "top_labels": [
+      "Visual Companion (browser brainstorm UI)",
+      "Frame HTML template",
+      "Helper.js (browser WebSocket client)"
+    ],
+    "sample_nodes": [
+      "concept_brainstorm_visual_companion",
+      "skills_brainstorming_frame_template_html",
+      "skills_brainstorming_helper_js",
+      "skills_brainstorming_start_server_sh",
+      "skills_brainstorming_stop_server_sh",
+      "skills_brainstorming_visual_companion_md"
+    ]
+  },
+  "37": {
+    "size": 4,
+    "top_file": "docs/full-documentation.md",
+    "top_files": [
+      [
+        "docs/full-documentation.md",
+        2
+      ],
+      [
+        ".gitnexus/meta.json",
+        1
+      ],
+      [
+        "security-review.md",
+        1
+      ]
+    ],
+    "top_labels": [
+      "Fault Injection harness",
+      "Security Finding F-26 (High): Replay engine re-executes recorded tool calls",
+      "Repair system (4 error classes + circuit breaker)"
+    ],
+    "sample_nodes": [
+      "concept_fault_injection",
+      "concept_finding_F26",
+      "concept_repair_system",
+      "concept_replay_system"
+    ]
+  },
+  "38": {
+    "size": 4,
+    "top_file": "src/repair/__tests__/errorTaxonomy.test.ts",
+    "top_files": [
+      [
+        "src/repair/__tests__/errorTaxonomy.test.ts",
+        4
+      ]
+    ],
+    "top_labels": [
+      "Message-text attack resistance (fatal-invariant / rate-limit substrings)",
+      "Origin-first error classification policy (F-31)",
+      "classifyError (test)"
+    ],
+    "sample_nodes": [
+      "errortaxonomy_message_text_attack",
+      "errortaxonomy_origin_first_policy",
+      "errortaxonomy_test_classifyerror",
+      "errortaxonomy_test_tagerror"
+    ]
+  },
+  "39": {
+    "size": 4,
+    "top_file": "jest.config.ts",
+    "top_files": [
+      [
+        "jest.config.ts",
+        1
+      ],
+      [
+        ".openclaude/settings.local.json",
+        1
+      ],
+      [
+        "package.json",
+        1
+      ],
+      [
+        "tsconfig.json",
+        1
+      ]
+    ],
+    "top_labels": [
+      "Jest configuration (ESM)",
+      "OpenClaude local permissions",
+      "9rh package manifest"
+    ],
+    "sample_nodes": [
+      "jest_config_ts",
+      "openclaude_settings_local",
+      "package_json_manifest",
+      "tsconfig_json"
+    ]
+  },
+  "40": {
+    "size": 4,
+    "top_file": "skills/systematic-debugging/condition-based-waiting-example.ts",
+    "top_files": [
+      [
+        "skills/systematic-debugging/condition-based-waiting-example.ts",
+        4
+      ]
+    ],
+    "top_labels": [
+      "condition-based-waiting-example.ts",
+      "waitForEvent()",
+      "waitForEventCount()"
+    ],
+    "sample_nodes": [
+      "systematic_debugging_condition_based_waiting_example",
+      "systematic_debugging_condition_based_waiting_example_waitforevent",
+      "systematic_debugging_condition_based_waiting_example_waitforeventcount",
+      "systematic_debugging_condition_based_waiting_example_waitforeventmatch"
+    ]
+  },
+  "41": {
+    "size": 3,
+    "top_file": "docs/bug-fix-spec.md",
+    "top_files": [
+      [
+        "docs/bug-fix-spec.md",
+        1
+      ],
+      [
+        "docs/full-documentation.md",
+        1
+      ],
+      [
+        "security-review.md",
+        1
+      ]
+    ],
+    "top_labels": [
+      "Bug Fix Spec — Top 6 Findings",
+      "9rh Full Documentation",
+      "Security Review (49 findings)"
+    ],
+    "sample_nodes": [
+      "docs_bug_fix_spec_md",
+      "docs_full_documentation_md",
+      "security_review_md"
+    ]
+  },
+  "42": {
+    "size": 3,
+    "top_file": "src/faultInjection/injector.ts",
+    "top_files": [
+      [
+        "src/faultInjection/injector.ts",
+        3
+      ]
+    ],
+    "top_labels": [
+      "FaultInjector.createFault()",
+      "FaultInjector.shouldFire()",
+      "FaultInjector.wrap()"
+    ],
+    "sample_nodes": [
+      "faultinjection_injector_createfault",
+      "faultinjection_injector_shouldfire",
+      "faultinjection_injector_wrap"
+    ]
+  },
+  "43": {
+    "size": 3,
+    "top_file": "src/sandbox/__tests__/sandboxIntegration.test.ts",
+    "top_files": [
+      [
+        "src/sandbox/__tests__/sandboxIntegration.test.ts",
+        3
+      ]
+    ],
+    "top_labels": [
+      "sandboxIntegration test: Sandbox exec basic behavior",
+      "sandboxIntegration test: sandboxPath escape protection",
+      "Symlink escape protection invariant (sandbox)"
+    ],
+    "sample_nodes": [
+      "sandbox_tests_sandboxintegration_exec_basictest",
+      "sandbox_tests_sandboxintegration_sandbox_pathtest",
+      "sandbox_tests_sandboxintegration_symlink_escape_protection"
+    ]
+  },
+  "44": {
+    "size": 3,
+    "top_file": "skills/brainstorming/scripts/helper.js",
+    "top_files": [
+      [
+        "skills/brainstorming/scripts/helper.js",
+        3
+      ]
+    ],
+    "top_labels": [
+      "helper.js",
+      "connect()",
+      "sendEvent()"
+    ],
+    "sample_nodes": [
+      "scripts_helper",
+      "scripts_helper_connect",
+      "scripts_helper_sendevent"
+    ]
+  },
+  "45": {
+    "size": 2,
+    "top_file": "src/repair/__tests__/postMortemLogger.test.ts",
+    "top_files": [
+      [
+        "src/repair/__tests__/postMortemLogger.test.ts",
+        2
+      ]
+    ],
+    "top_labels": [
+      "generatePlaybookEntry (test)",
+      "logIncident (test)"
+    ],
+    "sample_nodes": [
+      "postmortemlogger_test_generateplaybookentry",
+      "postmortemlogger_test_logincident"
+    ]
+  },
+  "46": {
+    "size": 2,
+    "top_file": "skills/brainstorming/scripts/start-server.sh",
+    "top_files": [
+      [
+        "skills/brainstorming/scripts/start-server.sh",
+        2
+      ]
+    ],
+    "top_labels": [
+      "start-server.sh",
+      "start-server.sh script"
+    ],
+    "sample_nodes": [
+      "scripts_start_server",
+      "volumes_m_2_2tb_code_9rh_skills_brainstorming_scripts_start_server_sh__entry"
+    ]
+  },
+  "47": {
+    "size": 2,
+    "top_file": "skills/brainstorming/scripts/stop-server.sh",
+    "top_files": [
+      [
+        "skills/brainstorming/scripts/stop-server.sh",
+        2
+      ]
+    ],
+    "top_labels": [
+      "stop-server.sh",
+      "stop-server.sh script"
+    ],
+    "sample_nodes": [
+      "scripts_stop_server",
+      "volumes_m_2_2tb_code_9rh_skills_brainstorming_scripts_stop_server_sh__entry"
+    ]
+  },
+  "48": {
+    "size": 2,
+    "top_file": "src/server.ts",
+    "top_files": [
+      [
+        "src/server.ts",
+        2
+      ]
+    ],
+    "top_labels": [
+      "server.ts",
+      "app"
+    ],
+    "sample_nodes": [
+      "src_server",
+      "src_server_app"
+    ]
+  },
+  "49": {
+    "size": 2,
+    "top_file": "skills/systematic-debugging/find-polluter.sh",
+    "top_files": [
+      [
+        "skills/systematic-debugging/find-polluter.sh",
+        2
+      ]
+    ],
+    "top_labels": [
+      "find-polluter.sh",
+      "find-polluter.sh script"
+    ],
+    "sample_nodes": [
+      "systematic_debugging_find_polluter",
+      "volumes_m_2_2tb_code_9rh_skills_systematic_debugging_find_polluter_sh__entry"
+    ]
+  },
+  "50": {
+    "size": 2,
+    "top_file": "src/sandbox/__tests__/sandboxIntegration.test.ts",
+    "top_files": [
+      [
+        "src/sandbox/__tests__/sandboxIntegration.test.ts",
+        2
+      ]
+    ],
+    "top_labels": [
+      "sandboxIntegration.test.ts",
+      "makeTempDir()"
+    ],
+    "sample_nodes": [
+      "tests_sandboxintegration_test",
+      "tests_sandboxintegration_test_maketempdir"
+    ]
+  },
+  "51": {
+    "size": 1,
+    "top_file": "src/faultInjection/evaluator.ts",
+    "top_files": [
+      [
+        "src/faultInjection/evaluator.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "RecoveryEvaluator.onFaultDetected()"
+    ],
+    "sample_nodes": [
+      "faultinjection_evaluator_onfaultdetected"
+    ]
+  },
+  "52": {
+    "size": 1,
+    "top_file": "src/faultInjection/evaluator.ts",
+    "top_files": [
+      [
+        "src/faultInjection/evaluator.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "RecoveryEvaluator.onFaultInjected()"
+    ],
+    "sample_nodes": [
+      "faultinjection_evaluator_onfaultinjected"
+    ]
+  },
+  "53": {
+    "size": 1,
+    "top_file": "src/faultInjection/evaluator.ts",
+    "top_files": [
+      [
+        "src/faultInjection/evaluator.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "RecoveryEvaluator.onRecovery()"
+    ],
+    "sample_nodes": [
+      "faultinjection_evaluator_onrecovery"
+    ]
+  },
+  "54": {
+    "size": 1,
+    "top_file": "src/faultInjection/evaluator.ts",
+    "top_files": [
+      [
+        "src/faultInjection/evaluator.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "RecoveryEvaluator.reset()"
+    ],
+    "sample_nodes": [
+      "faultinjection_evaluator_reset"
+    ]
+  },
+  "55": {
+    "size": 1,
+    "top_file": "src/faultInjection/injector.ts",
+    "top_files": [
+      [
+        "src/faultInjection/injector.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "FaultInjector.register()"
+    ],
+    "sample_nodes": [
+      "faultinjection_injector_register"
+    ]
+  },
+  "56": {
+    "size": 1,
+    "top_file": "src/faultInjection/injector.ts",
+    "top_files": [
+      [
+        "src/faultInjection/injector.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "FaultInjector.reset()"
+    ],
+    "sample_nodes": [
+      "faultinjection_injector_reset"
+    ]
+  },
+  "57": {
+    "size": 1,
+    "top_file": "src/faultInjection/scenarios.ts",
+    "top_files": [
+      [
+        "src/faultInjection/scenarios.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "Scenario: API Timeout on Retry"
+    ],
+    "sample_nodes": [
+      "faultinjection_scenarios_api_timeout_on_retry"
+    ]
+  },
+  "58": {
+    "size": 1,
+    "top_file": "src/faultInjection/scenarios.ts",
+    "top_files": [
+      [
+        "src/faultInjection/scenarios.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "Scenario: Circuit Breaker Trip"
+    ],
+    "sample_nodes": [
+      "faultinjection_scenarios_circuit_breaker_trip"
+    ]
+  },
+  "59": {
+    "size": 1,
+    "top_file": "src/faultInjection/scenarios.ts",
+    "top_files": [
+      [
+        "src/faultInjection/scenarios.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "Scenario: Disk Full on File Write"
+    ],
+    "sample_nodes": [
+      "faultinjection_scenarios_disk_full_write"
+    ]
+  },
+  "60": {
+    "size": 1,
+    "top_file": "src/faultInjection/scenarios.ts",
+    "top_files": [
+      [
+        "src/faultInjection/scenarios.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "Scenario: Fatal Invariant Violation"
+    ],
+    "sample_nodes": [
+      "faultinjection_scenarios_fatal_invariant_violation"
+    ]
+  },
+  "61": {
+    "size": 1,
+    "top_file": "src/faultInjection/scenarios.ts",
+    "top_files": [
+      [
+        "src/faultInjection/scenarios.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "Scenario: Invalid Tool Arguments"
+    ],
+    "sample_nodes": [
+      "faultinjection_scenarios_invalid_tool_args"
+    ]
+  },
+  "62": {
+    "size": 1,
+    "top_file": "src/faultInjection/scenarios.ts",
+    "top_files": [
+      [
+        "src/faultInjection/scenarios.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "Scenario: Malformed JSON from LLM"
+    ],
+    "sample_nodes": [
+      "faultinjection_scenarios_malformed_json_response"
+    ]
+  },
+  "63": {
+    "size": 1,
+    "top_file": "src/faultInjection/scenarios.ts",
+    "top_files": [
+      [
+        "src/faultInjection/scenarios.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "Scenario: Permission Denied on File Read"
+    ],
+    "sample_nodes": [
+      "faultinjection_scenarios_permission_denied_read"
+    ]
+  },
+  "64": {
+    "size": 1,
+    "top_file": "src/faultInjection/scenarios.ts",
+    "top_files": [
+      [
+        "src/faultInjection/scenarios.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "Scenario: Rate Limit with Backoff"
+    ],
+    "sample_nodes": [
+      "faultinjection_scenarios_rate_limit_with_backoff"
+    ]
+  },
+  "65": {
+    "size": 1,
+    "top_file": "src/faultInjection/scenarios.ts",
+    "top_files": [
+      [
+        "src/faultInjection/scenarios.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "Scenario: Repair LLM Network Reset"
+    ],
+    "sample_nodes": [
+      "faultinjection_scenarios_repair_llm_unavailable"
+    ]
+  },
+  "66": {
+    "size": 1,
+    "top_file": "src/faultInjection/scenarios.ts",
+    "top_files": [
+      [
+        "src/faultInjection/scenarios.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "Scenario: Sandbox Execution Timeout"
+    ],
+    "sample_nodes": [
+      "faultinjection_scenarios_sandbox_timeout"
+    ]
+  },
+  "67": {
+    "size": 1,
+    "top_file": "jest.config.ts",
+    "top_files": [
+      [
+        "jest.config.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "jest.config.ts"
+    ],
+    "sample_nodes": [
+      "jest_config"
+    ]
+  },
+  "68": {
+    "size": 1,
+    "top_file": "src/replay/__tests__/branchManager.test.ts",
+    "top_files": [
+      [
+        "src/replay/__tests__/branchManager.test.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "BranchManager tests"
+    ],
+    "sample_nodes": [
+      "replay_branchmanager_test"
+    ]
+  },
+  "69": {
+    "size": 1,
+    "top_file": "src/replay/__tests__/divergenceDetector.test.ts",
+    "top_files": [
+      [
+        "src/replay/__tests__/divergenceDetector.test.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "DivergenceDetector tests"
+    ],
+    "sample_nodes": [
+      "replay_divergencedetector_test"
+    ]
+  },
+  "70": {
+    "size": 1,
+    "top_file": "src/replay/__tests__/eventLogger.test.ts",
+    "top_files": [
+      [
+        "src/replay/__tests__/eventLogger.test.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "EventLogger tests"
+    ],
+    "sample_nodes": [
+      "replay_eventlogger_test"
+    ]
+  },
+  "71": {
+    "size": 1,
+    "top_file": "src/sandbox/__tests__/sandbox.test.ts",
+    "top_files": [
+      [
+        "src/sandbox/__tests__/sandbox.test.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "Sandbox tests"
+    ],
+    "sample_nodes": [
+      "sandbox_test_module"
+    ]
+  },
+  "72": {
+    "size": 1,
+    "top_file": "src/server.ts",
+    "top_files": [
+      [
+        "src/server.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "express app"
+    ],
+    "sample_nodes": [
+      "src_server_express_app"
+    ]
+  },
+  "73": {
+    "size": 1,
+    "top_file": "src/tools.ts",
+    "top_files": [
+      [
+        "src/tools.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "workDir sandbox + symlink guard"
+    ],
+    "sample_nodes": [
+      "src_tools_workdir_sandbox_design"
+    ]
+  },
+  "74": {
+    "size": 1,
+    "top_file": "src/tui.ts",
+    "top_files": [
+      [
+        "src/tui.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "formatStats"
+    ],
+    "sample_nodes": [
+      "src_tui_formatstats"
+    ]
+  },
+  "75": {
+    "size": 1,
+    "top_file": "src/tui.ts",
+    "top_files": [
+      [
+        "src/tui.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "refreshStatusLine"
+    ],
+    "sample_nodes": [
+      "src_tui_refreshstatusline"
+    ]
+  },
+  "76": {
+    "size": 1,
+    "top_file": "src/tui.ts",
+    "top_files": [
+      [
+        "src/tui.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "showSpinner"
+    ],
+    "sample_nodes": [
+      "src_tui_showspinner"
+    ]
+  },
+  "77": {
+    "size": 1,
+    "top_file": "src/ui.ts",
+    "top_files": [
+      [
+        "src/ui.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "summarizeLiveModelInsight"
+    ],
+    "sample_nodes": [
+      "src_ui_summarizelivemodelinsight"
+    ]
+  },
+  "78": {
+    "size": 1,
+    "top_file": "src/__tests__/skills.test.ts",
+    "top_files": [
+      [
+        "src/__tests__/skills.test.ts",
+        1
+      ]
+    ],
+    "top_labels": [
+      "skills.test.ts"
+    ],
+    "sample_nodes": [
+      "tests_skills_test"
+    ]
+  }
+}

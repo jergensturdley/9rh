@@ -35,8 +35,8 @@ let busyIdx = 0;
 let queueFillIdx = 0;
 let funIdx = 0;
 
-function termRows(): number { return (process.stderr as any).rows ?? 24; }
-function termCols(): number { return (process.stderr as any).columns ?? 80; }
+function termRows(): number { return (process.stderr as NodeJS.WriteStream).rows ?? 24; }
+function termCols(): number { return (process.stderr as NodeJS.WriteStream).columns ?? 80; }
 
 function cursorToStatus(): void {
   cursorTo(process.stderr, 0, termRows() - 2);

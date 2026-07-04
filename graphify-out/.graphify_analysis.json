@@ -1,0 +1,246 @@
+{
+  "god_nodes": [
+    {
+      "id": "orchestrator_index",
+      "label": "Orchestrator Module Index",
+      "degree": 59
+    },
+    {
+      "id": "orchestrator_orchestrator",
+      "label": "Orchestrator Class",
+      "degree": 45
+    },
+    {
+      "id": "src_agent_agent",
+      "label": "Agent",
+      "degree": 36
+    },
+    {
+      "id": "repair_index",
+      "label": "Repair Module Index",
+      "degree": 33
+    },
+    {
+      "id": "orchestrator_orchestrator_orchestrator",
+      "label": "Orchestrator.orchestrate",
+      "degree": 31
+    },
+    {
+      "id": "faultinjection_index",
+      "label": "faultInjection barrel module",
+      "degree": 29
+    },
+    {
+      "id": "orchestrator_taskstate",
+      "label": "Task State and Role Contexts",
+      "degree": 25
+    },
+    {
+      "id": "orchestrator_roles",
+      "label": "Role Definitions and Risk Classifier",
+      "degree": 24
+    },
+    {
+      "id": "src_tools_executetool",
+      "label": "executeTool",
+      "degree": 23
+    },
+    {
+      "id": "backends_index",
+      "label": "backends barrel module",
+      "degree": 23
+    },
+    {
+      "id": "repair_errortaxonomy",
+      "label": "Error Taxonomy",
+      "degree": 23
+    },
+    {
+      "id": "faultinjection_types",
+      "label": "faultInjection types module",
+      "degree": 22
+    },
+    {
+      "id": "repair_errortaxonomy_errorclass",
+      "label": "ErrorClass enum",
+      "degree": 22
+    },
+    {
+      "id": "backends_detect",
+      "label": "detectBackend module",
+      "degree": 21
+    },
+    {
+      "id": "replay_eventschema_replayevent",
+      "label": "ReplayEvent union type",
+      "degree": 21
+    }
+  ],
+  "surprising_connections": [
+    {
+      "source": "Sandbox smoke-test script",
+      "target": "Tool sandbox / Sandbox class",
+      "source_files": [
+        "sb_test.ts",
+        "AGENTS.md"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "instantiates",
+      "why": "crosses file types (code ↔ doc); connects across different repos/directories; peripheral node `Sandbox smoke-test script` unexpectedly reaches hub `Tool sandbox / Sandbox class`"
+    },
+    {
+      "source": "Orchestrator (Architect→Implementer→Reviewer→Security→Test)",
+      "target": "Streaming ReAct loop",
+      "source_files": [
+        ".gitnexus/meta.json",
+        "CLAUDE.md"
+      ],
+      "confidence": "INFERRED",
+      "relation": "extends",
+      "why": "inferred connection - not explicitly stated in source; crosses file types (doc ↔ code); connects across different repos/directories"
+    },
+    {
+      "source": "CodeGraph MCP server (tree-sitter AST index)",
+      "target": "GitNexus (ladybugdb knowledge graph)",
+      "source_files": [
+        "AGENTS.md",
+        ".gitnexus/meta.json"
+      ],
+      "confidence": "INFERRED",
+      "relation": "complementary_to",
+      "why": "inferred connection - not explicitly stated in source; crosses file types (doc ↔ code); connects across different repos/directories"
+    },
+    {
+      "source": "Spec-driven testing",
+      "target": "Superpowers skill methodology",
+      "source_files": [
+        ".gitnexus/meta.json",
+        "AGENTS.md"
+      ],
+      "confidence": "INFERRED",
+      "relation": "aligned_with",
+      "why": "inferred connection - not explicitly stated in source; crosses file types (doc ↔ code); connects across different repos/directories"
+    },
+    {
+      "source": "Fault Injection harness",
+      "target": "Repair system (4 error classes + circuit breaker)",
+      "source_files": [
+        ".gitnexus/meta.json",
+        "docs/full-documentation.md"
+      ],
+      "confidence": "INFERRED",
+      "relation": "exercises",
+      "why": "inferred connection - not explicitly stated in source; crosses file types (doc ↔ code); connects across different repos/directories"
+    },
+    {
+      "source": "Tool sandbox / Sandbox class",
+      "target": "Security Finding F-01 (Critical): macOS sandbox profile no-op allow-all",
+      "source_files": [
+        "AGENTS.md",
+        "security-review.md"
+      ],
+      "confidence": "INFERRED",
+      "relation": "violated_by",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; peripheral node `Security Finding F-01 (Critical): macOS sandbox profile no-op allow-all` unexpectedly reaches hub `Tool sandbox / Sandbox class`"
+    },
+    {
+      "source": "formatSemanticReview",
+      "target": "renderLongHorizonMemory",
+      "source_files": [
+        "src/semanticDiff.ts",
+        "src/longHorizonMemory.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "semantically_similar_to",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities; semantically similar concepts with no structural link; peripheral node `renderLongHorizonMemory` unexpectedly reaches hub `formatSemanticReview`"
+    },
+    {
+      "source": "9rh Agent Guide (project instructions)",
+      "target": "9rh README",
+      "source_files": [
+        "AGENTS.md",
+        "README.md"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "connects across different repos/directories; peripheral node `9rh README` unexpectedly reaches hub `9rh Agent Guide (project instructions)`"
+    },
+    {
+      "source": "Jest configuration (ESM)",
+      "target": "TypeScript configuration",
+      "source_files": [
+        "jest.config.ts",
+        "tsconfig.json"
+      ],
+      "confidence": "INFERRED",
+      "relation": "shares_compiler_with",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories"
+    },
+    {
+      "source": "Security Review (49 findings)",
+      "target": "Bug Fix Spec — Top 6 Findings",
+      "source_files": [
+        "security-review.md",
+        "docs/bug-fix-spec.md"
+      ],
+      "confidence": "INFERRED",
+      "relation": "independent_audit_of_overlapping_findings",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories"
+    }
+  ],
+  "suggested_questions": [
+    {
+      "type": "ambiguous_edge",
+      "question": "What is the exact relationship between `RouterBackend class` and `PROVIDER_PRESETS constant`?",
+      "why": "Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low."
+    },
+    {
+      "type": "ambiguous_edge",
+      "question": "What is the exact relationship between `readFirstApiKey() helper` and `MINIMUM_RESILIENCE_THRESHOLD constant`?",
+      "why": "Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `Orchestrator Module Index` connect `Community 0` to `Community 2`, `Community 15`?",
+      "why": "High betweenness centrality (0.088) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `Agent` connect `Community 9` to `Community 1`, `Community 2`, `Community 35`, `Community 7`, `Community 15`, `Community 16`, `Community 20`, `Community 31`?",
+      "why": "High betweenness centrality (0.057) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `backends barrel module` connect `Community 3` to `Community 16`, `Community 15`?",
+      "why": "High betweenness centrality (0.043) - this node is a cross-community bridge."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 5 inferred relationships involving `Orchestrator.orchestrate` (e.g. with `Architect Role` and `Implementer Role`) actually correct?",
+      "why": "`Orchestrator.orchestrate` has 5 INFERRED edges - model-reasoned connections that need verification."
+    },
+    {
+      "type": "isolated_nodes",
+      "question": "What connects `9rh README`, `9rh package manifest`, `Sandbox smoke-test script` to the rest of the system?",
+      "why": "268 weakly-connected nodes found - possible documentation gaps or missing edges."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `Community 0` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.05787545787545788 - nodes in this community are weakly interconnected."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `Community 1` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.050888286660644384 - nodes in this community are weakly interconnected."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `Community 2` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.05754475703324808 - nodes in this community are weakly interconnected."
+    }
+  ],
+  "num_communities": 79,
+  "num_nodes": 1195,
+  "num_edges": 2554
+}

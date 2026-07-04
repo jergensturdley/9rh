@@ -5,6 +5,7 @@ import child_process from "child_process";
 import { join } from "path";
 import { executeSlashCommand, fetchModels, filterModels, formatModelsList, type ModelInfo, type SessionState } from "../commands.js";
 import * as initModule from "../init.js";
+import { SandboxExecutor, isSandboxAvailable } from "../sandbox/index.js";
 
 function state(apiKey = "session-key"): SessionState {
   return {
@@ -297,6 +298,18 @@ describe("model command helpers", () => {
     expect(output).toContain("backend:");
     expect(output).toContain("platform support:");
     expect(output).toContain("network policy:");
+  });
+
+  it("/sandbox reports direct fallback when the restrictive profile is rejected", async () => {
+    if (!isSandboxAvailable()) return;
+    const probe = new SandboxExecutor("/tmp");
+    if (probe.getProfile() !== "(version 1)(allow default)") return;
+
+    const output = await executeSlashCommand("/sandbox", state("model-key"));
+
+    expect(output).toContain("sandbox: direct fallback");
+    expect(output).toContain("backend: direct");
+    expect(output).toContain("restrictive profile: rejected");
   });
 });
 
