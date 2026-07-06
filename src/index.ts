@@ -16,6 +16,12 @@ import { existsSync, statSync } from "fs";
 import { spawn } from "child_process";
 import { Orchestrator, type OrchestratorEvent } from "./orchestrator/index.js";
 import { shouldUseOrchestrator } from "./orchestrator/dispatch.js";
+import {
+  hasOption as hasOptionRaw,
+  resolveMaxIter,
+  buildContinuationPolicy,
+  classifyInitCommand,
+} from "./cliArgs.js";
 
 async function maybeAutoIndexCodeGraph(workDir: string): Promise<void> {
   const codegraphDir = resolve(workDir, ".codegraph");
@@ -127,17 +133,14 @@ const opts = program.opts<{
 const task = program.args[0];
 
 function hasOption(...names: string[]): boolean {
-  return rawArgs.some((arg) => names.some((name) => arg === name || arg.startsWith(`${name}=`)));
+  return hasOptionRaw(rawArgs, names);
 }
 
 if (isInit) {
-  const rawArgs = process.argv.slice(2);
-  const initArgv = rawArgs.slice(1).filter((a: string) => !a.startsWith("-"));
-  const initOpts = rawArgs.slice(1).filter((a: string) => a.startsWith("-"));
-  const quiet = initOpts.includes("--quiet") || initOpts.includes("-q");
+  const { action, quiet } = classifyInitCommand(rawArgs);
   const log = (msg: string) => { if (!quiet) process.stderr.write(msg + "\n"); };
 
-  if (initOpts.includes("--update") || initOpts.includes("-U")) {
+  if (action === "update") {
     log(chalk.blue("  Updating 9rh via npm..."));
     import("child_process").then(({ execFileSync }) => {
       try {
@@ -148,7 +151,7 @@ if (isInit) {
       }
       process.exit(0);
     });
-  } else if (initOpts.includes("--update-router")) {
+  } else if (action === "update-router") {
     log(chalk.blue("  Updating 9router via npm..."));
     import("child_process").then(({ execFileSync }) => {
       try {
@@ -159,14 +162,14 @@ if (isInit) {
       }
       process.exit(0);
     });
-  } else if (initOpts.includes("--install")) {
+  } else if (action === "install") {
     log(chalk.blue("  Initializing 9router..."));
     ensureRouter(DEFAULTS.url, DEFAULTS.key).then((init) => {
       if (init.error) { log(chalk.red(`  ✗ ${init.error}`)); process.exit(1); }
       log(chalk.green("  ✓ 9router ready at http://127.0.0.1:20128"));
       process.exit(0);
     }).catch((err) => { log(chalk.red(`  ✗ ${err.message}`)); process.exit(1); });
-  } else if (initArgv.length === 0) {
+  } else if (action === "ready") {
     log(chalk.blue("  9router is ready — run `9rh --doctor` to verify"));
     process.exit(0);
   } else {
@@ -175,35 +178,24 @@ if (isInit) {
   }
 }
 
-function parsePositiveInt(raw: string | undefined, label: string): number | undefined {
-  if (raw === undefined || raw === "") return undefined;
-  const n = parseInt(raw, 10);
-  if (!Number.isInteger(n) || n < 1) {
-    process.stderr.write(`${label} must be a positive integer, got: ${raw}\n`);
+// The pure parsers in cliArgs return a result rather than exiting; the CLI
+// still wants bad --flag input to print to stderr and exit 1.
+function parseMaxIter(): number {
+  const r = resolveMaxIter(opts.maxIter, DEFAULTS.maxIter);
+  if (!r.ok) {
+    process.stderr.write(r.error + "\n");
     process.exit(1);
   }
-  return n;
-}
-
-function parseMaxIter(): number {
-  return parsePositiveInt(opts.maxIter, "--max-iter") ?? DEFAULTS.maxIter;
+  return r.value;
 }
 
 function parseContinuationPolicy(): ContinuationPolicy | undefined {
-  if (opts.continue === false) return undefined;
-  const hasContinuationConfig = Boolean(
-    opts.continueModel || opts.continueMax || opts.continueIter || opts.continueSwitchAfter,
-  );
-  if (!hasContinuationConfig) return undefined;
-  const maxContinuations = parsePositiveInt(opts.continueMax, "--continue-max") ?? 1;
-  const iterationsPerContinuation = parsePositiveInt(opts.continueIter, "--continue-iter");
-  const switchAfter = parsePositiveInt(opts.continueSwitchAfter, "--continue-switch-after") ?? 1;
-  const policy: ContinuationPolicy = { maxContinuations };
-  if (iterationsPerContinuation !== undefined) policy.iterationsPerContinuation = iterationsPerContinuation;
-  if (opts.continueModel) {
-    policy.modelSwitch = { toModel: opts.continueModel, afterContinuations: switchAfter };
+  const r = buildContinuationPolicy(opts);
+  if (!r.ok) {
+    process.stderr.write(r.error + "\n");
+    process.exit(1);
   }
-  return policy;
+  return r.policy;
 }
 
 let _userConfigKeepReports: boolean | undefined;
