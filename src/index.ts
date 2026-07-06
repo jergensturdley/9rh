@@ -22,6 +22,7 @@ import {
   buildContinuationPolicy,
   classifyInitCommand,
 } from "./cliArgs.js";
+import { Sandbox, getSandboxStatus, getDefaultSandboxConfig } from "./sandbox/index.js";
 
 async function maybeAutoIndexCodeGraph(workDir: string): Promise<void> {
   const codegraphDir = resolve(workDir, ".codegraph");
@@ -955,6 +956,28 @@ async function apiFetch(path: string): Promise<Response> {
   } else {
     checks.push({ label: "models", status: "fail", msg: "no models found" });
     allOk = false;
+  }
+
+  // Surface whether run_bash actually gets OS-level isolation. On non-darwin
+  // (or when sandbox-exec is missing) commands run with full user permissions;
+  // on darwin the restrictive profile can also be silently downgraded to
+  // allow-all if this host's sandbox-exec rejects it (e.g. the macOS 26 subpath
+  // bug). This is a warning, not a failure — the app still runs.
+  const sandboxStatus = getSandboxStatus();
+  if (sandboxStatus.kind === "unavailable") {
+    checks.push({
+      label: "sandbox",
+      status: "warn",
+      msg: `no OS-level isolation — run_bash runs with full user permissions (${sandboxStatus.reason})`,
+    });
+  } else {
+    const probe = new Sandbox({ ...getDefaultSandboxConfig(state.workDir), warnOnProfileFallback: false });
+    const degraded = probe.getProfile() === "(version 1)(allow default)";
+    checks.push(
+      degraded
+        ? { label: "sandbox", status: "warn", msg: "sandbox-exec active but restrictive profile rejected on this host; strict isolation degraded to allow-all" }
+        : { label: "sandbox", status: "ok", msg: "strict command isolation active (darwin-sandbox-exec)" },
+    );
   }
 
   process.stderr.write("\n  9rh doctor" + (allOk ? " — all checks passed\n\n" : " — issues found\n\n"));
