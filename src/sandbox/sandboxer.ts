@@ -8,10 +8,7 @@ export interface SandboxConfig {
   allowedPaths?: string[];
   deniedPaths?: string[];
   networkEnabled?: boolean;
-  maxMemoryMB?: number;
-  maxCPUMs?: number;
   timeoutMs?: number;
-  user?: string;
   /**
    * Fall back to the original (allow default) sandbox profile instead
    * of the restrictive allowlisted one. Useful for tests and for
@@ -199,10 +196,7 @@ export class Sandbox {
       allowedPaths: config.allowedPaths ?? [],
       deniedPaths: config.deniedPaths ?? [],
       networkEnabled: config.networkEnabled ?? false,
-      maxMemoryMB: config.maxMemoryMB ?? 512,
-      maxCPUMs: config.maxCPUMs ?? 30_000,
       timeoutMs: config.timeoutMs ?? 60_000,
-      user: config.user ?? "nobody",
       legacySandbox: config.legacySandbox ?? false,
       warnOnProfileFallback: config.warnOnProfileFallback ?? true,
       maxTimeoutMs: config.maxTimeoutMs ?? 600_000,
@@ -427,8 +421,6 @@ export function getDefaultSandboxConfig(workDir: string): SandboxConfig {
   return {
     workDir,
     networkEnabled: false,
-    maxMemoryMB: 512,
-    maxCPUMs: 30_000,
     timeoutMs: 60_000,
   };
 }
