@@ -6,7 +6,6 @@ import { resolve, normalize, dirname } from "path";
 export interface SandboxConfig {
   workDir: string;
   allowedPaths?: string[];
-  deniedPaths?: string[];
   networkEnabled?: boolean;
   timeoutMs?: number;
   /**
@@ -204,7 +203,6 @@ export class Sandbox {
     this.config = {
       workDir: config.workDir,
       allowedPaths: config.allowedPaths ?? [],
-      deniedPaths: config.deniedPaths ?? [],
       networkEnabled: config.networkEnabled ?? false,
       timeoutMs: config.timeoutMs ?? 60_000,
       legacySandbox: config.legacySandbox ?? false,
