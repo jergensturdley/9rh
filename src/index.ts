@@ -971,13 +971,14 @@ async function apiFetch(path: string): Promise<Response> {
       msg: `no OS-level isolation — run_bash runs with full user permissions (${sandboxStatus.reason})`,
     });
   } else {
-    const probe = new Sandbox({ ...getDefaultSandboxConfig(state.workDir), warnOnProfileFallback: false });
-    const degraded = probe.getProfile() === "(version 1)(allow default)";
-    checks.push(
-      degraded
-        ? { label: "sandbox", status: "warn", msg: "sandbox-exec active but restrictive profile rejected on this host; strict isolation degraded to allow-all" }
-        : { label: "sandbox", status: "ok", msg: "strict command isolation active (darwin-sandbox-exec)" },
-    );
+    const profile = new Sandbox({ ...getDefaultSandboxConfig(state.workDir), warnOnProfileFallback: false }).getProfile();
+    if (profile === "(version 1)(allow default)") {
+      checks.push({ label: "sandbox", status: "warn", msg: "sandbox-exec active but no restrictive profile accepted on this host; isolation degraded to allow-all" });
+    } else if (profile.includes("(allow file-read* (subpath")) {
+      checks.push({ label: "sandbox", status: "ok", msg: "strict command isolation active (darwin-sandbox-exec)" });
+    } else {
+      checks.push({ label: "sandbox", status: "ok", msg: "command isolation active; reads unrestricted on this host (macOS 26 workaround), writes + network confined" });
+    }
   }
 
   process.stderr.write("\n  9rh doctor" + (allOk ? " — all checks passed\n\n" : " — issues found\n\n"));
