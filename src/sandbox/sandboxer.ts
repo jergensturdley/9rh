@@ -41,7 +41,7 @@ interface SpawnResult {
 }
 
 interface SandboxProfile {
-  create(workDir: string, allowedPaths: string[], networkEnabled: boolean, legacy: boolean): string;
+  create(workDir: string, allowedPaths: string[], networkEnabled: boolean, legacy: boolean, blanketReads: boolean): string;
 }
 
 const SBMAXOUTPUT = 1024 * 1024 * 4;
@@ -74,29 +74,31 @@ function clampTimeout(timeoutMs: number, maxTimeoutMs: number = 600_000): number
   return Math.min(timeoutMs, maxTimeoutMs);
 }
 
-// One-shot stderr warning when the restrictive profile is rejected by the
+// One-shot stderr notice when the strictest profile is downgraded by the
 // host's sandbox-exec (e.g. macOS 26 SIGABRTs on file-read* subpath rules).
-let _legacyFallbackWarned = false;
+let _profileFallbackWarned = false;
 
-function probeOrFallback(profile: string, warn = true): string {
-  const probePath = `/tmp/9rh-sb-probe-${process.pid}-${Date.now()}.sb`;
+function warnFallbackOnce(warn: boolean, message: string): void {
+  if (!warn || _profileFallbackWarned) return;
+  _profileFallbackWarned = true;
+  process.stderr.write(message);
+}
+
+// Probe a candidate profile against the host's sandbox-exec. Returns true if
+// the host accepts it. macOS 26 SIGABRTs (does not merely reject) on some
+// constructs — notably `(allow file-read* (subpath ...))` — so we must
+// actually run it rather than trust the profile is well-formed.
+function probeProfile(profile: string): boolean {
+  const probePath = `/tmp/9rh-sb-probe-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.sb`;
   try {
     writeFileSync(probePath, profile, "utf-8");
     execFileSync("/usr/bin/sandbox-exec", ["-f", probePath, "/usr/bin/true"], {
       timeout: 5000,
       stdio: "ignore",
     });
-    return profile;
+    return true;
   } catch {
-    if (warn && !_legacyFallbackWarned) {
-      process.stderr.write(
-        "\n[9rh] WARNING: restrictive sandbox profile rejected by sandbox-exec on this host; " +
-        "strict command isolation is unavailable for this profile. " +
-        "Set legacySandbox:true to opt into the unrestrictive compatibility profile.\n\n",
-      );
-      _legacyFallbackWarned = true;
-    }
-    return "(version 1)(allow default)";
+    return false;
   } finally {
     try { unlinkSync(probePath); } catch {}
   }
@@ -120,8 +122,15 @@ class DarwinSandboxProfile implements SandboxProfile {
    * Returns `(allow default)` ONLY if the user explicitly set both
    * `networkEnabled: true` AND an empty `allowedPaths`. Otherwise the
    * profile is restrictive.
+   *
+   * `blanketReads`: emit `(allow file-read*)` (unrestricted reads) instead of
+   * subpath-restricted reads. macOS 26's sandbox-exec SIGABRTs on
+   * `(allow file-read* (subpath ...))`, so the Sandbox constructor retries
+   * with this variant before giving up on isolation entirely. Writes stay
+   * confined to the allowlist and network stays denied either way — the
+   * containment that actually matters is preserved.
    */
-  create(workDir: string, allowedPaths: string[], networkEnabled: boolean, legacy: boolean): string {
+  create(workDir: string, allowedPaths: string[], networkEnabled: boolean, legacy: boolean, blanketReads: boolean): string {
     // Fast path: caller opted out of the restrictive profile and wants
     // the original open behavior. Used by tests, and by users who set
     // `legacySandbox: true` to fall back to (allow default).
@@ -136,21 +145,22 @@ class DarwinSandboxProfile implements SandboxProfile {
       "/dev",
       ...(allowedPaths ?? []),
     ]);
-    const readRoots = this._dedupePaths([
-      workDir,
-      "/usr",
-      "/bin",
-      "/sbin",
-      "/Library",
-      "/System",
-      "/private/var",
-      "/dev",
-      "/etc",
-      ...(allowedPaths ?? []),
-    ]);
     const subpath = (p: string) => `(subpath "${this._escapeForQuote(p)}")`;
     const writeSubpaths = writeRoots.map(subpath).join(" ");
-    const readSubpaths = readRoots.map(subpath).join(" ");
+    const readClause = blanketReads
+      ? "(allow file-read*)"
+      : `(allow file-read* ${this._dedupePaths([
+          workDir,
+          "/usr",
+          "/bin",
+          "/sbin",
+          "/Library",
+          "/System",
+          "/private/var",
+          "/dev",
+          "/etc",
+          ...(allowedPaths ?? []),
+        ]).map(subpath).join(" ")})`;
     const net = networkEnabled ? "" : `(deny network*)`;
     return `(version 1)
   (deny default)
@@ -164,7 +174,7 @@ class DarwinSandboxProfile implements SandboxProfile {
   (allow signal (target self))
   (allow sysctl-read)
   (allow mach-lookup)
-  (allow file-read* ${readSubpaths})
+  ${readClause}
   (allow file-write* ${writeSubpaths})`;
   }
 
@@ -202,16 +212,44 @@ export class Sandbox {
       maxTimeoutMs: config.maxTimeoutMs ?? 600_000,
     };
     this.platform = process.platform;
-    const profileBuilder = new DarwinSandboxProfile();
-    this.profile = profileBuilder.create(
-      this.config.workDir,
-      this.config.allowedPaths,
-      this.config.networkEnabled,
-      this.config.legacySandbox,
-    );
-    if (process.platform === "darwin" && this.profile !== "(version 1)(allow default)") {
-      this.profile = probeOrFallback(this.profile, this.config.warnOnProfileFallback);
+    this.profile = this._resolveProfile();
+  }
+
+  /**
+   * Pick the strongest profile the host actually accepts, degrading in steps:
+   *   1. strict     — subpath-restricted reads AND writes, network denied
+   *   2. blanketRead — unrestricted reads, subpath writes, network denied
+   *                    (macOS 26 SIGABRTs on file-read* subpath rules)
+   *   3. allow-all   — no isolation (only if even blanket reads are rejected)
+   * Non-darwin and legacy/allow-default profiles skip probing.
+   */
+  private _resolveProfile(): string {
+    const { workDir, allowedPaths, networkEnabled, legacySandbox, warnOnProfileFallback } = this.config;
+    const builder = new DarwinSandboxProfile();
+    const strict = builder.create(workDir, allowedPaths, networkEnabled, legacySandbox, false);
+    if (process.platform !== "darwin" || strict === "(version 1)(allow default)") {
+      return strict;
     }
+    if (probeProfile(strict)) return strict;
+
+    const blanketRead = builder.create(workDir, allowedPaths, networkEnabled, legacySandbox, true);
+    if (probeProfile(blanketRead)) {
+      warnFallbackOnce(
+        warnOnProfileFallback,
+        "\n[9rh] NOTICE: this host rejects file-read* subpath rules (e.g. macOS 26); " +
+        "using a profile with unrestricted reads. Writes stay confined to the workDir " +
+        "and network is denied — the containment that matters is preserved.\n\n",
+      );
+      return blanketRead;
+    }
+
+    warnFallbackOnce(
+      warnOnProfileFallback,
+      "\n[9rh] WARNING: no restrictive sandbox profile accepted by sandbox-exec on this host; " +
+      "strict command isolation is unavailable. Set legacySandbox:true to silence this, " +
+      "or use createExecutor({strict:true}) to fail closed instead of running unsandboxed.\n\n",
+    );
+    return "(version 1)(allow default)";
   }
 
   async validatePath(filePath: string): Promise<string> {
@@ -415,6 +453,27 @@ export function getSandboxStatus(): SandboxStatus {
     platform,
   };
   return _sandboxStatusCache;
+}
+
+/**
+ * Build the raw darwin sandbox-exec profile text without probing the host.
+ * Exposed for deterministic testing of profile generation (the Sandbox
+ * constructor's chosen profile is host-dependent).
+ */
+export function buildDarwinProfile(opts: {
+  workDir: string;
+  allowedPaths?: string[];
+  networkEnabled?: boolean;
+  legacySandbox?: boolean;
+  blanketReads?: boolean;
+}): string {
+  return new DarwinSandboxProfile().create(
+    opts.workDir,
+    opts.allowedPaths ?? [],
+    opts.networkEnabled ?? false,
+    opts.legacySandbox ?? false,
+    opts.blanketReads ?? false,
+  );
 }
 
 export function getDefaultSandboxConfig(workDir: string): SandboxConfig {
