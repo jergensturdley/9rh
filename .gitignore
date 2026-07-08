@@ -77,3 +77,7 @@ snapshots/
 *fuzz*
 SANDBOX_SECURITY_ROADMAP.md
 skills/writing-skills/examples/CLAUDE_MD_TESTING.md
+
+# Internal security docs — keep local, never publish (see SANDBOX_SECURITY_ROADMAP.md precedent)
+security-review.md
+docs/audit-fix-spec.md
