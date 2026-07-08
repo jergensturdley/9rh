@@ -18,13 +18,13 @@ export default {
     "!src/**/*.test.ts",
   ],
   // Regression floor set a few points below current whole-project coverage
-  // (stmts 61 / branch 51 / funcs 67 / lines 63). Ratchet up as coverage grows.
+  // (stmts 69 / branch 59 / funcs 75 / lines 70). Ratchet up as coverage grows.
   coverageThreshold: {
     global: {
-      statements: 58,
-      branches: 48,
-      functions: 64,
-      lines: 60,
+      statements: 66,
+      branches: 55,
+      functions: 71,
+      lines: 67,
     },
   },
 };

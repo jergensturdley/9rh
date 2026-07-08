@@ -762,3 +762,63 @@ describe("createTuiRenderer dispose", () => {
 // the SIGINT handler now sets a skip flag instead of calling
 // process.exit — so we rely on the partial/dispose tests below for the
 // renderer and leave splash's SIGINT path as a source-level review item.
+
+// ────────────────────────────────────────────────────────────────────
+// Renderer event-switch branches not exercised elsewhere: iteration
+// header, compact, continuation, model_switch, spec_plan, error box,
+// and step_inspect. Driven through a mocked stdout; assertions target
+// visible text, not raw escapes. dispose() clears the spinner interval.
+// ────────────────────────────────────────────────────────────────────
+describe("createTuiRenderer remaining event cases", () => {
+  it("renders lifecycle notices and the error report link", () => {
+    const origWrite = process.stdout.write.bind(process.stdout);
+    const origIsTTY = process.stdout.isTTY;
+    const writes: string[] = [];
+    const reports: string[] = [];
+    Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true });
+    process.stdout.write = ((chunk: unknown) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+
+    const render = createTuiRenderer({
+      getModel: () => "kr/test-model",
+      getWorkDir: () => "/tmp/9rh",
+      getBaseURL: () => "http://127.0.0.1:20128/v1",
+      getStartedByRouter: () => true,
+      useColor: false,
+      onReportWritten: (p) => reports.push(p),
+    });
+    try {
+      render({ type: "iteration", current: 1, max: 3 });
+      render({ type: "compact", summary: "trimmed 12 messages" });
+      render({ type: "continuation", count: 1, max: 4 });
+      render({ type: "model_switch", from: "kr/a", to: "kr/b", reason: "continuation" });
+      render({ type: "spec_plan", summary: "1. write tests\n2. verify" });
+      render({
+        type: "step_inspect",
+        stepId: "tool-1",
+        params: "{\"command\":\"ls\"}",
+        output: "ok",
+        policy: "allow",
+      });
+      render({ type: "error", message: "fatal boom", reportPath: "/tmp/err.html" });
+    } finally {
+      (render as unknown as { dispose?: () => void }).dispose?.();
+      process.stdout.write = origWrite;
+      Object.defineProperty(process.stdout, "isTTY", { value: origIsTTY, configurable: true });
+    }
+
+    const out = writes.join("");
+    expect(out).toContain("iter 1/3");
+    expect(out).toContain("compacting context — trimmed 12 messages");
+    expect(out).toContain("continuing 1/4");
+    expect(out).toContain("switching model kr/a → kr/b");
+    expect(out).toContain("generated test plan");
+    expect(out).toContain("inspect tool-1");
+    expect(out).toContain("policy:");
+    expect(out).toContain("fatal boom");
+    expect(out).toContain("report: file:///tmp/err.html");
+    expect(reports).toEqual(["/tmp/err.html"]);
+  });
+});

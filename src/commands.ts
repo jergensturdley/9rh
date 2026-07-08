@@ -1,4 +1,6 @@
 import chalk from "chalk";
+import child_process from "child_process";
+import os from "os";
 import { resolve } from "path";
 import { stat } from "fs/promises";
 import { getCliToken, readFirstApiKey } from "./init.js";
@@ -172,7 +174,6 @@ async function fetchNativeJSON(state: SessionState, path: string): Promise<unkno
  * string to print to the user.
  */
 async function openReportInBrowser(path: string, useColor: boolean): Promise<string> {
-  const { spawn } = await import("child_process");
   let cmd: string;
   let args: string[] = [];
   if (process.platform === "darwin") {
@@ -184,7 +185,7 @@ async function openReportInBrowser(path: string, useColor: boolean): Promise<str
     cmd = "xdg-open";
   }
   try {
-    const child = spawn(cmd, [...args, path], {
+    const child = child_process.spawn(cmd, [...args, path], {
       detached: true,
       stdio: "ignore",
     });
@@ -381,8 +382,7 @@ const COMMANDS: Record<string, CommandDef> = {
     handler: async (args, state) => {
       const fs = await import("fs/promises");
       const path = await import("path");
-      const homedir = await import("os").then(os => os.homedir());
-      const skillsDir = path.join(homedir, ".9rh", "skills");
+      const skillsDir = path.join(os.homedir(), ".9rh", "skills");
       if (args.length === 0 || args[0] === "list") {
         try {
           const files = await fs.readdir(skillsDir, { withFileTypes: true });
