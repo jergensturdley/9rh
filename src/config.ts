@@ -1,11 +1,15 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import { join } from "path";
 
+export type SandboxBackend = "auto" | "apple-container" | "docker" | "podman" | "macos-sandbox" | "direct";
+
 export interface UserConfig {
   defaultModel?: string;
   defaultProvider?: string;
   /** Persisted backend choice: "router" | "direct" | "embedded". */
   backend?: string;
+  sandboxBackend?: SandboxBackend;
+  sandboxImage?: string;
   /** Default path for the run report. Default: ~/.9rh/last-run.html */
   reportPath?: string;
   /** If true, each turn's report is preserved with a unique filename. */
@@ -26,6 +30,21 @@ function cleanString(value: unknown): string | undefined {
   return trimmed || undefined;
 }
 
+function cleanSandboxBackend(value: unknown): SandboxBackend | undefined {
+  const cleaned = cleanString(value);
+  if (
+    cleaned === "auto" ||
+    cleaned === "apple-container" ||
+    cleaned === "docker" ||
+    cleaned === "podman" ||
+    cleaned === "macos-sandbox" ||
+    cleaned === "direct"
+  ) {
+    return cleaned;
+  }
+  return undefined;
+}
+
 export async function readUserConfig(): Promise<UserConfig> {
   try {
     const raw = await readFile(configPath(), "utf-8");
@@ -34,6 +53,8 @@ export async function readUserConfig(): Promise<UserConfig> {
       defaultModel: cleanString(parsed.defaultModel),
       defaultProvider: cleanString(parsed.defaultProvider),
       backend: cleanString(parsed.backend),
+      sandboxBackend: cleanSandboxBackend(parsed.sandboxBackend),
+      sandboxImage: cleanString(parsed.sandboxImage),
       reportPath: cleanString(parsed.reportPath),
       keepReports: typeof parsed.keepReports === "boolean" ? parsed.keepReports : undefined,
     };
@@ -48,6 +69,8 @@ export async function writeUserConfig(config: UserConfig): Promise<void> {
   if (config.defaultModel) normalized.defaultModel = config.defaultModel;
   if (config.defaultProvider) normalized.defaultProvider = config.defaultProvider;
   if (config.backend) normalized.backend = config.backend;
+  if (config.sandboxBackend) normalized.sandboxBackend = config.sandboxBackend;
+  if (config.sandboxImage) normalized.sandboxImage = config.sandboxImage;
   if (config.reportPath) normalized.reportPath = config.reportPath;
   if (typeof config.keepReports === "boolean") normalized.keepReports = config.keepReports;
   await writeFile(configPath(), JSON.stringify(normalized, null, 2) + "\n", "utf-8");

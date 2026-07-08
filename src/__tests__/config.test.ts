@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "@jest/globals";
-import { mkdtemp, rm } from "fs/promises";
+import { mkdtemp, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import { configPath, readUserConfig, resolveConfiguredModel, updateUserConfig } from "../config.js";
+import { configPath, readUserConfig, resolveConfiguredModel, updateUserConfig, writeUserConfig } from "../config.js";
 
 const originalEnv = { ...process.env };
 
@@ -28,6 +28,22 @@ describe("user config", () => {
       expect(saved).toEqual({ defaultModel: "sonnet", defaultProvider: "kr" });
       await expect(readUserConfig()).resolves.toEqual({ defaultModel: "sonnet", defaultProvider: "kr" });
       expect(configPath()).toContain("config.json");
+    });
+  });
+
+  it("persists sandbox backend and image", async () => {
+    await withConfigDir(async () => {
+      await writeUserConfig({ sandboxBackend: "docker", sandboxImage: "node:22-bookworm-slim" });
+
+      await expect(readUserConfig()).resolves.toEqual({ sandboxBackend: "docker", sandboxImage: "node:22-bookworm-slim" });
+    });
+  });
+
+  it("drops invalid sandbox backend but keeps valid sandbox image", async () => {
+    await withConfigDir(async () => {
+      await writeFile(configPath(), JSON.stringify({ sandboxBackend: "bad", sandboxImage: " ubuntu:24.04 " }), "utf-8");
+
+      await expect(readUserConfig()).resolves.toEqual({ sandboxImage: "ubuntu:24.04" });
     });
   });
 
