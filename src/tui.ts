@@ -239,8 +239,8 @@ function contentWidth(): number {
  * Right column: dashboard panel of `dashWidth` cols starting at `dashCol`.
  * Left column: `leftColWidth` cols with a 1-col gutter before the dashboard.
  *   `leftInner` accounts for the 2-space indent already used by spinners,
- *   tool lines, and the done-summary block. `wrapWidth` is what wrapText()
- *   sees.
+ *   tool lines, and the done-summary block. `wrapWidth` is what
+ *   wrapStreamChunk() sees.
  *
  * A non-positive terminal dimension (no TTY / piped output / unconfigured
  * CI) falls back to the 80×24 defaults so callers don't need to handle
@@ -319,29 +319,6 @@ export interface SplashOptions extends TuiOptions {
 function crop(text: string, max: number): string {
   if (text.length <= max) return text;
   return text.slice(0, Math.max(0, max - 1)) + "…";
-}
-
-/**
- * Word-wrap a single paragraph to the given width. Breaks at whitespace only;
- * a single very long token is hard-wrapped rather than split mid-word.
- */
-function wrapText(text: string, width: number): string {
-  if (width <= 0) return text;
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let current = "";
-  for (const word of words) {
-    if (current.length === 0) {
-      current = word;
-    } else if (current.length + 1 + word.length <= width) {
-      current = `${current} ${word}`;
-    } else {
-      lines.push(current);
-      current = word;
-    }
-  }
-  if (current) lines.push(current);
-  return lines.join("\n");
 }
 
 /**
@@ -486,12 +463,6 @@ function padVisible(text: string, width: number): string {
 
 function formatSessionClock(date: Date): string {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function paint(useColor: boolean, line: string, row: number): string {
-  if (!useColor) return line;
-  const palette = [chalk.cyan, chalk.blueBright, chalk.magentaBright, chalk.cyanBright, chalk.whiteBright];
-  return palette[row % palette.length](line);
 }
 
 function sleep(ms: number): Promise<void> {
