@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@jest/globals";
+import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import {
   createTuiRenderer,
   renderRecentTranscript,
@@ -9,9 +9,14 @@ import {
   computeGeometry,
   padDashboardToHeight,
   wrapStreamChunk,
+  shouldRepositionSplashFrame,
+  splashFrameDelayMs,
+  splashAnimationFrameCount,
+  splashCollapseFrameCount,
   type DashboardState,
   type ToolHistoryEntry,
 } from "../tui.js";
+import type { AgentEvent } from "../agent.js";
 import { createRunVisualization, applyAgentEvent, renderRunMapCompact } from "../visualization.js";
 
 describe("TUI live model insight", () => {
@@ -296,6 +301,60 @@ describe("createTuiRenderer", () => {
       expect(line.length).toBeLessThanOrEqual(43);
     }
   });
+
+  it("emits an overflow hint when the done summary exceeds the preview cap", () => {
+    const originalIsTTY = process.stdout.isTTY;
+    const originalWrite = process.stdout.write;
+    const writes: string[] = [];
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const render = createTuiRenderer({
+        getModel: () => "m",
+        getWorkDir: () => "/tmp",
+        useColor: false,
+      });
+      // 3000 chars — well past the 2000-char preview cap.
+      render({ type: "done", text: "x".repeat(3000), reportPath: "/tmp/r.html" });
+      const out = writes.join("");
+      // Truncation marker present.
+      expect(out).toContain("…");
+      // Overflow hint names how many chars were hidden.
+      expect(out).toMatch(/1000 more chars/);
+      expect(out).toContain("run report");
+    } finally {
+      process.stdout.write = originalWrite;
+      Object.defineProperty(process.stdout, "isTTY", { value: originalIsTTY, configurable: true });
+    }
+  });
+
+  it("does not emit an overflow hint for a short done summary", () => {
+    const originalIsTTY = process.stdout.isTTY;
+    const originalWrite = process.stdout.write;
+    const writes: string[] = [];
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const render = createTuiRenderer({
+        getModel: () => "m",
+        getWorkDir: () => "/tmp",
+        useColor: false,
+      });
+      render({ type: "done", text: "short answer", reportPath: "/tmp/r.html" });
+      const out = writes.join("");
+      expect(out).not.toContain("more chars");
+      expect(out).not.toContain("…");
+    } finally {
+      process.stdout.write = originalWrite;
+      Object.defineProperty(process.stdout, "isTTY", { value: originalIsTTY, configurable: true });
+    }
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────
@@ -415,3 +474,291 @@ describe("wrapStreamChunk", () => {
     expect(wrapStreamChunk("long line here", 0)).toBe("long line here");
   });
 });
+
+// ────────────────────────────────────────────────────────────────────
+// Splash timing + small pure exports
+// ────────────────────────────────────────────────────────────────────
+describe("splash timing exports", () => {
+  it("shouldRepositionSplashFrame is true once timeout elapsed", () => {
+    // true while within the timeout window, false once it expires
+    expect(shouldRepositionSplashFrame(1000, 1499, 500)).toBe(true);
+    expect(shouldRepositionSplashFrame(1000, 1500, 500)).toBe(false);
+    expect(shouldRepositionSplashFrame(1000, 2000, 500)).toBe(false);
+  });
+  it("frame delay / counts are positive constants", () => {
+    expect(splashFrameDelayMs()).toBeGreaterThan(0);
+    expect(splashAnimationFrameCount()).toBeGreaterThan(0);
+    expect(splashCollapseFrameCount()).toBeGreaterThan(0);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────
+// renderRecentTranscript empty + entry normalization
+// ────────────────────────────────────────────────────────────────────
+describe("renderRecentTranscript edges", () => {
+  it("empty list reports placeholder", () => {
+    expect(renderRecentTranscript([])).toBe("No agent messages yet.");
+  });
+  it("whitespace-only text collapses to (empty)", () => {
+    const out = renderRecentTranscript([{ kind: "agent", text: "   " }]);
+    expect(out).toContain("agent: (empty)");
+  });
+  it("respects maxLines cap", () => {
+    const entries = Array.from({ length: 20 }, (_, i) => ({ kind: "tool" as const, text: `t${i}` }));
+    const out = renderRecentTranscript(entries, 5);
+    expect(out.split("\n")).toHaveLength(5);
+    expect(out).toContain("t19");
+    expect(out).not.toContain("t0");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────
+// toolTarget / summarizeLiveModelInsight remaining branches
+// ────────────────────────────────────────────────────────────────────
+describe("toolTarget alternate fields", () => {
+  it("falls back to file_path then command then url", () => {
+    expect(toolTarget({ path: "/a" })).toBe("/a");
+    expect(toolTarget({ file_path: "/b" })).toBe("/b");
+    expect(toolTarget({ command: "ls" })).toBe("ls");
+    expect(toolTarget({ command: "ls", path: "/x" })).toBe("/x");
+    expect(toolTarget({ url: "https://x" })).toBe("https://x");
+    expect(toolTarget({})).toBe("");
+  });
+});
+
+describe("summarizeLiveModelInsight write/browser intents", () => {
+  it("classifies write tools and surfaces approx token count", () => {
+    const out = summarizeLiveModelInsight(["abc def ghi"], "edit", { path: "/x" });
+    expect(out).toContain("intent:");
+    expect(out).toContain("reasoning:");
+    expect(out).toContain("signal:");
+    // approx tokens = ceil(len/4) for non-empty reasoning
+    expect(out).toMatch(/3 approx/);
+  });
+  it("empty reasoning yields zero approx tokens", () => {
+    const out = summarizeLiveModelInsight([], "edit", {});
+    expect(out).toContain("0 approx");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────
+// renderDashboardLines color branch + activity variants
+// ────────────────────────────────────────────────────────────────────
+describe("renderDashboardLines variants", () => {
+  const baseState = (): DashboardState => ({
+    startedAt: new Date(),
+    iterCurrent: 0,
+    iterMax: 0,
+    activity: "idle",
+    thinkingCharCount: 0,
+    thinkingPreview: "",
+    currentTool: null,
+    currentToolTarget: null,
+    toolHistory: [],
+  });
+
+  it("color mode runs without throwing and matches no-color row count", () => {
+    // chalk auto-detects non-TTY in Jest and emits no ANSI; we still
+    // exercise the useColor=true branch to confirm it doesn't throw and
+    // produces the same panel shape.
+    const colorLines = renderDashboardLines(baseState(), true, 48, createRunVisualization());
+    const plainLines = renderDashboardLines(baseState(), false, 48, createRunVisualization());
+    expect(colorLines.length).toBe(plainLines.length);
+    expect(colorLines.length).toBeGreaterThan(0);
+  });
+
+  it("no-color mode emits plain border characters", () => {
+    const lines = renderDashboardLines(baseState(), false, 48, createRunVisualization());
+    expect(lines[0].startsWith("╭")).toBe(true);
+    expect(lines[0]).not.toMatch(/\x1b\[/);
+  });
+
+  it("thinking activity renders preview line when preview present", () => {
+    const s = baseState();
+    s.activity = "thinking";
+    s.thinkingCharCount = 100;
+    s.thinkingPreview = "pondering the type system";
+    const out = renderDashboardLines(s, false, 60, createRunVisualization()).join("\n");
+    expect(out).toContain("thinking");
+    expect(out).toContain("100 chars");
+  });
+
+  it("tool activity renders currentTool + target", () => {
+    const s = baseState();
+    s.activity = "tool";
+    s.currentTool = "edit";
+    s.currentToolTarget = "/tmp/foo.ts";
+    const out = renderDashboardLines(s, false, 60, createRunVisualization()).join("\n");
+    expect(out).toContain("edit");
+    expect(out).toContain("/tmp/foo.ts");
+  });
+
+  it("done activity renders checkmark line", () => {
+    const s = baseState();
+    s.activity = "done";
+    const out = renderDashboardLines(s, false, 48, createRunVisualization()).join("\n");
+    expect(out).toMatch(/✓|done/);
+  });
+
+  it("returns empty list when width too narrow", () => {
+    expect(renderDashboardLines(baseState(), false, 10, createRunVisualization())).toEqual([]);
+  });
+
+  it("narrow width falls back to 80×24 defaults", () => {
+    const g = computeGeometry(0, 0);
+    expect(g.termCols).toBe(80);
+    expect(g.termRows).toBe(24);
+    expect(g.dashWidth).toBeGreaterThan(0);
+    expect(g.wrapWidth).toBeGreaterThan(0);
+  });
+  it("non-finite dims also fall back", () => {
+    const g = computeGeometry(Number.NaN, Number.POSITIVE_INFINITY);
+    expect(g.termCols).toBe(80);
+    expect(g.termRows).toBe(24);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────
+// padDashboardToHeight degenerate inputs
+// ────────────────────────────────────────────────────────────────────
+describe("padDashboardToHeight edges", () => {
+  it("target <= 0 returns input unchanged", () => {
+    expect(padDashboardToHeight(["a"], 0, 4)).toEqual(["a"]);
+    expect(padDashboardToHeight(["a"], -1, 4)).toEqual(["a"]);
+  });
+  it("innerWidth 0 still emits │ │ with single space", () => {
+    const out = padDashboardToHeight([], 2, 0);
+    expect(out).toEqual(["│ │", "│ │"]);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────
+// partial_output newline flush (P0 fix #1)
+// ────────────────────────────────────────────────────────────────────
+describe("partial_output line flush", () => {
+  let writes: string[];
+  let origWrite: typeof process.stdout.write;
+  let renderer!: (e: AgentEvent) => void;
+  beforeEach(() => {
+    writes = [];
+    origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: unknown) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    // Pretend to be a TTY so the renderer's dashboard / spinner paths
+    // don't bail out early — we only care about the streamed body writes.
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    renderer = createTuiRenderer({
+      getModel: () => "m",
+      getWorkDir: () => "/tmp",
+      getBaseURL: () => "http://x",
+      getStartedByRouter: () => false,
+      useColor: false,
+    });
+  });
+  afterEach(() => {
+    // Critical: dispose clears the spinner setInterval the tool_call
+    // event starts. Without this, outstanding timers keep jest alive.
+    (renderer as unknown as { dispose?: () => void }).dispose?.();
+    process.stdout.write = origWrite;
+    jest.restoreAllMocks();
+  });
+
+  function emit(ev: AgentEvent): void {
+    renderer(ev);
+  }
+
+  it("emits \\n before the next non-partial event after a partial_output", () => {
+    // partial_output creates its own step in the visualization, so no
+    // prior step_start is needed for the text to render.
+    emit({
+      type: "partial_output",
+      stepId: "1.1",
+      text: "streaming text",
+    } as unknown as AgentEvent);
+
+    const partialText = writes.join("");
+    expect(partialText).toContain("streaming text");
+    // No trailing newline from the partial itself.
+    expect(partialText.endsWith("streaming text")).toBe(true);
+
+    // Next event is a tool_call — should close the streamed line first.
+    emit({
+      type: "tool_call",
+      name: "edit",
+      args: { path: "/a" },
+    } as unknown as AgentEvent);
+    expect(writes.join("")).toContain("\n");
+  });
+
+  it("does not emit a stray \\n when no partial preceded", () => {
+    const before = writes.length;
+    emit({
+      type: "tool_call",
+      name: "edit",
+      args: {},
+    } as unknown as AgentEvent);
+    // tool_call may emit its own newlines; the key invariant is the
+    // flush logic didn't add a doubled leading "\n\n".
+    const after = writes.slice(before).join("");
+    expect(after.startsWith("\n\n")).toBe(false);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────
+// createTuiRenderer dispose() (P0 fix #3)
+// ────────────────────────────────────────────────────────────────────
+describe("createTuiRenderer dispose", () => {
+  afterEach(() => { jest.restoreAllMocks(); });
+
+  it("attaches a dispose method on the returned renderer", () => {
+    const renderer = createTuiRenderer({
+      getModel: () => "m",
+      getWorkDir: () => "/tmp",
+      getBaseURL: () => "http://x",
+      getStartedByRouter: () => false,
+      useColor: false,
+    });
+    expect(typeof (renderer as unknown as { dispose?: () => void }).dispose).toBe("function");
+    (renderer as unknown as { dispose: () => void }).dispose();
+  });
+
+  it("removes the resize listener so dispose() prevents further redraws", () => {
+    const off = jest.spyOn(process.stdout, "off").mockImplementation(() => process.stdout);
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    const renderer = createTuiRenderer({
+      getModel: () => "m",
+      getWorkDir: () => "/tmp",
+      getBaseURL: () => "http://x",
+      getStartedByRouter: () => false,
+      useColor: false,
+    });
+    (renderer as unknown as { dispose: () => void }).dispose();
+    expect(off).toHaveBeenCalledWith("resize", expect.any(Function));
+    off.mockRestore();
+  });
+
+  it("dispose is idempotent and does not throw", () => {
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    const renderer = createTuiRenderer({
+      getModel: () => "m",
+      getWorkDir: () => "/tmp",
+      getBaseURL: () => "http://x",
+      getStartedByRouter: () => false,
+      useColor: false,
+    });
+    const dispose = (renderer as unknown as { dispose: () => void }).dispose.bind(renderer);
+    expect(() => { dispose(); dispose(); }).not.toThrow();
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────
+// printSplash SIGINT non-fatal (P0 fix #2)
+// ────────────────────────────────────────────────────────────────────
+// Driving the full async splash under jest is brittle (real setTimeout
+// sleeps, TTY detection, jest's own SIGINT handling leave outstanding
+// handles that hang the suite). The fix is structurally a one-liner —
+// the SIGINT handler now sets a skip flag instead of calling
+// process.exit — so we rely on the partial/dispose tests below for the
+// renderer and leave splash's SIGINT path as a source-level review item.

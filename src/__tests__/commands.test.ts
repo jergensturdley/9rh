@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile, mkdir } from "fs/promises";
 import os from "os";
 import child_process from "child_process";
 import { join } from "path";
-import { executeSlashCommand, fetchModels, filterModels, formatModelsList, type ModelInfo, type SessionState } from "../commands.js";
+import { clearRouterConfigCache, executeSlashCommand, fetchModels, filterModels, formatModelsList, getSlashCommands, toArray, type ModelInfo, type SessionState } from "../commands.js";
 import * as initModule from "../init.js";
 import { SandboxExecutor, isSandboxAvailable } from "../sandbox/index.js";
 
@@ -383,5 +383,295 @@ describe("debug-auth handler", () => {
       expect(output).toContain("API Health check failed: network fail");
       expect(output).toContain("Providers API check failed: network fail");
     });
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Pure helpers + static (router-free) slash-command handlers
+// ────────────────────────────────────────────────────────────────────
+describe("toArray", () => {
+  it("returns the array when given an array", () => {
+    expect(toArray([1, 2, 3])).toEqual([1, 2, 3]);
+  });
+  it("returns empty array for non-array input", () => {
+    expect(toArray(undefined)).toEqual([]);
+    expect(toArray(null)).toEqual([]);
+    expect(toArray("nope")).toEqual([]);
+    expect(toArray({ a: 1 })).toEqual([]);
+  });
+});
+
+describe("getSlashCommands", () => {
+  it("lists every registered command with name + description", () => {
+    const cmds = getSlashCommands();
+    expect(cmds.length).toBeGreaterThan(10);
+    for (const c of cmds) {
+      expect(typeof c.name).toBe("string");
+      expect(c.name.length).toBeGreaterThan(0);
+      expect(typeof c.description).toBe("string");
+    }
+    const names = cmds.map(c => c.name);
+    for (const required of ["help", "models", "switch", "queue", "run", "sandbox", "doctor"]) {
+      expect(names).toContain(required);
+    }
+  });
+});
+
+describe("filterModels", () => {
+  const models: ModelInfo[] = [
+    { id: "claude-sonnet-4.5" },
+    { id: "claude-haiku-4.5" },
+    { id: "glm-5" },
+  ];
+  it("returns the full list when filter is empty", () => {
+    expect(filterModels(models, "")).toHaveLength(3);
+  });
+  it("sub-string case-insensitive match", () => {
+    expect(filterModels(models, "CLAUDE")).toHaveLength(2);
+    expect(filterModels(models, "GLM")).toHaveLength(1);
+  });
+  it("no match returns empty", () => {
+    expect(filterModels(models, "zzz")).toEqual([]);
+  });
+});
+
+describe("formatModelsList", () => {
+  it("empty list reports no models, optional filter echoed", () => {
+    expect(formatModelsList([], state(), "")).toContain("(no models)");
+    expect(formatModelsList([], state(), "foo")).toContain('matching "foo"');
+  });
+  it("marks the active model and renders count + ids", () => {
+    const s = state();
+    const out = formatModelsList(
+      [{ id: "kr/test-model" }, { id: "glm-5" }],
+      s,
+    );
+    expect(out).toContain("2 model(s)");
+    expect(out).toContain("kr/test-model");
+    expect(out).toContain("▶");
+  });
+});
+
+describe("clearRouterConfigCache", () => {
+  it("resets routerCache to a fresh empty native map", () => {
+    const s = state();
+    s.routerCache = { models: { value: [], expiresAt: 0 }, native: new Map([["k", { value: 1, expiresAt: 0 }]]) };
+    clearRouterConfigCache(s);
+    expect(s.routerCache?.models).toBeUndefined();
+    expect(s.routerCache?.native.size).toBe(0);
+  });
+});
+
+describe("static slash-command handlers", () => {
+  it("/help lists commands and groups them", async () => {
+    const out = await executeSlashCommand("/help", state());
+    expect(out).toContain("9rh slash commands");
+    expect(out).toContain("/models");
+    expect(out).toContain("/doctor");
+  });
+
+  it("/logs tail validates count and rejects non-positive", async () => {
+    expect(await executeSlashCommand("/logs tail 5", state())).toContain("5 lines");
+    expect(await executeSlashCommand("/logs tail -3", state())).toContain("Invalid line count");
+    expect(await executeSlashCommand("/logs tail banana", state())).toContain("Invalid line count");
+  });
+
+  it("/logs clear simulates", async () => {
+    expect(await executeSlashCommand("/logs clear", state())).toContain("cleared");
+  });
+
+  it("/history reports when empty", async () => {
+    const out = await executeSlashCommand("/history", state());
+    expect(out).toContain("No command history");
+  });
+
+  it("/history renders recent entries", async () => {
+    const s = state();
+    s.history = ["/models", "/status", "/help"];
+    const out = await executeSlashCommand("/history 2", s);
+    expect(out).toContain("2. /status");
+    expect(out).toContain("3. /help");
+    expect(out).not.toContain("/models");
+  });
+
+  it("/reload reports nothing to reload when cache empty", async () => {
+    expect(await executeSlashCommand("/reload", state())).toContain("No router cache");
+  });
+  it("/reload clears when cache present", async () => {
+    const s = state();
+    s.routerCache = { native: new Map() };
+    expect(await executeSlashCommand("/reload", s)).toContain("Reloaded router cache");
+  });
+
+  it("/queue reports empty", async () => {
+    expect(await executeSlashCommand("/queue", state())).toContain("Queue is empty");
+  });
+  it("/queue lists queued messages and previews long ones", async () => {
+    const s = state();
+    s.queue = ["short", "x".repeat(120)];
+    const out = await executeSlashCommand("/queue", s);
+    expect(out).toContain("Queued 2");
+    expect(out).toContain("1. short");
+    expect(out).toContain("...");
+  });
+  it("/queue clear empties and reports count", async () => {
+    const s = state();
+    s.queue = ["a", "b"];
+    const out = await executeSlashCommand("/queue clear", s);
+    expect(out).toContain("Cleared 2");
+    expect(s.queue).toEqual([]);
+  });
+
+  it("/run reports nothing queued", async () => {
+    expect(await executeSlashCommand("/run", state())).toContain("No queued messages");
+  });
+  it("/run reports count when queued", async () => {
+    const s = state();
+    s.queue = ["a", "b", "c"];
+    expect(await executeSlashCommand("/run", s)).toContain("3 message(s) queued");
+  });
+
+  it("/done hints at Ctrl+C", async () => {
+    expect(await executeSlashCommand("/done", state())).toContain("Ctrl+C");
+  });
+
+  it("/clear emits ANSI clear screen", async () => {
+    expect(await executeSlashCommand("/clear", state())).toBe("\x1b[2J\x1b[H");
+  });
+
+  it("/allow-skill-install status reports OFF by default", async () => {
+    const out = await executeSlashCommand("/allow-skill-install", state());
+    expect(out).toContain("OFF");
+  });
+  it("/allow-skill-install on/off toggles state", async () => {
+    const s = state();
+    expect(await executeSlashCommand("/allow-skill-install on", s)).toContain("ENABLED");
+    expect(s.allowSkillInstall).toBe(true);
+    expect(await executeSlashCommand("/allow-skill-install off", s)).toContain("DISABLED");
+    expect(s.allowSkillInstall).toBe(false);
+  });
+  it("/allow-skill-install rejects unknown args", async () => {
+    expect(await executeSlashCommand("/allow-skill-install maybe", state())).toContain("Unrecognised");
+  });
+
+  it("/report reports no report yet", async () => {
+    expect(await executeSlashCommand("/report", state())).toContain("no report generated");
+  });
+  it("/report shows path when set", async () => {
+    const s = state();
+    s.lastReportPath = "/tmp/9rh-report.html";
+    const out = await executeSlashCommand("/report", s);
+    expect(out).toContain("/tmp/9rh-report.html");
+    expect(out).toContain("/report open");
+  });
+
+  it("/dir shows current workDir", async () => {
+    const out = await executeSlashCommand("/dir", state());
+    expect(out).toContain("workDir:");
+  });
+
+  it("/skills reload not implemented", async () => {
+    const out = await executeSlashCommand("/skills reload", state());
+    expect(out).toContain("not yet implemented");
+  });
+  it("/skills unknown subcommand falls back to usage", async () => {
+    const out = await executeSlashCommand("/skills frobnicate", state());
+    expect(out).toContain("Usage:");
+  });
+
+  it("/index prune path delegates to pruneStaleRepos", async () => {
+    const fetchMock = jest.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({}));
+    const out = await executeSlashCommand("/index prune", state());
+    expect(out).toContain("pruned");
+    expect(out).toContain("stale entries");
+    fetchMock.mockRestore();
+  });
+});
+
+describe("router-dependent slash-command handlers", () => {
+  afterEach(() => { jest.restoreAllMocks(); });
+
+  it("/status reports unhealthy when health.ok=false", async () => {
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const path = String(url).replace("http://127.0.0.1:20128", "");
+      if (path === "/api/health") return jsonResponse({ ok: false });
+      if (path === "/api/version") return jsonResponse({ currentVersion: "1.0", hasUpdate: false });
+      return jsonResponse({ error: "no" }, { status: 404 });
+    });
+    const out = await executeSlashCommand("/status", state());
+    expect(out).toContain("unhealthy");
+    expect(out).toContain("up to date");
+  });
+
+  it("/status reports unreachable when health rejects", async () => {
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const path = String(url).replace("http://127.0.0.1:20128", "");
+      if (path === "/api/health") throw new Error("conn refused");
+      if (path === "/api/version") return jsonResponse({ currentVersion: "1.0" });
+      return jsonResponse({ error: "no" }, { status: 404 });
+    });
+    const out = await executeSlashCommand("/status", state());
+    expect(out).toContain("unreachable");
+  });
+
+  it("/providers handles empty connections", async () => {
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const path = String(url).replace("http://127.0.0.1:20128", "");
+      if (path === "/api/providers") return jsonResponse({ connections: [] });
+      return jsonResponse({ error: "no" }, { status: 404 });
+    });
+    expect(await executeSlashCommand("/providers", state())).toContain("no providers configured");
+  });
+
+  it("/combos handles empty", async () => {
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const path = String(url).replace("http://127.0.0.1:20128", "");
+      if (path === "/api/combos") return jsonResponse({ combos: [] });
+      return jsonResponse({ error: "no" }, { status: 404 });
+    });
+    expect(await executeSlashCommand("/combos", state())).toContain("no combos configured");
+  });
+
+  it("/keys handles empty", async () => {
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const path = String(url).replace("http://127.0.0.1:20128", "");
+      if (path === "/api/keys") return jsonResponse({ keys: [] });
+      return jsonResponse({ error: "no" }, { status: 404 });
+    });
+    expect(await executeSlashCommand("/keys", state())).toContain("no API keys");
+  });
+
+  it("/models filter passes through to listing", async () => {
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/models")) {
+        return jsonResponse({
+          data: [
+            { id: "claude-sonnet-4.5" },
+            { id: "glm-5" },
+          ],
+        });
+      }
+      // /api/providers — return empty so reconcile doesn't add models
+      return jsonResponse({ connections: [] }, { status: 200 });
+    });
+    const out = await executeSlashCommand("/models claude", state());
+    expect(out).toContain("claude-sonnet-4.5");
+    expect(out).not.toContain("glm-5");
+  });
+});
+
+describe("executeSlashCommand dispatch", () => {
+  it("returns null for non-slash input", async () => {
+    expect(await executeSlashCommand("hello", state())).toBeNull();
+  });
+  it("unknown command reports error", async () => {
+    const out = await executeSlashCommand("/nope", state());
+    expect(out).toContain("Unknown command");
+    expect(out).toContain("/help");
+  });
+  it("case-insensitive command name", async () => {
+    const out = await executeSlashCommand("/HELP", state());
+    expect(out).toContain("9rh slash commands");
   });
 });
