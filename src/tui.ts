@@ -553,9 +553,12 @@ export async function printSplash(useColor: boolean): Promise<void> {
   const restoreCursor = (): void => {
     process.stdout.write("\x1b[?25h");
   };
+  // SIGINT during the splash should skip the animation, not kill the
+  // process — the user is interrupting the greeting, not the upcoming
+  // agent run. We jump to the end frame and let the normal cleanup run.
+  let interrupted = false;
   const sigintHandler = (): void => {
-    restoreCursor();
-    process.exit(0);
+    interrupted = true;
   };
 
   process.on("SIGINT", sigintHandler);
@@ -565,18 +568,21 @@ export async function printSplash(useColor: boolean): Promise<void> {
   process.stdout.write("\x1b[?25l");
   try {
     for (; frameIndex < frameCount; frameIndex++) {
+      if (interrupted) break;
       const frame = generatePlasmaFrame(frameIndex);
       writeSplashFrame(colorizeFrame(frame, { useColor }));
       await sleep(frameMs);
       rewindSplashFrame();
     }
 
-    const finalFrame = generatePlasmaFrame(frameIndex);
-    for (let step = 0; step < collapseCount; step++) {
-      const frame = collapseFrame(finalFrame, step, collapseCount);
-      writeSplashFrame(colorizeFrame(frame, { useColor }));
-      await sleep(frameMs);
-      rewindSplashFrame();
+    if (!interrupted) {
+      const finalFrame = generatePlasmaFrame(frameIndex);
+      for (let step = 0; step < collapseCount; step++) {
+        const frame = collapseFrame(finalFrame, step, collapseCount);
+        writeSplashFrame(colorizeFrame(frame, { useColor }));
+        await sleep(frameMs);
+        rewindSplashFrame();
+      }
     }
 
     clearSplashFrame();
@@ -746,6 +752,10 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
   let drawing = false; // SIGWINCH mid-write guard (R2)
   let resizeDebounce: ReturnType<typeof setTimeout> | null = null;
   let resizePending = false;
+  // Tracks whether the last stdout write was a streaming partial_output
+  // chunk with no trailing newline. The next non-partial event must emit
+  // \n first or it will overwrite/interleave with the streamed text.
+  let pendingPartial = false;
 
   function recomputeGeometry(): void {
     geometry = computeGeometry(cols(), rows());
@@ -754,27 +764,26 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
   // resize. Debounced: 'resize' can fire dozens of times during a single
   // drag-resize (and on some terminals fires on every cursor move). Without
   // a debounce, the synchronous write storm stalls stdout and the agent
-  // appears to hang. Listener-removal (dispose()) is deferred — out of
-  // scope here. TODO(resize-cleanup): expose dispose() once a caller owns
-  // this lifetime.
+  // appears to hang.
+  function onResize(): void {
+    if (resizeDebounce) {
+      resizePending = true;
+      return;
+    }
+    resizeDebounce = setTimeout(() => {
+      resizeDebounce = null;
+      if (!resizePending) return;
+      resizePending = false;
+      recomputeGeometry();
+      // Erase the previous dashboard footprint BEFORE redrawing — the old
+      // dashCol may now be inside the new left column, and characters
+      // left there would ghost over the streamed body.
+      erasePreviousDashboard();
+      drawDashboard();
+    }, 80);
+  }
   if (process.stdout.isTTY) {
-    process.stdout.on("resize", () => {
-      if (resizeDebounce) {
-        resizePending = true;
-        return;
-      }
-      resizeDebounce = setTimeout(() => {
-        resizeDebounce = null;
-        if (!resizePending) return;
-        resizePending = false;
-        recomputeGeometry();
-        // Erase the previous dashboard footprint BEFORE redrawing — the old
-        // dashCol may now be inside the new left column, and characters
-        // left there would ghost over the streamed body.
-        erasePreviousDashboard();
-        drawDashboard();
-      }, 80);
-    });
+    process.stdout.on("resize", onResize);
   }
 
   function erasePreviousDashboard(): void {
@@ -937,8 +946,16 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
     }
   }
 
-  return function onEvent(event: AgentEvent): void {
+  const onEvent = function (event: AgentEvent): void {
     applyAgentEvent(visualization, event);
+    // If the previous event was a streaming partial_output (no trailing
+    // newline) and this one is not, emit \n first so the next spinner /
+    // tool header / dashboard redraw starts on its own line rather than
+    // overwriting the streamed body.
+    if (pendingPartial && event.type !== "partial_output") {
+      process.stdout.write("\n");
+      pendingPartial = false;
+    }
     switch (event.type) {
       case "iteration":
         iterCurrent = event.current;
@@ -1101,8 +1118,13 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         const finalText = (event.text ?? "").trim();
         if (finalText) {
           const normalized = finalText.replace(/\s+/g, " ");
-          const MAX_FINAL = 600;
-          const shown = normalized.length > MAX_FINAL
+          // ponytail: 2000 char preview (~25 rows at 80 cols) covers the
+          // common case where the agent's answer fits on screen. Beyond
+          // this, point the user at /report open rather than dumping
+          // thousands of lines into the scrollback.
+          const MAX_FINAL = 2000;
+          const overflow = normalized.length > MAX_FINAL;
+          const shown = overflow
             ? `${normalized.slice(0, MAX_FINAL)}…`
             : normalized;
           const header = opts.useColor ? chalk.bold.cyan("  summary") : "  summary";
@@ -1112,6 +1134,11 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
           const wrapped = wrapStreamChunk(shown, wrapWidth);
           for (const line of wrapped.split("\n")) {
             process.stdout.write(`${indent}${line}\n`);
+          }
+          if (overflow) {
+            const hint = `(…${normalized.length - MAX_FINAL} more chars — full text in the run report)`;
+            const hintLine = opts.useColor ? chalk.dim(`${indent}${hint}`) : `${indent}${hint}`;
+            process.stdout.write(`${hintLine}\n`);
           }
           process.stdout.write("\n");
         }
@@ -1179,9 +1206,34 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
           const wrapped = wrapStreamChunk(event.text, wrapWidth);
           if (opts.useColor) process.stdout.write(chalk.dim(wrapped));
           else process.stdout.write(wrapped);
+          // Streamed text has no trailing newline; flag so the next
+          // non-partial event closes the line.
+          pendingPartial = true;
         }
         break;
       }
     }
   };
+
+  // Attach a dispose() so long-lived REPLs can release the SIGWINCH
+  // listener + pending timers when the renderer is replaced. Without
+  // this, every createTuiRenderer() call in a session that re-inits
+  // per task leaks a listener and redraws N times per resize.
+  (onEvent as { dispose?: () => void }).dispose = (): void => {
+    if (resizeDebounce) {
+      clearTimeout(resizeDebounce);
+      resizeDebounce = null;
+    }
+    resizePending = false;
+    if (thinkingSnapshotTimer) {
+      clearTimeout(thinkingSnapshotTimer);
+      thinkingSnapshotTimer = null;
+    }
+    stopSpinner();
+    if (process.stdout.isTTY) {
+      process.stdout.off("resize", onResize);
+    }
+  };
+
+  return onEvent;
 }
