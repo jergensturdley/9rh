@@ -675,3 +675,195 @@ describe("executeSlashCommand dispatch", () => {
     expect(out).toContain("9rh slash commands");
   });
 });
+
+// ────────────────────────────────────────────────────────────────────
+// Additional branch coverage (merged from the parallel coverage PR):
+// browser-opener, skills fs-listing, index refresh, usage/failure paths,
+// and full doctor pass/fail — branches not already exercised above.
+// ────────────────────────────────────────────────────────────────────
+describe("commands.ts — extra branch coverage", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("formatModelsList marks the active model and owner with color enabled", () => {
+    const colored = state();
+    colored.useColor = true;
+    colored.model = "kr/current";
+    const output = formatModelsList([{ id: "kr/current", owned_by: "kr" }, { id: "kr/other" }], colored);
+    expect(output).toContain("kr/current");
+    expect(output).toContain("[kr]");
+    expect(output).toContain("kr/other");
+  });
+
+  it("dispatch wraps a handler exception in Command failed", async () => {
+    jest.spyOn(globalThis, "fetch").mockRejectedValue(new Error("connection refused"));
+    const output = await executeSlashCommand("/models", state());
+    expect(output).toContain("Command failed: connection refused");
+  });
+
+  it("dispatch surfaces an HTTP error status", async () => {
+    jest.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse({ error: "nope" }, { status: 500, statusText: "Internal Server Error" }),
+    );
+    const output = await executeSlashCommand("/models", state());
+    expect(output).toContain("Command failed: HTTP 500 Internal Server Error");
+  });
+
+  it("/report open launches the platform opener and survives spawn failure", async () => {
+    const current = state();
+    current.lastReportPath = "/tmp/run-report.html";
+
+    const spawnMock = jest.spyOn(child_process, "spawn").mockReturnValue(
+      { unref: () => undefined } as unknown as ReturnType<typeof child_process.spawn>,
+    );
+    const opened = await executeSlashCommand("/report open", current);
+    expect(opened).toContain("opened: file:///tmp/run-report.html");
+    expect(spawnMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.arrayContaining(["/tmp/run-report.html"]),
+      expect.objectContaining({ detached: true }),
+    );
+
+    spawnMock.mockImplementation(() => {
+      throw new Error("no gui");
+    });
+    const fallback = await executeSlashCommand("/report open", current);
+    expect(fallback).toContain("could not launch a browser (no gui)");
+    expect(fallback).toContain("path: file:///tmp/run-report.html");
+  });
+
+  it("/dir changes to a real directory and rejects bad targets", async () => {
+    const current = state();
+    const dir = await mkdtemp(join(os.tmpdir(), "9rh-dir-"));
+    try {
+      const changed = await executeSlashCommand(`/dir ${dir}`, current);
+      expect(changed).toContain(`workDir → ${dir}`);
+      expect(current.workDir).toBe(dir);
+
+      await expect(executeSlashCommand("/dir /definitely/not/here", current)).resolves.toContain("Directory not found");
+
+      const file = join(dir, "file.txt");
+      await writeFile(file, "x");
+      await expect(executeSlashCommand(`/dir ${file}`, current)).resolves.toContain("Not a directory");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("/runonce refuses to run with an empty queue", async () => {
+    await expect(executeSlashCommand("/runonce", state())).resolves.toContain("No queued messages to run");
+  });
+
+  it("/skills lists directories, reports empty, and fails gracefully when missing", async () => {
+    const home = await mkdtemp(join(os.tmpdir(), "9rh-skills-home-"));
+    jest.spyOn(os, "homedir").mockReturnValue(home);
+    try {
+      // missing skills dir → error path
+      await expect(executeSlashCommand("/skills", state())).resolves.toContain("Failed to list skills");
+
+      await mkdir(join(home, ".9rh", "skills"), { recursive: true });
+      await expect(executeSlashCommand("/skills list", state())).resolves.toContain("No local skills found");
+
+      await mkdir(join(home, ".9rh", "skills", "commit-helper"), { recursive: true });
+      await writeFile(join(home, ".9rh", "skills", "not-a-skill.txt"), "ignored");
+      const listed = await executeSlashCommand("/skills", state());
+      expect(listed).toContain("- commit-helper");
+      expect(listed).not.toContain("not-a-skill");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("/index refreshes and reports status against a temp workspace", async () => {
+    const workDir = await mkdtemp(join(os.tmpdir(), "9rh-index-"));
+    try {
+      await mkdir(join(workDir, "repo-a", ".git"), { recursive: true });
+      await writeFile(join(workDir, "repo-a", "package.json"), JSON.stringify({ name: "repo-a" }));
+      const current = state();
+      current.workDir = workDir;
+
+      const refreshed = await executeSlashCommand("/index", current);
+      expect(refreshed).toContain("index refreshed in");
+      expect(refreshed).toContain("in index");
+
+      const status = await executeSlashCommand("/index-status", current);
+      expect(status).toContain("repo index:");
+      expect(status).toContain("total size:");
+      expect(status).toContain("oldest entry:");
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
+  });
+
+  it("/switch and /default-model require a model argument", async () => {
+    await expect(executeSlashCommand("/switch", state())).resolves.toContain("Usage: /switch <model>");
+    await expect(executeSlashCommand("/default-model", state())).resolves.toContain("Usage: /default-model <model>");
+  });
+
+  it("/router degrades to zero counts when every endpoint is down", async () => {
+    jest.spyOn(globalThis, "fetch").mockRejectedValue(new Error("down"));
+    const output = await executeSlashCommand("/router", state());
+    expect(output).toContain("models: 0");
+    expect(output).toContain("providers: 0 configured, 0 active");
+    expect(output).toContain("combos: 0");
+    expect(output).toContain("API keys: 0");
+  });
+
+  it("/refresh reports zero models when the router is down", async () => {
+    jest.spyOn(globalThis, "fetch").mockRejectedValue(new Error("down"));
+    const output = await executeSlashCommand("/refresh", state());
+    expect(output).toContain("refreshed 9router config: 0 models, 0/0 active providers");
+  });
+
+  it("fetchModels falls back to catalog models when provider reconciliation fails", async () => {
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).endsWith("/v1/models")) return jsonResponse({ data: [{ id: "kr/base" }] });
+      return jsonResponse({ error: "boom" }, { status: 500, statusText: "Internal Server Error" });
+    });
+    await expect(fetchModels(state())).resolves.toEqual([{ id: "kr/base" }]);
+  });
+
+  it("fetchModels skips connections that expose no usable alias", async () => {
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).endsWith("/v1/models")) return jsonResponse({ data: [{ id: "kr/base" }] });
+      if (String(url).endsWith("/api/providers")) {
+        return jsonResponse({ connections: [{ isActive: true, providerSpecificData: {} }] });
+      }
+      return jsonResponse({ error: "not found" }, { status: 404 });
+    });
+    await expect(fetchModels(state())).resolves.toEqual([{ id: "kr/base" }]);
+  });
+
+  it("/doctor passes when keys, providers, and models are all healthy", async () => {
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const path = String(url).replace("http://127.0.0.1:20128", "");
+      if (path === "/api/health") return jsonResponse({ ok: true });
+      if (path === "/api/version") return jsonResponse({ currentVersion: "1.2.3", hasUpdate: true });
+      if (path === "/api/keys") return jsonResponse({ keys: [{ id: "key_1", name: "Default" }] });
+      if (path === "/api/providers") return jsonResponse({ connections: [{ provider: "kiro", isActive: true }] });
+      if (path === "/v1/models") return jsonResponse({ data: [{ id: "kr/model-a" }] });
+      return jsonResponse({ error: "not found" }, { status: 404 });
+    });
+
+    const output = await executeSlashCommand("/doctor", state());
+    expect(output).toContain("all checks passed");
+    expect(output).toContain("1.2.3 (update available)");
+    expect(output).toContain("1 key(s) configured");
+    expect(output).toContain("1 connection(s), 1 active");
+    expect(output).toContain("1 models available");
+  });
+
+  it("/doctor reports every check as failing when the router is down", async () => {
+    jest.spyOn(globalThis, "fetch").mockRejectedValue(new Error("ECONNREFUSED"));
+
+    const output = await executeSlashCommand("/doctor", state());
+    expect(output).toContain("issues found");
+    expect(output).toContain("unreachable");
+    expect(output).toContain("could not fetch");
+    expect(output).toContain("no keys found");
+    expect(output).toContain("no providers");
+    expect(output).toContain("no models found");
+    expect(output).toContain("dashboard to connect a provider");
+  });
+});
