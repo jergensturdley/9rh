@@ -356,7 +356,7 @@ const COMMANDS: Record<string, CommandDef> = {
         if (cmd.name === "help" || cmd.name === "clear" || cmd.name === "queue" || cmd.name === "run" || cmd.name === "done" || cmd.name === "setup" || cmd.name === "sandbox" || cmd.name === "doctor") prefix = "system";
         else if (cmd.name === "status" || cmd.name === "providers" || cmd.name === "combos" || cmd.name === "keys" || cmd.name === "router" || cmd.name === "refresh" || cmd.name === "reload") prefix = "router";
         else if (cmd.name === "models" || cmd.name === "switch" || cmd.name === "default-model") prefix = "models";
-        else if (cmd.name === "dir" || cmd.name === "skills" || cmd.name === "history" || cmd.name === "logs" || cmd.name === "runonce" || cmd.name === "index" || cmd.name === "index-status") prefix = "session";
+        else if (cmd.name === "dir" || cmd.name === "skills" || cmd.name === "history" || cmd.name === "logs" || cmd.name === "index" || cmd.name === "index-status") prefix = "session";
         else prefix = "other";
         groups[prefix] = groups[prefix] ?? [];
         groups[prefix].push(cmd);
@@ -440,62 +440,6 @@ const COMMANDS: Record<string, CommandDef> = {
         return "\n  Reloaded router cache.\n";
       }
       return "\n  No router cache to reload.\n";
-    },
-  },
-
-  runonce: {
-    usage: "/runonce",
-    description: "Run next queued message and remove from queue",
-    handler: async (_args, state) => {
-      if (!state.queue || state.queue.length === 0) return "\n  No queued messages to run.\n";
-      const next = state.queue.shift();
-      if (!next) return "\n  No queued messages to run.\n";
-      const { Agent } = await import("./agent.js");
-      const agent = new Agent({
-        baseURL: state.baseURL,
-        apiKey: state.apiKey,
-        model: state.model,
-        maxIterations: 100,
-        workDir: state.workDir,
-        allowSkillInstall: state.allowSkillInstall,
-        // F-05: gate high/critical tool calls on a confirmation prompt.
-        onToolApproval: async (req) => {
-          const riskColor =
-            req.risk === "critical" ? chalk.bgRed.white :
-            req.risk === "high"     ? chalk.red :
-            req.risk === "medium"   ? chalk.yellow : chalk.gray;
-          const argsPreview = JSON.stringify(req.args).slice(0, 200);
-          const prompt =
-            `\n  ${riskColor(`[${req.risk.toUpperCase()}]`)} tool call requires approval:\n` +
-            `    name: ${req.name}\n` +
-            `    args: ${argsPreview}\n` +
-            `  Approve? [y/N/always] `;
-          process.stdout.write(prompt);
-          const answer = (await new Promise<string>((resolve) => {
-            const onData = (chunk: Buffer) => {
-              const s = chunk.toString("utf-8").trim().toLowerCase();
-              process.stdin.removeListener("data", onData);
-              resolve(s);
-            };
-            process.stdin.once("data", onData);
-          })).trim();
-          if (answer === "y") return { approved: true };
-          if (answer === "always") {
-            // For the rest of this run, downgrade threshold to "low"
-            // (i.e. require approval for everything). We mutate the
-            // agent's config via the closure; this is best-effort.
-            return { approved: true, reason: "always approved by user" };
-          }
-          return { approved: false, reason: "user declined" };
-        },
-      });
-      try {
-        await agent.run(next);
-        return "\n  Run once completed.\n";
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return (state.useColor ? chalk.red(`\n  Failed to run once: ${msg}\n`) : `\n  Failed to run once: ${msg}\n`);
-      }
     },
   },
 
@@ -904,45 +848,49 @@ const COMMANDS: Record<string, CommandDef> = {
   clear: {
     usage: "/clear",
     description: "Clear screen",
-    handler: async (_args, state) => {
-      const clear = state.useColor ? "\x1b[2J\x1b[H" : "\x1b[2J\x1b[H";
-      return clear;
+    handler: async () => {
+      // Clear screen + scrollback and move cursor to home. Same sequence
+      // regardless of color mode.
+      return "\x1b[2J\x1b[3J\x1b[H";
     },
   },
 
   queue: {
     usage: "/queue",
-    description: "Show queued messages",
-    handler: async (args, state) => {
-      if (args[0] === "clear") {
-        const cleared = state.queue?.length ?? 0;
-        state.queue = [];
-        return `\n  Cleared ${cleared} queued message(s).\n`;
-      }
-      const len = state.queue?.length ?? 0;
-      if (!len) return "\n  Queue is empty. Type lines to queue, then /run to send.\n";
-      const lines = state.queue.map((l, i) => {
-        const preview = l.length > 80 ? l.slice(0, 77) + "..." : l;
-        return `  ${i + 1}. ${preview}`;
-      });
-      return `\n  Queued ${len} message(s):\n${lines.join("\n")}\n  Use /run to send, /queue clear to discard.\n`;
+    description: "Show how input is sent to the agent",
+    handler: async () => {
+      return [
+        "",
+        "  Lines you type run immediately — there's no manual queue.",
+        "  A multi-line paste is auto-coalesced into one task and runs as",
+        "  soon as the paste settles, so you don't need /run.",
+        "",
+      ].join("\n");
     },
   },
   run: {
     usage: "/run",
-    description: "Send queued messages to the agent",
-    handler: async (_args, state) => {
-      const len = state.queue?.length ?? 0;
-      if (!len) return "\n  No queued messages. Type lines first, then /run.\n";
-      return `\n  ${len} message(s) queued. Use /run in the REPL to send them.\n`;
+    description: "(kept for familiarity) — input runs immediately on Enter",
+    handler: async () => {
+      return [
+        "",
+        "  Nothing to run — every line you type is sent on Enter, and a",
+        "  multi-line paste is auto-coalesced into one task. Just type.",
+        "",
+      ].join("\n");
     },
   },
 
   done: {
     usage: "/done",
-    description: "Signal agent to stop gracefully (or Ctrl+C during a run)",
-    handler: async (_args, state) => {
-      return "\n  Use Ctrl+C to interrupt the agent during a run.\n  The REPL will stay alive — no need to relaunch.\n";
+    description: "How to interrupt or exit the REPL",
+    handler: async () => {
+      return [
+        "",
+        "  Ctrl+C  clears the current line (or exits on an empty line).",
+        "  During a run, Ctrl+C interrupts the agent and returns to the prompt.",
+        "",
+      ].join("\n");
     },
   },
 

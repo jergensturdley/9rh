@@ -267,7 +267,7 @@ export function computeGeometry(termCols: number, termRows: number): Geometry {
   return { termCols, termRows, dashWidth, dashCol, leftColWidth, leftInner, wrapWidth };
 }
 
-function drawBox(
+export function drawBox(
   label: string,
   body: string,
   borderFn: (s: string) => string,
@@ -284,8 +284,12 @@ function drawBox(
     .split("\n")
     .slice(0, 24)
     .map((line) => {
-      const safe = line.length > inner - 2 ? line.slice(0, inner - 5) + "…" : line;
-      const pad = " ".repeat(Math.max(0, inner - 2 - safe.length));
+      // Truncate so the visible text + "…" fill the inner content slot
+      // exactly (inner - 2 for the side gutters), keeping a consistent
+      // right margin across every body line.
+      const slot = inner - 2;
+      const safe = line.length > slot ? line.slice(0, slot - 1) + "…" : line;
+      const pad = " ".repeat(Math.max(0, slot - safe.length));
       return (
         borderFn("│") +
         " " +
@@ -383,6 +387,45 @@ export function wrapStreamChunk(text: string, width: number): string {
     if (buf.length > 0) out.push(buf);
   }
   return out.join("\n");
+}
+
+/**
+ * Clamp a focused index to `[0, count-1]`. Wraps on overflow: going past
+ * the bottom wraps to the top, and past the top wraps to the bottom.
+ * `delta` is in "rows" (typically ±1 from arrow keys, ±N from PgUp/PgDn).
+ * Returns the unchanged index for empty/degenerate lists so callers can
+ * render an empty state without a stray focus.
+ */
+export function clampMenuFocus(index: number, delta: number, count: number): number {
+  if (count <= 0) return index;
+  if (count === 1) return 0;
+  // +count before modulo to keep the result non-negative in JS.
+  return (((index + delta) % count) + count) % count;
+}
+
+/**
+ * Scroll-window math for a focused menu list. Given the focused index, the
+ * total item count, and the number of visible rows, returns the slice
+ * `[start, end)` of items the viewport should show. Keeps the focused item
+ * in view, preferring to keep the cursor centered when there's slack.
+ *
+ * Returns `{ start: 0, end: 0 }` for empty/degenerate inputs.
+ */
+export function menuWindow(
+  focused: number,
+  count: number,
+  visibleRows: number,
+): { start: number; end: number } {
+  if (count <= 0 || visibleRows <= 0) return { start: 0, end: 0 };
+  const f = Math.max(0, Math.min(count - 1, focused));
+  const rows = Math.min(visibleRows, count);
+  // Keep the focused row in view; center it when there's slack above/below.
+  const half = Math.floor(rows / 2);
+  let start = f - half;
+  if (start < 0) start = 0;
+  if (start + rows > count) start = count - rows;
+  start = Math.max(0, start);
+  return { start, end: start + rows };
 }
 
 function normalizeWhitespace(text: string): string {
@@ -964,12 +1007,9 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         const line1 = opts.useColor ? chalk.cyan(`⚙ ${event.name}`) : `⚙ ${event.name}`;
         const line2 = opts.useColor ? chalk.dim(`  ${intent}`) : `  ${intent}`;
         process.stdout.write(`\n${line1}\n${line2}\n`);
-        // Print final thinking snippet if any
-        if (normalizeWhitespace(activeThinking)) {
-          const snippet = normalizeWhitespace(activeThinking).slice(-200);
-          const pre = opts.useColor ? chalk.dim(`  reasoning: ${snippet}`) : `  reasoning: ${snippet}`;
-          process.stdout.write(`${pre}\n`);
-        }
+        // (The thinking snapshot already streamed live via
+        // printThinkingSnapshot and the dashboard carries its own
+        // thinking panel — no need to re-echo a reasoning excerpt here.)
         // Update dashboard state
         dashboard.activity = "tool";
         dashboard.currentTool = event.name;
@@ -1088,7 +1128,11 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         // Show the summary (existing behavior) and the report path link.
         const finalText = (event.text ?? "").trim();
         if (finalText) {
-          const normalized = finalText.replace(/\s+/g, " ");
+          // Preserve the model's structure (newlines, code blocks, bullet
+          // lists) instead of collapsing to a single run-on line — a coding
+          // agent's final answer is usually structured. Only collapse
+          // 3+ consecutive blank lines so we don't get huge vertical gaps.
+          const normalized = finalText.replace(/\n{3,}/g, "\n\n");
           // ponytail: 2000 char preview (~25 rows at 80 cols) covers the
           // common case where the agent's answer fits on screen. Beyond
           // this, point the user at /report open rather than dumping
@@ -1175,8 +1219,10 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         if (step) {
           const wrapWidth = Math.max(1, geometry.wrapWidth - 2);
           const wrapped = wrapStreamChunk(event.text, wrapWidth);
-          if (opts.useColor) process.stdout.write(chalk.dim(wrapped));
-          else process.stdout.write(wrapped);
+          // The assistant's streamed answer is the highest-value content in
+          // the UI — render at normal weight, not dim. Dim reads as system
+          // noise and tanks contrast against the dashboard background.
+          process.stdout.write(wrapped);
           // Streamed text has no trailing newline; flag so the next
           // non-partial event closes the line.
           pendingPartial = true;

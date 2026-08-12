@@ -80,7 +80,12 @@ export class EventLogger {
 
   private async waitForDrain(): Promise<void> {
     if (this.pending.length > 0) this.scheduleDrain();
-    await this.drainPromise;
+    // If a drain is scheduled but hasn't run yet, wait for it.
+    // drainPending() sets drainPromise back to null after it runs,
+    // so we await the current promise if one exists.
+    if (this.drainPromise) {
+      await this.drainPromise;
+    }
   }
 
   async finalize(runId: string, reason: string): Promise<string> {

@@ -989,7 +989,8 @@ async function toolCodegraphAffected(args: Record<string, unknown>, workDir: str
   addStringFlag(cgArgs, "--filter", args.filter);
   if (args.quiet) cgArgs.push("--quiet");
   if (args.json) cgArgs.push("--json");
-  cgArgs.push(...files);
+  // Use -- to prevent filenames starting with -- from being parsed as flags
+  cgArgs.push("--", ...files);
   return runCodegraph(cgArgs, workDir);
 }
 

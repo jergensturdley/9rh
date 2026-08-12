@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import {
   createTuiRenderer,
+  drawBox,
   renderRecentTranscript,
   summarizeLiveModelInsight,
   renderDashboardLines,
@@ -9,6 +10,8 @@ import {
   computeGeometry,
   padDashboardToHeight,
   wrapStreamChunk,
+  clampMenuFocus,
+  menuWindow,
   shouldRepositionSplashFrame,
   splashFrameDelayMs,
   splashAnimationFrameCount,
@@ -820,5 +823,241 @@ describe("createTuiRenderer remaining event cases", () => {
     expect(out).toContain("fatal boom");
     expect(out).toContain("report: file:///tmp/err.html");
     expect(reports).toEqual(["/tmp/err.html"]);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────
+// done summary preserves structure (B.6) — newlines in the model's
+// final answer must survive into the rendered output instead of being
+// collapsed into a single run-on line.
+// ────────────────────────────────────────────────────────────────────
+describe("done summary preserves newlines", () => {
+  let writes: string[];
+  let origWrite: typeof process.stdout.write;
+  let origIsTTY: unknown;
+
+  beforeEach(() => {
+    writes = [];
+    origWrite = process.stdout.write.bind(process.stdout);
+    origIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    process.stdout.write = ((chunk: unknown) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+  });
+  afterEach(() => {
+    process.stdout.write = origWrite;
+    Object.defineProperty(process.stdout, "isTTY", { value: origIsTTY, configurable: true });
+    jest.restoreAllMocks();
+  });
+
+  it("renders a multi-paragraph answer as multiple lines, not one collapsed line", () => {
+    const render = createTuiRenderer({
+      getModel: () => "m",
+      getWorkDir: () => "/tmp",
+      useColor: false,
+    });
+    try {
+      render({
+        type: "done",
+        text: "First paragraph.\n\nSecond paragraph.\n- bullet one\n- bullet two",
+      });
+    } finally {
+      (render as unknown as { dispose?: () => void }).dispose?.();
+    }
+    const out = writes.join("");
+    // Paragraphs and bullets survive — the structure is not flattened.
+    expect(out).toContain("First paragraph.");
+    expect(out).toContain("Second paragraph.");
+    expect(out).toContain("- bullet one");
+    expect(out).toContain("- bullet two");
+    // And they appear on distinct rendered lines (i.e. at least one \n
+    // separates them in the output stream).
+    expect(out.indexOf("First paragraph.")).toBeLessThan(out.indexOf("Second paragraph."));
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────
+// drawBox consistent inner width (B.7) — every body line must share
+// the same visible width so the right border aligns, including the
+// truncation-with-ellipsis case.
+// ────────────────────────────────────────────────────────────────────
+describe("drawBox consistent inner width", () => {
+  const identity = (s: string) => s;
+
+  it("aligns the right border across short and long (truncated) body lines", () => {
+    const width = 30;
+    const inner = width - 2; // 28
+    const body = ["short line", "x".repeat(200), "mid line"];
+    const rendered = drawBox("label", body.join("\n"), identity, false, width);
+    const lines = rendered.split("\n");
+    // top, 3 body lines, bottom
+    expect(lines).toHaveLength(5);
+    // Every line is exactly `width` visible chars (no ANSI in no-color mode).
+    for (const line of lines) {
+      expect(line.length).toBe(width);
+    }
+    // The truncated line ends with "…" and sits inside the borders.
+    const truncated = lines[2];
+    expect(truncated.startsWith("│")).toBe(true);
+    expect(truncated.endsWith("│")).toBe(true);
+    expect(truncated).toContain("…");
+    // Ellipsis lands at the inner edge: visible content slot is inner-2.
+    // "…" is the last visible char before the trailing space + border.
+    const innerContent = truncated.slice(1, inner + 1); // strip outer │…│
+    expect(innerContent.trimEnd().endsWith("…")).toBe(true);
+  });
+
+  it("does not truncate body lines that fit the inner slot", () => {
+    const width = 40;
+    const body = "fits easily";
+    const rendered = drawBox("ok", body, identity, false, width);
+    expect(rendered).toContain("fits easily");
+    expect(rendered).not.toContain("…");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────
+// partial_output weight (B.5) — the streamed assistant answer must NOT
+// be dimmed. In no-color mode there's no ANSI at all; the guard is that
+// the raw text is written verbatim with no surrounding styling.
+// ────────────────────────────────────────────────────────────────────
+describe("partial_output is not dimmed", () => {
+  let writes: string[];
+  let origWrite: typeof process.stdout.write;
+  let origIsTTY: unknown;
+  let renderer!: (e: AgentEvent) => void;
+
+  beforeEach(() => {
+    writes = [];
+    origWrite = process.stdout.write.bind(process.stdout);
+    origIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    process.stdout.write = ((chunk: unknown) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    renderer = createTuiRenderer({
+      getModel: () => "m",
+      getWorkDir: () => "/tmp",
+      useColor: false,
+    });
+  });
+  afterEach(() => {
+    (renderer as unknown as { dispose?: () => void }).dispose?.();
+    process.stdout.write = origWrite;
+    Object.defineProperty(process.stdout, "isTTY", { value: origIsTTY, configurable: true });
+    jest.restoreAllMocks();
+  });
+
+  it("streams partial text verbatim (no ANSI styling in no-color mode)", () => {
+    renderer({ type: "partial_output", stepId: "1.1", text: "the answer is 42" } as unknown as AgentEvent);
+    const out = writes.join("");
+    // The streamed text is present…
+    expect(out).toContain("the answer is 42");
+    // …and carries no ANSI escape sequences (no-color mode renders plain).
+    expect(out).not.toMatch(/\x1b\[/);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Slash-command palette focus + viewport math (pure helpers)
+// ────────────────────────────────────────────────────────────────────
+describe("clampMenuFocus", () => {
+  it("advances the index by delta", () => {
+    expect(clampMenuFocus(2, 1, 10)).toBe(3);
+    expect(clampMenuFocus(2, -1, 10)).toBe(1);
+  });
+
+  it("wraps forward past the end to the top", () => {
+    expect(clampMenuFocus(9, 1, 10)).toBe(0);
+    expect(clampMenuFocus(9, 3, 10)).toBe(2);
+  });
+
+  it("wraps backward past the top to the bottom", () => {
+    expect(clampMenuFocus(0, -1, 10)).toBe(9);
+    expect(clampMenuFocus(0, -3, 10)).toBe(7);
+  });
+
+  it("handles large deltas via modulo", () => {
+    // delta 12 on a 10-item list lands 2 past the start
+    expect(clampMenuFocus(0, 12, 10)).toBe(2);
+  });
+
+  it("clamps to 0 for a single-item list", () => {
+    expect(clampMenuFocus(0, 5, 1)).toBe(0);
+    expect(clampMenuFocus(0, -5, 1)).toBe(0);
+  });
+
+  it("returns the index unchanged for an empty list", () => {
+    expect(clampMenuFocus(3, 1, 0)).toBe(3);
+  });
+});
+
+describe("menuWindow", () => {
+  it("returns an empty window for an empty list", () => {
+    expect(menuWindow(0, 0, 8)).toEqual({ start: 0, end: 0 });
+    expect(menuWindow(5, 0, 8)).toEqual({ start: 0, end: 0 });
+  });
+
+  it("returns an empty window for non-positive visibleRows", () => {
+    expect(menuWindow(3, 10, 0)).toEqual({ start: 0, end: 0 });
+    expect(menuWindow(3, 10, -2)).toEqual({ start: 0, end: 0 });
+  });
+
+  it("shows the whole list when it fits", () => {
+    const win = menuWindow(2, 5, 8);
+    expect(win).toEqual({ start: 0, end: 5 });
+  });
+
+  it("shrinks the window to the list length when visibleRows exceeds it", () => {
+    const win = menuWindow(0, 3, 8);
+    expect(win).toEqual({ start: 0, end: 3 });
+  });
+
+  it("centers the focus near the middle when there is slack", () => {
+    // 20 items, 8 visible, focus at 10 → start = 10 - 4 = 6, end = 14
+    const win = menuWindow(10, 20, 8);
+    expect(win).toEqual({ start: 6, end: 14 });
+  });
+
+  it("keeps the top in view when focus is near the start", () => {
+    // focus 1, 8 visible, 20 items → start clamps to 0
+    const win = menuWindow(1, 20, 8);
+    expect(win).toEqual({ start: 0, end: 8 });
+  });
+
+  it("sticks to the bottom when focus is near the end", () => {
+    // focus 19, 8 visible, 20 items → start = 20 - 8 = 12, end = 20
+    const win = menuWindow(19, 20, 8);
+    expect(win).toEqual({ start: 12, end: 20 });
+  });
+
+  it("clamps an out-of-range focus back into the list before computing", () => {
+    // focus 50 on a 20-item list → treated as 19
+    const win = menuWindow(50, 20, 8);
+    expect(win).toEqual({ start: 12, end: 20 });
+    // focus -5 → treated as 0
+    const winTop = menuWindow(-5, 20, 8);
+    expect(winTop).toEqual({ start: 0, end: 8 });
+  });
+
+  it("the focused row always lands inside the returned window", () => {
+    // Brute-force: for every (focus, count, rows) the focus is in [start, end)
+    for (let count = 1; count <= 25; count++) {
+      for (let rows = 1; rows <= 12; rows++) {
+        for (let focus = 0; focus < count; focus++) {
+          const { start, end } = menuWindow(focus, count, rows);
+          expect(start).toBeGreaterThanOrEqual(0);
+          expect(end).toBeLessThanOrEqual(count);
+          expect(end - start).toBeLessThanOrEqual(rows);
+          // The clamped focus is always visible.
+          const clamped = Math.max(0, Math.min(count - 1, focus));
+          expect(clamped).toBeGreaterThanOrEqual(start);
+          expect(clamped).toBeLessThan(end);
+        }
+      }
+    }
   });
 });

@@ -4,6 +4,18 @@ export default {
     "^.+\\.tsx?$": ["ts-jest", { useESM: true, isolatedModules: true }],
   },
   testMatch: ["**/__tests__/**/*.test.ts"],
+  // Exclude stale worktree clones and other non-source dirs from test
+  // discovery. Worktrees (e.g. .claude/worktrees/*, .worktrees/*) contain
+  // copies of the same test suites; when Jest runs them in parallel with
+  // the real suites they race on shared filesystem paths and cause
+  // intermittent false failures.
+  testPathIgnorePatterns: [
+    "/node_modules/",
+    "/dist/",
+    "\\.claude/",
+    "\\.worktrees/",
+    "/test-bed/",
+  ],
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json", "node"],
   extensionsToTreatAsEsm: [".ts"],
   moduleNameMapper: {

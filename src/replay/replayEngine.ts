@@ -158,7 +158,29 @@ export class ReplayEngine {
               this.options.onDivergence?.(divergence);
             }
           }
-        } catch {}
+        } catch (err) {
+          // Tool execution failure during replay is a divergence —
+          // the original run succeeded, but the replay can't reproduce it.
+          if (!this.diverged && this.options.stopOnDivergence) {
+            const divergence: DivergenceReport = {
+              runId: "",
+              branchId: "",
+              divergedAt: {
+                seq: tc.seq,
+                eventType: "tool_call",
+                step: tc.step.stepIndex,
+                field: "execution",
+                expected: "(tool executed successfully in original run)",
+                actual: err instanceof Error ? err.message : String(err),
+                severity: "critical",
+              },
+              totalEventsCompared: this.eventIndex,
+              eventsBeforeDivergence: this.eventIndex - 1,
+            };
+            this.diverged = true;
+            this.options.onDivergence?.(divergence);
+          }
+        }
         eventCount++;
       }
 

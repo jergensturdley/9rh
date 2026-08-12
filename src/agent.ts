@@ -449,7 +449,7 @@ export class Agent {
     if (this.config.reportPath === false || this.config.reportPath === "") return undefined;
 
     // Determine the final path. If keepReports is true, embed the runId.
-    const defaultPath = `~/.9rh/last-run.html`.replace("~", homedir());
+    const defaultPath = join(homedir(), ".9rh", "last-run.html");
     let finalPath: string;
     if (this.config.reportPath) {
       finalPath = this.config.reportPath;

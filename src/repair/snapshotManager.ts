@@ -42,6 +42,12 @@ export async function captureSnapshot(agentState: AgentState): Promise<string> {
 }
 
 export async function restoreSnapshot(snapshotId: string): Promise<AgentState | null> {
+  // Validate snapshotId to prevent path traversal. Only allow the
+  // character set used by captureSnapshot's ID generator.
+  if (!/^snap-[a-zA-Z0-9_-]{1,60}$/.test(snapshotId)) {
+    console.warn("[snapshotManager] restoreSnapshot rejected invalid snapshotId:", snapshotId);
+    return null;
+  }
   try {
     const raw = await readFile(join(SNAPSHOT_DIR, `${snapshotId}.json`), "utf-8");
     const snapshot: Snapshot = JSON.parse(raw);

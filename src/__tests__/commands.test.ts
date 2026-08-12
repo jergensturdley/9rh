@@ -503,40 +503,24 @@ describe("static slash-command handlers", () => {
     expect(await executeSlashCommand("/reload", s)).toContain("Reloaded router cache");
   });
 
-  it("/queue reports empty", async () => {
-    expect(await executeSlashCommand("/queue", state())).toContain("Queue is empty");
-  });
-  it("/queue lists queued messages and previews long ones", async () => {
-    const s = state();
-    s.queue = ["short", "x".repeat(120)];
-    const out = await executeSlashCommand("/queue", s);
-    expect(out).toContain("Queued 2");
-    expect(out).toContain("1. short");
-    expect(out).toContain("...");
-  });
-  it("/queue clear empties and reports count", async () => {
-    const s = state();
-    s.queue = ["a", "b"];
-    const out = await executeSlashCommand("/queue clear", s);
-    expect(out).toContain("Cleared 2");
-    expect(s.queue).toEqual([]);
+  it("/queue explains that input runs immediately (no manual queue)", async () => {
+    const out = await executeSlashCommand("/queue", state());
+    expect(out).toContain("run immediately");
+    expect(out).toContain("auto-coalesced");
   });
 
-  it("/run reports nothing queued", async () => {
-    expect(await executeSlashCommand("/run", state())).toContain("No queued messages");
-  });
-  it("/run reports count when queued", async () => {
-    const s = state();
-    s.queue = ["a", "b", "c"];
-    expect(await executeSlashCommand("/run", s)).toContain("3 message(s) queued");
+  it("/run explains that input runs on Enter (no manual run step)", async () => {
+    const out = await executeSlashCommand("/run", state());
+    expect(out).toContain("Nothing to run");
+    expect(out).toContain("auto-coalesced");
   });
 
   it("/done hints at Ctrl+C", async () => {
     expect(await executeSlashCommand("/done", state())).toContain("Ctrl+C");
   });
 
-  it("/clear emits ANSI clear screen", async () => {
-    expect(await executeSlashCommand("/clear", state())).toBe("\x1b[2J\x1b[H");
+  it("/clear emits ANSI clear screen + scrollback", async () => {
+    expect(await executeSlashCommand("/clear", state())).toBe("\x1b[2J\x1b[3J\x1b[H");
   });
 
   it("/allow-skill-install status reports OFF by default", async () => {
@@ -749,10 +733,6 @@ describe("commands.ts — extra branch coverage", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
-  });
-
-  it("/runonce refuses to run with an empty queue", async () => {
-    await expect(executeSlashCommand("/runonce", state())).resolves.toContain("No queued messages to run");
   });
 
   it("/skills lists directories, reports empty, and fails gracefully when missing", async () => {

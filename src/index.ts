@@ -1,17 +1,16 @@
 #!/usr/bin/env node
-import { createInterface, cursorTo, emitKeypressEvents, moveCursor, clearScreenDown, clearLine } from "readline";
+import { createInterface, cursorTo, emitKeypressEvents, moveCursor, clearScreenDown, clearLine, type Interface } from "readline";
 import { resolve } from "path";
 import { program } from "commander";
 import chalk from "chalk";
 import { Agent, type AgentEvent, type ContinuationPolicy, type ToolApprovalRequest, type ToolApprovalDecision } from "./agent.js";
 import { executeSlashCommand, fetchModels, filterModels, type ModelInfo, type SessionState, toArray, getSlashCommands } from "./commands.js";
 import { ensureRouter, readFirstApiKey, getCliToken } from "./init.js";
-import { createTuiRenderer, printSplash } from "./tui.js";
+import { createTuiRenderer, printSplash, clampMenuFocus, menuWindow } from "./tui.js";
 import { detectBackend, getProviderPreset, listProviderPresetIds, type Backend } from "./backends/index.js";
 import { compressUserInput } from "./inputCompression.js";
 import { ReplInputCoalescer } from "./replInput.js";
 import { readUserConfig, resolveConfiguredModel, updateUserConfig } from "./config.js";
-import { showSpinner, hideSpinner, pulseQueueBadge, showRightStats, hideRightStats, refreshStatusLine, formatStats, type StatsSnapshot } from "./ui.js";
 import { existsSync, statSync } from "fs";
 import { spawn } from "child_process";
 import { Orchestrator, type OrchestratorEvent } from "./orchestrator/index.js";
@@ -556,6 +555,10 @@ async function runRepl(state: SessionState): Promise<void> {
   let renderToken = 0;
   let renderQueued = false;
   let pickerActive = false;
+  // Focus cursor for the slash-command palette. 0 = the top match. When the
+  // user hits Enter on a space-less line, the focused command runs; ↑/↓ move
+  // focus and the viewport follows. Reset to 0 whenever the match set changes.
+  let selectedIndex = 0;
 
   function stripAnsi(text: string): string {
     return text.replace(/\x1B\[[0-9;]*m/g, "");
@@ -573,35 +576,65 @@ async function runRepl(state: SessionState): Promise<void> {
     cursorTo(process.stderr, promptColumns() + rl.cursor);
   }
 
+  // readline's Interface.line / Interface.cursor are mutable at runtime
+  // (readline itself mutates them on every keystroke) but @types/node
+  // declares them readonly. This helper is the single typed escape hatch
+  // for programmatically resetting the input, used by Esc-cancel,
+  // Tab-complete, and Ctrl+C. No `as any`.
+  type MutableRL = Interface & { line: string; cursor: number };
+  function setRlLine(text: string): void {
+    const m = rl as MutableRL;
+    m.line = text;
+    m.cursor = text.length;
+  }
+
   function showSuggestions(
     matches: Array<{ name: string; description: string }>,
     partial: string,
   ): void {
     const visibleRows = Math.max(4, Math.min(12, (process.stderr.rows ?? 24) - 8));
-    if (partial !== lastSuggestionPartial) suggestionTop = 0;
-    suggestionTop = Math.max(0, Math.min(suggestionTop, Math.max(0, matches.length - visibleRows)));
-    const items = matches.slice(suggestionTop, suggestionTop + visibleRows);
-    const key = `${partial}|${suggestionTop}|${items.map((m) => m.name).join(";")}`;
+    // New query (or freshly opened) → focus resets to the top match. This is
+    // the common path: as you type, focus follows the best match so Enter
+    // runs the thing you're probably aiming at.
+    if (partial !== lastSuggestionPartial) {
+      selectedIndex = 0;
+      suggestionTop = 0;
+    }
+    if (matches.length === 0) { clearSuggestions(); return; }
+    // Keep the focus cursor inside the (possibly re-filtered) list.
+    selectedIndex = Math.min(selectedIndex, matches.length - 1);
+    const win = menuWindow(selectedIndex, matches.length, visibleRows);
+    suggestionTop = win.start;
+    const items = matches.slice(win.start, win.end);
+    const key = `${partial}|${win.start}|${selectedIndex}|${items.map((m) => m.name).join(";")}`;
     if (key === lastSuggestionKey) return;
-    if (items.length === 0) { clearSuggestions(); return; }
-    const hiddenBefore = suggestionTop;
-    const hiddenAfter = Math.max(0, matches.length - suggestionTop - items.length);
-    const hasOverflow = hiddenBefore > 0 || hiddenAfter > 0;
-    suggCount = items.length + (hasOverflow ? 1 : 0);
+    const hiddenBefore = win.start;
+    const hiddenAfter = Math.max(0, matches.length - win.end);
+    suggCount = items.length + 1; // +1 for the always-on hint line
     lastSuggestionKey = key;
     lastSuggestionPartial = partial;
     lastSuggestionMatches = matches;
     const maxLen = Math.max(...items.map(i => i.name.length));
-    const lines = items.map(({ name, description }) => {
+    const lines = items.map(({ name, description }, i) => {
+      const idx = win.start + i;
+      const focused = idx === selectedIndex;
+      const marker = focused ? "❯" : " ";
       const hi = highlightMatch(name, partial);
       const pad = " ".repeat(Math.max(1, maxLen - name.length + 2));
       const desc = opts.color ? chalk.dim(description.slice(0, 44)) : description.slice(0, 44);
-      return `  /${hi}${pad}${desc}`;
+      let row = `${marker} /${hi}${pad}${desc}`;
+      if (focused && opts.color) row = chalk.inverse(row);
+      return row;
     });
-    if (hasOverflow) {
-      const more = `  ↑/↓ scroll  PgUp/PgDn jump${hiddenBefore ? `  ${hiddenBefore} above` : ""}${hiddenAfter ? `  ${hiddenAfter} below` : ""}`;
-      lines.push(opts.color ? chalk.dim(more) : more);
-    }
+    // Always-visible keybind hint — keeps Tab/Esc/Enter/↑↓ discoverable
+    // even on short filtered lists (where the old overflow-only hint never
+    // appeared). Adds the count so users know how many commands match.
+    const countLabel = matches.length === 1 ? "1 command" : `${matches.length} commands`;
+    const overflowLabel = hiddenBefore || hiddenAfter
+      ? `  (${hiddenBefore}↑ ${hiddenAfter}↓)`
+      : "";
+    const hint = `  ${countLabel}${overflowLabel}  ·  ↑↓ focus  Enter run  Tab complete  Esc cancel`;
+    lines.push(opts.color ? chalk.dim(hint) : hint);
     cursorTo(process.stderr, 0);
     clearScreenDown(process.stderr);
     process.stderr.write(prompt() + rl.line + "\n");
@@ -622,13 +655,16 @@ async function runRepl(state: SessionState): Promise<void> {
     lastSuggestionPartial = "";
     lastSuggestionMatches = [];
     suggestionTop = 0;
+    selectedIndex = 0;
     redrawLine();
   }
 
-  function scrollSuggestions(delta: number): boolean {
+  // Move the focus cursor by `delta` (±1 from arrows, ±N from PgUp/PgDn).
+  // Wraps at the ends so the palette feels like a ring, not a dead-end.
+  function moveFocus(delta: number): boolean {
     if (suggCount === 0 || lastSuggestionMatches.length === 0) return false;
-    suggestionTop += delta;
-    lastSuggestionKey = "";
+    selectedIndex = clampMenuFocus(selectedIndex, delta, lastSuggestionMatches.length);
+    lastSuggestionKey = ""; // force a re-render (focus marker moved)
     showSuggestions(lastSuggestionMatches, lastSuggestionPartial);
     return true;
   }
@@ -689,25 +725,90 @@ async function runRepl(state: SessionState): Promise<void> {
     emitKeypressEvents(process.stdin, rl);
     (process.stdin as typeof process.stdin & WithKp).on("keypress", (input, key) => {
       if (pickerActive) return;
+      // Enter, when the palette is open and the line is a bare command
+      // (no space yet → no args), RUNS the focused command. This turns the
+      // menu into a real command palette: `/` ↓ ↓ Enter gets you to
+      // /status with zero typing. If a space is present (args mode) or the
+      // menu is closed, Enter submits whatever's in the buffer normally.
+      if ((key?.name === "return" || key?.name === "enter") && suggCount > 0 && lastSuggestionMatches.length > 0) {
+        const partial = rl.line.slice(1);
+        if (!partial.includes(" ") && lastSuggestionMatches[selectedIndex]) {
+          const focused = `/${lastSuggestionMatches[selectedIndex].name}`;
+          clearSuggestions();
+          setRlLine(focused);
+          rl.write("\n"); // submit through the normal readline line event
+          return;
+        }
+        clearSuggestions();
+        return;
+      }
       if (key?.name === "return" || key?.name === "enter") {
         clearSuggestions();
         return;
       }
+      // Esc cancels an open slash-command search: close the menu AND drop
+      // the leading "/" so the next keystroke doesn't re-trigger fuzzy
+      // search. With no menu open, Esc is a no-op (won't destroy typed
+      // input). Matches fzf/claude cancel semantics.
       if (key?.name === "escape") {
+        if (suggCount > 0) {
+          clearSuggestions();
+          setRlLine("");
+          refreshPrompt();
+        } else {
+          clearSuggestions();
+        }
+        return;
+      }
+      // Tab completes to the FOCUSED command (not just the top match) when
+      // the palette is open — the universal "complete" keystroke. If you've
+      // moved focus with ↑/↓, Tab honors that choice. Replaces the line
+      // with /<cmd><space> and closes the menu so you can type args.
+      if (key?.name === "tab" && suggCount > 0 && lastSuggestionMatches.length > 0) {
+        const choice = lastSuggestionMatches[Math.min(selectedIndex, lastSuggestionMatches.length - 1)];
         clearSuggestions();
+        setRlLine(`/${choice.name} `);
+        refreshPrompt();
         return;
       }
       if (key?.ctrl || key?.meta) return;
-      if (key?.name === "down" && scrollSuggestions(1)) return;
-      if (key?.name === "up" && scrollSuggestions(-1)) return;
-      if ((key?.name === "pagedown" || key?.sequence === "\u001b[6~") && scrollSuggestions(8)) return;
-      if ((key?.name === "pageup" || key?.sequence === "\u001b[5~") && scrollSuggestions(-8)) return;
+      // ↑/↓ move the focus cursor; the viewport follows via menuWindow.
+      if (key?.name === "down" && moveFocus(1)) return;
+      if (key?.name === "up" && moveFocus(-1)) return;
+      if ((key?.name === "pagedown" || key?.sequence === "\u001b[6~") && moveFocus(8)) return;
+      if ((key?.name === "pageup" || key?.sequence === "\u001b[5~") && moveFocus(-8)) return;
       const navKeys = new Set(["up", "down", "pageup", "pagedown", "left", "right", "tab"]);
       if (key?.name && navKeys.has(key.name)) return;
+      // Typing a space dismisses the palette: once you're typing args
+      // (e.g. `/switch claude-x`) the menu is useless and Enter should
+      // submit literally, not run the top match. Command names have no
+      // spaces, so this is the natural mode boundary.
+      const typedSpace = typeof input === "string" && input === " ";
       const changedLine = typeof input === "string" && input.length > 0;
       const editingKey = key?.name === "backspace" || key?.name === "delete";
+      if (typedSpace && suggCount > 0) {
+        clearSuggestions();
+        return;
+      }
       if (!changedLine && !editingKey) return;
       scheduleSuggestionRefresh();
+    });
+
+    // Ctrl+C honors the universal REPL contract: a non-empty line (or an
+    // open suggestion menu) is cleared and the prompt refreshed; Ctrl+C on
+    // an empty line exits. readline traps Ctrl+C and emits a SIGINT *event*
+    // on the interface rather than killing the process, so we own the
+    // behavior here.
+    rl.on("SIGINT", () => {
+      if (suggCount > 0 || rl.line.length > 0) {
+        clearSuggestions();
+        setRlLine("");
+        process.stderr.write("\n");
+        refreshPrompt();
+      } else {
+        process.stderr.write("\n");
+        process.exit(0);
+      }
     });
   }
 
@@ -775,35 +876,6 @@ async function runRepl(state: SessionState): Promise<void> {
     if (trimmed.startsWith("/") && !trimmed.includes("\n")) {
       const prevModel = state.model;
       const parsed = parseSlash(trimmed);
-
-      // /run — flush the queue
-      if (parsed.cmd === "run") {
-        if (!state.queue.length) {
-          process.stderr.write("\n  No queued messages. Type lines first, then /run.\n");
-          refreshPrompt();
-          return;
-        }
-        const fullInput = state.queue.join("\n");
-        state.queue = [];
-        hideRightStats();
-
-        const compressed = compressUserInput(fullInput);
-        if (compressed.notices.length > 0) {
-          process.stderr.write(compressed.notices.map((notice) => `  ⧉ ${notice}`).join("\n") + "\n");
-        }
-
-        state._runStartMs = Date.now();
-        state._toolCallCount = {};
-        const agent = makeAgent(state, tui);
-        try {
-          await agent.run(compressed.text);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          process.stderr.write(opts.color ? chalk.red(`\n✗ ${msg}\n`) : `\n✗ ${msg}\n`);
-        }
-        refreshPrompt();
-        return;
-      }
 
       if (parsed.cmd === "models") {
         await runModelsPicker(parsed.args);

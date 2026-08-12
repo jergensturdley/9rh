@@ -185,9 +185,9 @@ REPL intercepts lines starting with `/` **before** sending to the agent. `execut
 | Command | Effect |
 |---------|--------|
 | `/help` | Show all slash commands |
-| `/run` | Send queued messages to the agent |
-| `/queue` | Show queued messages (`/queue clear` to discard) |
-| `/done` | Interrupt hint |
+| `/run` | (no-op) Input runs on Enter; multi-line paste is auto-coalesced |
+| `/queue` | Explains how input is sent (no manual queue needed) |
+| `/done` | How to interrupt (Ctrl+C) or exit the REPL |
 | `/doctor` | Run pre-flight diagnostics (connectivity, keys, providers, models) |
 | `/setup` | Install and start 9router if not already running |
 | `/sandbox` | Shows command sandbox/isolation backend status and direct fallback warnings |

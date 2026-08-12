@@ -122,16 +122,18 @@ export class ContainerSessionExecutor implements SandboxProvider {
 
   async exec(command: string, options?: { timeoutMs?: number }): Promise<ExecutionResult> {
     const startMs = Date.now();
-    const timeout = Math.min(options?.timeoutMs ?? this.config.timeoutMs, 120_000);
+    const requestedTimeoutMs = options?.timeoutMs ?? this.config.timeoutMs;
+    const effectiveTimeoutMs = Math.min(requestedTimeoutMs, 120_000);
+    const clampedTimeout = effectiveTimeoutMs < requestedTimeoutMs;
 
     if (!this.running) {
-      const started = await this.run({ action: "start", name: this.containerName, ...this.config }, timeout);
-      if (started.exitCode !== 0) return this.toExecutionResult(started, startMs);
+      const started = await this.run({ action: "start", name: this.containerName, ...this.config }, effectiveTimeoutMs);
+      if (started.exitCode !== 0) return this.toExecutionResult(started, startMs, { requestedTimeoutMs, effectiveTimeoutMs, clampedTimeout });
       this.running = true;
     }
 
-    const result = await this.run({ action: "exec", name: this.containerName, command }, timeout);
-    return this.toExecutionResult(result, startMs);
+    const result = await this.run({ action: "exec", name: this.containerName, command }, effectiveTimeoutMs);
+    return this.toExecutionResult(result, startMs, { requestedTimeoutMs, effectiveTimeoutMs, clampedTimeout });
   }
 
   async validatePath(filePath: string): Promise<string> {
@@ -181,16 +183,25 @@ export class ContainerSessionExecutor implements SandboxProvider {
     return buildDockerArgs(action);
   }
 
-  private toExecutionResult(result: ContainerRunnerResult, startMs: number): ExecutionResult {
+  private toExecutionResult(
+    result: ContainerRunnerResult,
+    startMs: number,
+    timeouts: { requestedTimeoutMs: number; effectiveTimeoutMs: number; clampedTimeout: boolean },
+  ): ExecutionResult {
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n--- stderr ---\n");
     const exitCode = result.exitCode ?? 0;
     return {
       output: output || "(no output)",
       error: exitCode === 0 ? undefined : "exit non-zero",
       exitCode,
+      signal: null,
+      killed: false,
       timedOut: result.timedOut ?? false,
       durationMs: Date.now() - startMs,
       sandboxUsed: true,
+      requestedTimeoutMs: timeouts.requestedTimeoutMs,
+      effectiveTimeoutMs: timeouts.effectiveTimeoutMs,
+      clampedTimeout: timeouts.clampedTimeout,
     };
   }
 }

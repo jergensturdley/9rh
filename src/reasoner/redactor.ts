@@ -8,10 +8,10 @@ const SECRET_PATTERNS = [
 ] as [RegExp, string][];
 
 const SENSITIVE_KEYS = new Set([
-  "api_key", "apikey", "apiKey", "secret", "password", "token", "bearer",
-  "access_token", "accessToken", "refresh_token", "refreshToken",
+  "api_key", "apikey", "secret", "password", "token", "bearer",
+  "access_token", "accesstoken", "refresh_token", "refreshtoken",
   "authorization", "authorization_header", "credentials", "credential",
-  "private_key", "privateKey", "session_token", "sessionToken",
+  "private_key", "privatekey", "session_token", "sessiontoken",
 ]);
 
 function recursivelyRedact(value: unknown): unknown {
