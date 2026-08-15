@@ -82,7 +82,7 @@ export interface RunReportData {
   status: RunStatus;
   steps: number;
   compactionCount: number;
-  /** Captured from the final streaming chunk. */
+  /** Summed across every streamed completion in the run (billing-true). */
   tokenUsage?: TokenUsage;
   toolCalls: ToolCallRecord[];
   reasoning: ReasoningChunk[];

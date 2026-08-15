@@ -22,6 +22,7 @@ import {
   classifyInitCommand,
 } from "./cliArgs.js";
 import { Sandbox, getSandboxStatus, getDefaultSandboxConfig } from "./sandbox/index.js";
+import { SessionLedger, buildTurnDigest } from "./ledger.js";
 
 async function maybeAutoIndexCodeGraph(workDir: string): Promise<void> {
   const codegraphDir = resolve(workDir, ".codegraph");
@@ -262,6 +263,22 @@ async function interactiveToolApproval(
   return { approved: false, reason: "rejected by user" };
 }
 
+/**
+ * Compose the session ledger into an agent-event sink. The ledger folds the
+ * event first so the TUI's dashboard redraw (triggered by the same event)
+ * reads fresh session totals.
+ */
+function withLedger(
+  ledger: SessionLedger | undefined,
+  onEvent: (e: AgentEvent) => void,
+): (e: AgentEvent) => void {
+  if (!ledger) return onEvent;
+  return (e: AgentEvent): void => {
+    ledger.onAgentEvent(e);
+    onEvent(e);
+  };
+}
+
 function makeAgent(state: SessionState, onEvent: (e: AgentEvent) => void) {
   // state.lastReportPath semantics:
   //   null  → "use the Agent's default" (default: ~/.9rh/last-run.html)
@@ -334,11 +351,14 @@ async function runTask(state: SessionState, t: string): Promise<void> {
     process.stderr.write(compressed.notices.map((notice) => `  ⧉ ${notice}`).join("\n") + "\n");
   }
 
+  state.ledger?.beginTurn(compressed.text);
+
   // Path A — wire Orchestrator.orchestrate into CLI dispatch when the
   // gate decides the task is structured enough to benefit from the
   // multi-role pipeline (architect → implementer → security audit →
   // test strategist → reviewer loop).
   if (shouldUseOrchestrator(compressed.text, { force: state.useOrchestrate === true })) {
+    const startedAt = Date.now();
     const orchestrator = new Orchestrator({
       baseURL: state.baseURL,
       apiKey: state.apiKey,
@@ -346,16 +366,30 @@ async function runTask(state: SessionState, t: string): Promise<void> {
       workDir: state.workDir,
       onEvent: (event) => emitOrchestratorTelemetry(state.useColor, event),
     });
-    const result = await orchestrator.orchestrate(compressed.text);
-    // Map OrchestratorResult → final-response shape (string). The REPL
-    // downstream just prints whatever runTask emits; we write a short
-    // banner plus the summary so users can see the pipeline output.
-    process.stdout.write(`\n  orchestrator\n`);
-    process.stdout.write(`${result.summary}\n`);
+    try {
+      const result = await orchestrator.orchestrate(compressed.text);
+      // Map OrchestratorResult → final-response shape (string). The REPL
+      // downstream just prints whatever runTask emits; we write a short
+      // banner plus the summary so users can see the pipeline output.
+      process.stdout.write(`\n  orchestrator\n`);
+      process.stdout.write(`${result.summary}\n`);
+      // The orchestrator pipeline doesn't stream AgentEvents (yet — plan
+      // phase 3), so close the ledger turn with a minimal digest.
+      state.ledger?.completeTurn(
+        buildTurnDigest(
+          { task: compressed.text, startedAt, workDir: state.workDir, fileChanges: [], toolCalls: [] },
+          { status: "completed", steps: 0 },
+        ),
+      );
+    } catch (err) {
+      state.ledger?.completeTurn(undefined, "error");
+      throw err;
+    }
     return;
   }
 
   // Streaming Agent loop (default).
+  const ledger = state.ledger;
   const tui = createTuiRenderer({
     getModel: () => state.model,
     getWorkDir: () => state.workDir,
@@ -363,8 +397,9 @@ async function runTask(state: SessionState, t: string): Promise<void> {
     getStartedByRouter: () => state.wasStarted,
     useColor: state.useColor,
     onReportWritten: (path) => { state.lastReportPath = path; },
+    getLedger: ledger ? () => ledger.view() : undefined,
   });
-  const agent = makeAgent(state, tui);
+  const agent = makeAgent(state, withLedger(ledger, tui));
   await agent.run(compressed.text);
 }
 
@@ -493,6 +528,7 @@ async function selectModelFromList(
 }
 
 async function runRepl(state: SessionState): Promise<void> {
+  const replLedger = state.ledger;
   const tui = createTuiRenderer({
     getModel: () => state.model,
     getWorkDir: () => state.workDir,
@@ -500,6 +536,7 @@ async function runRepl(state: SessionState): Promise<void> {
     getStartedByRouter: () => state.wasStarted,
     useColor: state.useColor,
     onReportWritten: (path) => { state.lastReportPath = path; },
+    getLedger: replLedger ? () => replLedger.view() : undefined,
   });
 
   const nativeBase = state.baseURL.replace(/\/v1\/?$/, "");
@@ -909,7 +946,8 @@ async function runRepl(state: SessionState): Promise<void> {
       process.stderr.write((opts.color ? chalk.dim(noticeText) : noticeText) + "\n");
     }
 
-    const agent = makeAgent(state, tui);
+    replLedger?.beginTurn(compressed.text);
+    const agent = makeAgent(state, withLedger(replLedger, tui));
     try {
       await agent.run(compressed.text);
     } catch (err) {
@@ -1081,6 +1119,7 @@ const state: SessionState = {
   useOrchestrate: opts.orchestrate === true,
   _runStartMs: undefined,
   _toolCallCount: {},
+  ledger: new SessionLedger(),
 };
 
 async function main() {

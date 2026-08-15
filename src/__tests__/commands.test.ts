@@ -42,6 +42,53 @@ async function withConfigDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
+describe("/brief and /usage", () => {
+  it("point at the ledger being empty when no ledger is wired", async () => {
+    expect(await executeSlashCommand("/brief", state())).toContain("no session ledger");
+    expect(await executeSlashCommand("/usage", state())).toContain("no session ledger");
+  });
+
+  it("render the session ledger when present", async () => {
+    const { SessionLedger } = await import("../ledger.js");
+    const s = state();
+    s.ledger = new SessionLedger(0);
+    s.ledger.beginTurn("refactor the parser", 10);
+    s.ledger.onAgentEvent(
+      { type: "usage", lastCompletion: { prompt: 1000, completion: 200, total: 1200 }, turn: { prompt: 1000, completion: 200, total: 1200 } },
+      20,
+    );
+    s.ledger.completeTurn(
+      {
+        task: "refactor the parser",
+        status: "completed",
+        durationMs: 5_000,
+        steps: 2,
+        tokens: { prompt: 1000, completion: 200, total: 1200 },
+        files: [{ path: "src/parser.ts", operation: "edit", added: 4, removed: 1 }],
+        commands: [{ command: "npm test", ok: true }],
+        toolCounts: { run_bash: 1 },
+      },
+      "completed",
+      30,
+    );
+
+    const brief = await executeSlashCommand("/brief", s);
+    expect(brief).toContain("session brief");
+    expect(brief).toContain("refactor the parser");
+    expect(brief).toContain("1 touched");
+
+    const usage = await executeSlashCommand("/usage", s);
+    expect(usage).toContain("1.2k total");
+    expect(usage).toContain("tokens only — no cost estimates");
+  });
+
+  it("are listed in /help under the session group", async () => {
+    const help = await executeSlashCommand("/help", state());
+    expect(help).toContain("/brief");
+    expect(help).toContain("/usage");
+  });
+});
+
 describe("executeSlashCommand native API auth", () => {
   afterEach(() => {
     jest.restoreAllMocks();

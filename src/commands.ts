@@ -7,6 +7,7 @@ import { getCliToken, readFirstApiKey } from "./init.js";
 import { SandboxExecutor, isSandboxAvailable } from "./sandbox/index.js";
 import type { ContinuationPolicy } from "./agent.js";
 import { updateUserConfig } from "./config.js";
+import { renderBrief, renderUsage, type SessionLedger } from "./ledger.js";
 
 export interface SessionState {
   baseURL: string;
@@ -40,6 +41,13 @@ export interface SessionState {
   history?: string[];
   _runStartMs: number | undefined;
   _toolCallCount: Record<string, number>;
+  /**
+   * Session ledger — cross-turn record of goals, outcomes, files touched,
+   * commands run, and token usage. Read by /brief, /usage, and the TUI
+   * dashboard panels. Optional so programmatic construction (and tests)
+   * without a ledger keeps working.
+   */
+  ledger?: SessionLedger;
 }
 
 export interface RouterCacheEntry<T> {
@@ -356,7 +364,7 @@ const COMMANDS: Record<string, CommandDef> = {
         if (cmd.name === "help" || cmd.name === "clear" || cmd.name === "queue" || cmd.name === "run" || cmd.name === "done" || cmd.name === "setup" || cmd.name === "sandbox" || cmd.name === "doctor") prefix = "system";
         else if (cmd.name === "status" || cmd.name === "providers" || cmd.name === "combos" || cmd.name === "keys" || cmd.name === "router" || cmd.name === "refresh" || cmd.name === "reload") prefix = "router";
         else if (cmd.name === "models" || cmd.name === "switch" || cmd.name === "default-model") prefix = "models";
-        else if (cmd.name === "dir" || cmd.name === "skills" || cmd.name === "history" || cmd.name === "logs" || cmd.name === "index" || cmd.name === "index-status") prefix = "session";
+        else if (cmd.name === "dir" || cmd.name === "skills" || cmd.name === "history" || cmd.name === "logs" || cmd.name === "index" || cmd.name === "index-status" || cmd.name === "brief" || cmd.name === "usage") prefix = "session";
         else prefix = "other";
         groups[prefix] = groups[prefix] ?? [];
         groups[prefix].push(cmd);
@@ -399,6 +407,24 @@ const COMMANDS: Record<string, CommandDef> = {
         return "\n  (reload not yet implemented — would clear skill index cache)\n";
       }
       return "\n  Usage: /skills [list|reload]\n";
+    },
+  },
+
+  brief: {
+    usage: "/brief",
+    description: "Session brief — goal, turns, files touched, commands, tokens",
+    handler: async (_args, state) => {
+      if (!state.ledger) return "\n  (no session ledger — run a task first)\n";
+      return renderBrief(state.ledger.view(), state.useColor);
+    },
+  },
+
+  usage: {
+    usage: "/usage",
+    description: "Token usage per turn and session total (tokens only, no cost)",
+    handler: async (_args, state) => {
+      if (!state.ledger) return "\n  (no session ledger — run a task first)\n";
+      return renderUsage(state.ledger.view(), state.useColor);
     },
   },
 

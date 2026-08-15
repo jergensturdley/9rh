@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import type { AgentEvent } from "./agent.js";
+import { fmtTokens, fmtDurationMs, type LedgerView, type TurnDigest } from "./ledger.js";
 import {
   applyAgentEvent,
   createRunVisualization,
@@ -254,17 +255,41 @@ export interface Geometry {
   leftColWidth: number;
   leftInner: number;
   wrapWidth: number;
+  /** False on narrow terminals — the side dashboard is dropped and the
+   *  streamed body gets the full width (a condensed HUD rides the spinner
+   *  line instead; below MIN_HUD_COLS even that is dropped). */
+  showDashboard: boolean;
 }
+
+/** Below this width the side dashboard would squeeze the body column into
+ *  unreadability (dashWidth bottoms out at 36, leaving < 40 cols of body). */
+export const NARROW_DASHBOARD_MIN_COLS = 78;
+/** Below this width even the condensed spinner-line HUD is dropped. */
+export const MIN_HUD_COLS = 50;
 
 export function computeGeometry(termCols: number, termRows: number): Geometry {
   if (!Number.isFinite(termCols) || termCols <= 0) termCols = 80;
   if (!Number.isFinite(termRows) || termRows <= 0) termRows = 24;
+  if (termCols < NARROW_DASHBOARD_MIN_COLS) {
+    const leftColWidth = termCols;
+    const leftInner = Math.max(0, leftColWidth - 2);
+    return {
+      termCols,
+      termRows,
+      dashWidth: 0,
+      dashCol: termCols + 1,
+      leftColWidth,
+      leftInner,
+      wrapWidth: leftInner,
+      showDashboard: false,
+    };
+  }
   const dashWidth = dashboardWidth(termCols);
   const dashCol = termCols - dashWidth + 1;
   const leftColWidth = termCols - dashWidth - 1;
   const leftInner = Math.max(0, leftColWidth - 2);
   const wrapWidth = leftInner;
-  return { termCols, termRows, dashWidth, dashCol, leftColWidth, leftInner, wrapWidth };
+  return { termCols, termRows, dashWidth, dashCol, leftColWidth, leftInner, wrapWidth, showDashboard: true };
 }
 
 export function drawBox(
@@ -312,6 +337,10 @@ export interface TuiOptions {
   useColor: boolean;
   /** Called when a run report is written to disk. Receives the absolute path. */
   onReportWritten?: (path: string) => void;
+  /** Session-ledger snapshot for the dashboard's goal/session panels and
+   *  the narrow-terminal condensed HUD. Optional — panels degrade to the
+   *  per-run view when absent. */
+  getLedger?: () => LedgerView;
 }
 
 export interface SplashOptions extends TuiOptions {
@@ -621,6 +650,13 @@ export interface DashboardState {
   currentTool: string | null;
   currentToolTarget: string | null;
   toolHistory: ToolHistoryEntry[];
+  // Session-ledger panels (optional — populated from TuiOptions.getLedger).
+  goal?: string | null;
+  goalActive?: boolean;
+  sessionTurns?: number;
+  sessionTokens?: { prompt: number; completion: number; total: number } | null;
+  sessionFiles?: number;
+  lastOutcome?: string | null;
 }
 
 export function formatElapsed(start: Date): string {
@@ -656,6 +692,24 @@ export function renderDashboardLines(state: DashboardState, useColor: boolean, w
   const elapsed = formatElapsed(state.startedAt);
   const iterStr = state.iterMax > 0 ? `iter ${state.iterCurrent}/${state.iterMax}` : "iter —";
   lines.push(`│ ` + `⏱ ${elapsed}    ${iterStr}`.padEnd(inner) + ` │`);
+
+  // Session panels — goal / totals / last outcome, fed by the session
+  // ledger. Rendered only when a ledger is wired so per-run consumers
+  // (tests, programmatic use) keep the historical layout.
+  if (state.goal) {
+    const goalIcon = state.goalActive ? "◎" : "○";
+    lines.push(`│ ${crop(`${goalIcon} ${normalizeWhitespace(state.goal)}`, inner).padEnd(inner)} │`);
+  }
+  if (state.sessionTokens || (state.sessionTurns ?? 0) > 0) {
+    const tok = state.sessionTokens
+      ? `${fmtTokens(state.sessionTokens.prompt)}↑ ${fmtTokens(state.sessionTokens.completion)}↓`
+      : "0 tok";
+    const sess = `Σ turn ${state.sessionTurns ?? 0} · ${tok} · ${state.sessionFiles ?? 0} files`;
+    lines.push(`│ ${crop(sess, inner).padEnd(inner)} │`);
+  }
+  if (state.lastOutcome) {
+    lines.push(`│ ${crop(`↩ ${state.lastOutcome}`, inner).padEnd(inner)} │`);
+  }
 
   lines.push(`│${" ".repeat(inner + 2)}│`);
 
@@ -732,6 +786,72 @@ export function renderDashboardLines(state: DashboardState, useColor: boolean, w
   return lines;
 }
 
+const DIGEST_STATUS_ICON: Record<TurnDigest["status"], string> = {
+  completed: "✓",
+  aborted: "⏹",
+  error: "✗",
+  max_iterations: "⚠",
+};
+
+const DIGEST_STATUS_WORD: Record<TurnDigest["status"], string> = {
+  completed: "done",
+  aborted: "aborted",
+  error: "error",
+  max_iterations: "max iterations",
+};
+
+const DIGEST_MAX_FILES = 8;
+const DIGEST_MAX_COMMANDS = 6;
+
+/**
+ * Receipts — plain (uncolored, unboxed) lines for the end-of-turn digest.
+ * Everything here is harness-computed fact: files with net +/- line counts,
+ * commands with pass/fail, steps, duration, tokens. The model's prose is
+ * rendered separately, below.
+ *
+ * Pure + exported so tests can assert the exact rendering.
+ */
+export function renderDigestLines(digest: TurnDigest, width: number): string[] {
+  const lines: string[] = [];
+  const headline: string[] = [
+    `${DIGEST_STATUS_ICON[digest.status]} ${DIGEST_STATUS_WORD[digest.status]}`,
+    fmtDurationMs(digest.durationMs),
+    `${digest.steps} step${digest.steps === 1 ? "" : "s"}`,
+  ];
+  if (digest.tokens) {
+    headline.push(`${fmtTokens(digest.tokens.prompt)}↑ ${fmtTokens(digest.tokens.completion)}↓ tok`);
+  }
+  lines.push(crop(headline.join(" · "), width));
+
+  const label = (name: string) => name.padEnd(7);
+  const cont = " ".repeat(7);
+  lines.push(crop(`${label("goal")}${normalizeWhitespace(digest.task)}`, width));
+
+  if (digest.files.length === 0) {
+    lines.push(`${label("files")}(none)`);
+  } else {
+    digest.files.slice(0, DIGEST_MAX_FILES).forEach((f, i) => {
+      const delta = f.operation === "create" ? `new +${f.added}` : `+${f.added} −${f.removed}`;
+      lines.push(crop(`${i === 0 ? label("files") : cont}${f.path}  ${delta}`, width));
+    });
+    if (digest.files.length > DIGEST_MAX_FILES) {
+      lines.push(`${cont}(…${digest.files.length - DIGEST_MAX_FILES} more files)`);
+    }
+  }
+
+  if (digest.commands.length > 0) {
+    digest.commands.slice(0, DIGEST_MAX_COMMANDS).forEach((c, i) => {
+      const icon = c.ok ? "✓" : "✗";
+      lines.push(crop(`${i === 0 ? label("ran") : cont}${icon} ${normalizeWhitespace(c.command)}`, width));
+    });
+    if (digest.commands.length > DIGEST_MAX_COMMANDS) {
+      lines.push(`${cont}(…${digest.commands.length - DIGEST_MAX_COMMANDS} more commands)`);
+    }
+  }
+
+  return lines;
+}
+
 
 export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void {
   let spinnerTimer: ReturnType<typeof setInterval> | null = null;
@@ -770,6 +890,34 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
   // chunk with no trailing newline. The next non-partial event must emit
   // \n first or it will overwrite/interleave with the streamed text.
   let pendingPartial = false;
+  // An aborted run emits error AND done carrying the same digest object;
+  // render the receipts box once, not twice.
+  let lastRenderedDigest: TurnDigest | null = null;
+
+  /** Receipts box — the harness-computed end-of-turn digest. */
+  function writeDigestBox(digest: TurnDigest): void {
+    if (digest === lastRenderedDigest) return;
+    lastRenderedDigest = digest;
+    const w = contentWidth() + 2;
+    const inner = w - 2;
+    const sep = "═".repeat(inner);
+    const borderFn = !opts.useColor
+      ? (s: string) => s
+      : digest.status === "completed"
+      ? chalk.green
+      : digest.status === "error"
+      ? chalk.red
+      : chalk.yellow;
+    const rows = renderDigestLines(digest, Math.max(10, inner - 4));
+    process.stdout.write("\n\n");
+    process.stdout.write(borderFn(`╔${sep}╗`) + "\n");
+    rows.forEach((row, idx) => {
+      const body = padVisible(`  ${row}`, inner);
+      const styled = !opts.useColor ? body : idx === 0 ? chalk.bold.white(body) : chalk.white(body);
+      process.stdout.write(borderFn("║") + styled + borderFn("║") + "\n");
+    });
+    process.stdout.write(borderFn(`╚${sep}╝`) + "\n\n");
+  }
 
   function recomputeGeometry(): void {
     geometry = computeGeometry(cols(), rows());
@@ -816,11 +964,26 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
     return value;
   }
 
+  function syncLedgerPanels(): void {
+    const ledger = opts.getLedger?.();
+    if (!ledger) return;
+    dashboard.goal = ledger.goal;
+    dashboard.goalActive = ledger.goalActive;
+    dashboard.sessionTurns = ledger.turnCount;
+    dashboard.sessionTokens = ledger.tokens;
+    dashboard.sessionFiles = ledger.filesTouched;
+    dashboard.lastOutcome = ledger.lastOutcome;
+  }
+
   function drawDashboard(): void {
     if (!process.stdout.isTTY) return;
+    // Narrow terminal → no side dashboard; the condensed HUD rides the
+    // spinner line instead (see startSpinner).
+    if (!geometry.showDashboard) return;
     if (drawing) return; // R2 — drop a redraw rather than corrupt the screen
     drawing = true;
     try {
+      syncLedgerPanels();
       const dashWidth = geometry.dashWidth;
       const dashCol = geometry.dashCol;
       const lines = renderDashboardLines(dashboard, opts.useColor, dashWidth, visualization);
@@ -873,13 +1036,27 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
     if (spinnerActive) return;
     spinnerActive = true;
     spinnerFrame = 0;
+    const spinnerStartedAt = Date.now();
     activeSpinnerFrames = SPINNER_SETS[(spinnerLabelIndex + label.length) % SPINNER_SETS.length] ?? SPINNER_SETS[0];
     spinnerTimer = setInterval(() => {
       const frame = activeSpinnerFrames[spinnerFrame % activeSpinnerFrames.length];
+      const secs = Math.floor((Date.now() - spinnerStartedAt) / 1000);
+      // Elapsed always; on narrow terminals (no side dashboard) the spinner
+      // line doubles as a condensed HUD: iter + session tokens. Below
+      // MIN_HUD_COLS even that is dropped — just spinner + label.
+      const hudParts: string[] = [];
+      if (secs >= 1) hudParts.push(`${secs}s`);
+      if (!geometry.showDashboard && geometry.termCols >= MIN_HUD_COLS) {
+        if (iterMax > 0) hudParts.push(`iter ${iterCurrent}/${iterMax}`);
+        const ledger = opts.getLedger?.();
+        if (ledger && ledger.tokens.total > 0) hudParts.push(`${fmtTokens(ledger.tokens.total)} tok`);
+      }
+      const hud = hudParts.length > 0 ? ` · ${hudParts.join(" · ")}` : "";
+      const plain = crop(`  ${frame} ${label}${hud}`, Math.max(10, cols() - 2));
       const line = opts.useColor
-        ? `  ${chalk.cyan(frame)} ${chalk.dim(label)}`
-        : `  ${frame} ${label}`;
-      process.stdout.write(`\r${line}`);
+        ? `  ${chalk.cyan(frame)} ${chalk.dim(crop(`${label}${hud}`, Math.max(6, cols() - 6)))}`
+        : plain;
+      process.stdout.write(`\r\x1b[2K${line}`);
       spinnerFrame++;
     }, 200);
   }
@@ -1112,18 +1289,24 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
 
       case "done": {
         stopSpinner();
-        const w = contentWidth() + 2;
-        const sep = "═".repeat(w - 2);
-        const body = "  ✓  done".padEnd(w - 2);
-        process.stdout.write("\n\n");
-        if (opts.useColor) {
-          process.stdout.write(chalk.green(`╔${sep}╗`) + "\n");
-          process.stdout.write(
-            chalk.green("║") + chalk.bold.white(body) + chalk.green("║") + "\n",
-          );
-          process.stdout.write(chalk.green(`╚${sep}╝`) + "\n\n");
+        if (event.digest) {
+          writeDigestBox(event.digest);
         } else {
-          process.stdout.write(`╔${sep}╗\n║${body}║\n╚${sep}╝\n\n`);
+          // No digest (programmatic caller without receipts) — keep the
+          // historical plain done banner.
+          const w = contentWidth() + 2;
+          const sep = "═".repeat(w - 2);
+          const body = "  ✓  done".padEnd(w - 2);
+          process.stdout.write("\n\n");
+          if (opts.useColor) {
+            process.stdout.write(chalk.green(`╔${sep}╗`) + "\n");
+            process.stdout.write(
+              chalk.green("║") + chalk.bold.white(body) + chalk.green("║") + "\n",
+            );
+            process.stdout.write(chalk.green(`╚${sep}╝`) + "\n\n");
+          } else {
+            process.stdout.write(`╔${sep}╗\n║${body}║\n╚${sep}╝\n\n`);
+          }
         }
         // Show the summary (existing behavior) and the report path link.
         const finalText = (event.text ?? "").trim();
@@ -1177,6 +1360,9 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
               : `  ⚠  ${event.message}`) +
             "\n\n",
         );
+        if (event.digest) {
+          writeDigestBox(event.digest);
+        }
         if (event.reportPath) {
           const reportLine = `  report: file://${event.reportPath}  (open with /report open)`;
           process.stdout.write(opts.useColor ? chalk.cyan(reportLine) : reportLine);
@@ -1184,6 +1370,12 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
           opts.onReportWritten?.(event.reportPath);
         }
         dashboard.activity = "error";
+        drawDashboard();
+        break;
+
+      case "usage":
+        // Session token totals changed — refresh the dashboard panels
+        // without touching the spinner (usage lands mid-run).
         drawDashboard();
         break;
 

@@ -16,10 +16,12 @@ import {
   splashFrameDelayMs,
   splashAnimationFrameCount,
   splashCollapseFrameCount,
+  renderDigestLines,
   type DashboardState,
   type ToolHistoryEntry,
 } from "../tui.js";
 import type { AgentEvent } from "../agent.js";
+import type { TurnDigest } from "../ledger.js";
 import { createRunVisualization, applyAgentEvent, renderRunMapCompact } from "../visualization.js";
 
 describe("TUI live model insight", () => {
@@ -382,14 +384,22 @@ describe("computeGeometry", () => {
     expect(g.wrapWidth).toBe(200 - 48 - 1 - 2);
   });
 
-  it("clamps to a positive wrapWidth even for narrow terminals", () => {
+  it("drops the side dashboard on narrow terminals and gives the body full width", () => {
+    // Historically 40 cols squeezed the body to a 1-char wrapWidth next to a
+    // 36-col dashboard. Below NARROW_DASHBOARD_MIN_COLS the dashboard is now
+    // dropped entirely (a condensed HUD rides the spinner line instead).
     const g = computeGeometry(40, 20);
-    // floor(40*0.28)=11 → min(11,48)=11 → max(36,11)=36 (so dashWidth is 36)
-    expect(g.dashWidth).toBe(36);
-    expect(g.leftColWidth).toBe(40 - 36 - 1);
-    // leftInner = max(0, 3 - 2) = 1
-    expect(g.leftInner).toBe(1);
-    expect(g.wrapWidth).toBe(1);
+    expect(g.showDashboard).toBe(false);
+    expect(g.dashWidth).toBe(0);
+    expect(g.leftColWidth).toBe(40);
+    expect(g.leftInner).toBe(38);
+    expect(g.wrapWidth).toBe(38);
+  });
+
+  it("keeps the dashboard at and above the narrow threshold", () => {
+    expect(computeGeometry(78, 24).showDashboard).toBe(true);
+    expect(computeGeometry(77, 24).showDashboard).toBe(false);
+    expect(computeGeometry(80, 24).showDashboard).toBe(true);
   });
 
   it("falls back to 80x24 defaults when dims are non-positive (no-TTY path)", () => {
@@ -403,6 +413,115 @@ describe("computeGeometry", () => {
   it("treats NaN/Infinity as non-positive (falls back)", () => {
     expect(computeGeometry(NaN, 24).termCols).toBe(80);
     expect(computeGeometry(80, Infinity).termRows).toBe(24);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Receipts — the harness-computed end-of-turn digest
+// ────────────────────────────────────────────────────────────────────
+describe("renderDigestLines (receipts)", () => {
+  function digest(overrides: Partial<TurnDigest> = {}): TurnDigest {
+    return {
+      task: "fix the flaky retry test",
+      status: "completed",
+      durationMs: 222_000,
+      steps: 4,
+      tokens: { prompt: 12_400, completion: 3_100, total: 15_500 },
+      files: [
+        { path: "src/backends/router.ts", operation: "edit", added: 18, removed: 4 },
+        { path: "src/__tests__/router.test.ts", operation: "create", added: 22, removed: 0 },
+      ],
+      commands: [
+        { command: "npm test", ok: true },
+        { command: "npm run lint", ok: false },
+      ],
+      toolCounts: { read_file: 3, run_bash: 2 },
+      ...overrides,
+    };
+  }
+
+  it("renders headline with status, duration, steps, and tokens", () => {
+    const lines = renderDigestLines(digest(), 100);
+    expect(lines[0]).toBe("✓ done · 3m 42s · 4 steps · 12.4k↑ 3.1k↓ tok");
+  });
+
+  it("renders files with net line deltas and creates as new", () => {
+    const lines = renderDigestLines(digest(), 100).join("\n");
+    expect(lines).toContain("goal   fix the flaky retry test");
+    expect(lines).toContain("files  src/backends/router.ts  +18 −4");
+    expect(lines).toContain("src/__tests__/router.test.ts  new +22");
+  });
+
+  it("renders commands with pass/fail markers", () => {
+    const lines = renderDigestLines(digest(), 100).join("\n");
+    expect(lines).toContain("ran    ✓ npm test");
+    expect(lines).toContain("✗ npm run lint");
+  });
+
+  it("shows (none) when no files changed and omits ran when no commands", () => {
+    const lines = renderDigestLines(digest({ files: [], commands: [] }), 100);
+    expect(lines.join("\n")).toContain("files  (none)");
+    expect(lines.join("\n")).not.toContain("ran ");
+  });
+
+  it("caps long file lists with an overflow line", () => {
+    const files = Array.from({ length: 12 }, (_, i) => ({
+      path: `src/f${i}.ts`,
+      operation: "edit" as const,
+      added: 1,
+      removed: 0,
+    }));
+    const out = renderDigestLines(digest({ files }), 100).join("\n");
+    expect(out).toContain("(…4 more files)");
+  });
+
+  it("marks non-completed statuses in the headline", () => {
+    expect(renderDigestLines(digest({ status: "error" }), 100)[0]).toContain("✗ error");
+    expect(renderDigestLines(digest({ status: "aborted" }), 100)[0]).toContain("⏹ aborted");
+    expect(renderDigestLines(digest({ status: "max_iterations" }), 100)[0]).toContain("⚠ max iterations");
+  });
+
+  it("omits the token segment when usage is unavailable", () => {
+    expect(renderDigestLines(digest({ tokens: undefined }), 100)[0]).toBe("✓ done · 3m 42s · 4 steps");
+  });
+});
+
+describe("renderDashboardLines session panels", () => {
+  function baseState(): DashboardState {
+    return {
+      startedAt: new Date(),
+      iterCurrent: 1,
+      iterMax: 5,
+      activity: "idle",
+      thinkingCharCount: 0,
+      thinkingPreview: "",
+      currentTool: null,
+      currentToolTarget: null,
+      toolHistory: [],
+    };
+  }
+
+  it("renders goal, session totals, and last outcome when ledger data is present", () => {
+    const state: DashboardState = {
+      ...baseState(),
+      goal: "modernize the TUI",
+      goalActive: true,
+      sessionTurns: 3,
+      sessionTokens: { prompt: 45_100, completion: 8_900, total: 54_000 },
+      sessionFiles: 5,
+      lastOutcome: "✓ fix flaky test · 2 files",
+    };
+    const out = renderDashboardLines(state, false, 44, createRunVisualization()).join("\n");
+    expect(out).toContain("◎ modernize the TUI");
+    expect(out).toContain("Σ turn 3 · 45.1k↑ 8.9k↓ · 5 files");
+    expect(out).toContain("↩ ✓ fix flaky test · 2 files");
+  });
+
+  it("keeps the historical layout when no ledger is wired", () => {
+    const out = renderDashboardLines(baseState(), false, 44, createRunVisualization()).join("\n");
+    expect(out).not.toContain("◎");
+    expect(out).not.toContain("Σ turn");
+    expect(out).not.toContain("↩");
   });
 });
 
