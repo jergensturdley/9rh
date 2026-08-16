@@ -8,12 +8,14 @@ export default {
   // discovery. Worktrees (e.g. .claude/worktrees/*, .worktrees/*) contain
   // copies of the same test suites; when Jest runs them in parallel with
   // the real suites they race on shared filesystem paths and cause
-  // intermittent false failures.
+  // intermittent false failures. Anchored to <rootDir> so the patterns
+  // don't match the worktree's own absolute path when Jest runs from
+  // inside a worktree under .claude/worktrees/<name>/.
   testPathIgnorePatterns: [
     "/node_modules/",
     "/dist/",
-    "\\.claude/",
-    "\\.worktrees/",
+    "<rootDir>/\\.claude/",
+    "<rootDir>/\\.worktrees/",
     "/test-bed/",
   ],
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json", "node"],
