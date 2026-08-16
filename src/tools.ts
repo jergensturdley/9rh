@@ -170,6 +170,33 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "ask_user",
+      description:
+        "Ask the user a clarifying question and wait for their answer. Use BEFORE starting work when the task is ambiguous (up to 3 upfront questions), and to confirm before destructive or hard-to-reverse actions. Put your recommended choice FIRST in options — in non-interactive sessions it is auto-selected and recorded as an assumption. Do not use for questions you can answer by reading the code.",
+      parameters: {
+        type: "object",
+        properties: {
+          question: {
+            type: "string",
+            description: "The question to ask, phrased so the first option is a sensible default.",
+          },
+          options: {
+            type: "array",
+            items: { type: "string" },
+            description: "2-6 short answer choices, recommended default first. Omit for a free-form question.",
+          },
+          allow_free_text: {
+            type: "boolean",
+            description: "Allow the user to type a custom answer instead of picking an option (default: true).",
+          },
+        },
+        required: ["question"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "list_files",
       description:
         "List files and directories at a given path. Returns names with trailing '/' for directories.",
@@ -710,6 +737,22 @@ function validateToolArgs(name: string, args: Record<string, unknown>): string |
       }
       break;
     }
+    case "ask_user": {
+      const r1 = asString(args.question, "question", { allowEmpty: false, maxLen: 500 });
+      if (!r1.ok) errors.push(r1.error);
+      if (args.options !== undefined) {
+        const r2 = asStringArray(args.options, "options", { maxItems: 6 });
+        if (!r2.ok) errors.push(r2.error);
+        else if (r2.value.some((o) => o.length === 0 || o.length > 120)) {
+          errors.push("each option must be 1-120 characters");
+        }
+      }
+      if (args.allow_free_text !== undefined) {
+        const r3 = asBool(args.allow_free_text, "allow_free_text");
+        if (!r3.ok) errors.push(r3.error);
+      }
+      break;
+    }
   }
   return errors.length === 0 ? null : errors.join("; ");
 }
@@ -727,6 +770,7 @@ export async function executeTool(
     codegraph_search: 1, codegraph_context: 1, codegraph_files: 1,
     codegraph_affected: 1, codegraph_status: 1,
     web_fetch: 1, web_search: 1, install_skill: 1, load_skill: 1,
+    ask_user: 1,
   }, name)) {
     return { output: "", error: `Unknown tool: ${name}` };
   }
@@ -748,6 +792,18 @@ export async function executeTool(
         "either run 9rh in an interactive TTY (the user will be " +
         "prompted to approve) or pass --allow-skill-install on " +
         "the command line for non-interactive sessions.",
+    };
+  }
+  // ask_user is a UI interaction, not a sandboxed tool — the agent loop
+  // intercepts it before execution and routes it to the harness's
+  // onAskUser callback. Reaching this executor means a programmatic
+  // caller invoked it directly; fail with a clear explanation.
+  if (name === "ask_user") {
+    return {
+      output: "",
+      error:
+        "ask_user is handled by the agent loop's interactive harness, not the tool executor. " +
+        "Answer the question yourself with a stated assumption and continue.",
     };
   }
   try {

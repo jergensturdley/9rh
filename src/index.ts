@@ -3,10 +3,10 @@ import { createInterface, cursorTo, emitKeypressEvents, moveCursor, clearScreenD
 import { resolve } from "path";
 import { program } from "commander";
 import chalk from "chalk";
-import { Agent, type AgentEvent, type ContinuationPolicy, type ToolApprovalRequest, type ToolApprovalDecision } from "./agent.js";
+import { Agent, type AgentEvent, type ContinuationPolicy, type ToolApprovalRequest, type ToolApprovalDecision, type AskUserRequest, type AskUserResponse } from "./agent.js";
 import { executeSlashCommand, fetchModels, filterModels, type ModelInfo, type SessionState, toArray, getSlashCommands } from "./commands.js";
 import { ensureRouter, readFirstApiKey, getCliToken } from "./init.js";
-import { createTuiRenderer, printSplash, clampMenuFocus, menuWindow } from "./tui.js";
+import { createTuiRenderer, printSplash, clampMenuFocus, menuWindow, pickFromList, readLineRaw, type PickItem } from "./tui.js";
 import { detectBackend, getProviderPreset, listProviderPresetIds, type Backend } from "./backends/index.js";
 import { compressUserInput } from "./inputCompression.js";
 import { ReplInputCoalescer } from "./replInput.js";
@@ -303,6 +303,8 @@ function makeAgent(state: SessionState, onEvent: (e: AgentEvent) => void) {
     allowSkillInstall: opts.allowSkillInstall,
     onToolApproval: (req: ToolApprovalRequest): Promise<ToolApprovalDecision> =>
       interactiveToolApproval(req, state.useColor),
+    onAskUser: (req: AskUserRequest): Promise<AskUserResponse> =>
+      interactiveAskUser(req, state.useColor),
   });
 }
 
@@ -398,11 +400,17 @@ async function runTask(state: SessionState, t: string): Promise<void> {
     useColor: state.useColor,
     onReportWritten: (path) => { state.lastReportPath = path; },
     getLedger: ledger ? () => ledger.view() : undefined,
+    getQuiet: () => state.quiet === true,
   });
   const agent = makeAgent(state, withLedger(ledger, tui));
   await agent.run(compressed.text);
 }
 
+/**
+ * Model picker — thin wrapper over the generic pickFromList (src/tui.ts),
+ * which carries the arrow-key/PgUp/wheel/Enter/Esc machinery shared with
+ * ask_user and future sub-pickers.
+ */
 async function selectModelFromList(
   models: ModelInfo[],
   filter: string,
@@ -410,121 +418,54 @@ async function selectModelFromList(
   useColor: boolean,
   onActiveChange?: (active: boolean) => void,
 ): Promise<string | null> {
-  if (!process.stdin.isTTY || !process.stderr.isTTY || models.length === 0) return null;
+  return pickFromList(
+    models.map((m) => ({
+      id: m.id,
+      label: m.id,
+      hint: m.owned_by ? `[${m.owned_by}]` : undefined,
+      active: m.id === currentModel,
+    })),
+    {
+      title: `${models.length} model(s)${filter ? ` matching "${filter}"` : ""}`,
+      useColor,
+      onActiveChange,
+    },
+  );
+}
 
-  const visibleRows = Math.max(6, Math.min(14, (process.stderr.rows ?? 24) - 8));
-  let selected = Math.max(0, models.findIndex((model) => model.id === currentModel));
-  if (selected < 0) selected = 0;
-  let top = Math.max(0, Math.min(selected - Math.floor(visibleRows / 2), Math.max(0, models.length - visibleRows)));
-  let renderedLines = 0;
-  let done = false;
-  let result: string | null = null;
-  const input = process.stdin;
-
-  function clampSelection(): void {
-    selected = Math.max(0, Math.min(models.length - 1, selected));
-    if (selected < top) top = selected;
-    if (selected >= top + visibleRows) top = selected - visibleRows + 1;
-    top = Math.max(0, Math.min(top, Math.max(0, models.length - visibleRows)));
+/**
+ * Interactive ask_user handler: renders the model's clarifying question as
+ * an arrow-key picker (options first, recommended default on top), with an
+ * optional free-text escape hatch. Non-TTY sessions auto-select the first
+ * option and mark it as an assumption — the agent loop records it into the
+ * turn receipts.
+ */
+async function interactiveAskUser(req: AskUserRequest, useColor: boolean): Promise<AskUserResponse> {
+  if (!process.stdin.isTTY || !process.stderr.isTTY) {
+    return { answer: req.options[0] ?? "", assumed: true };
   }
-
-  function clearRender(): void {
-    if (renderedLines === 0) return;
-    moveCursor(process.stderr, 0, -renderedLines);
-    cursorTo(process.stderr, 0);
-    clearScreenDown(process.stderr);
-    renderedLines = 0;
+  const FREE_ID = "__free_text__";
+  const items: PickItem[] = req.options.map((option, i) => ({
+    id: option,
+    label: option,
+    hint: i === 0 ? "(recommended)" : undefined,
+  }));
+  if (req.allowFreeText || items.length === 0) {
+    items.push({ id: FREE_ID, label: "type a custom answer…" });
   }
-
-  function line(text: string): string {
-    const width = Math.max(40, (process.stderr.columns ?? 80) - 2);
-    return text.length > width ? text.slice(0, width - 1) + "…" : text;
-  }
-
-  function render(): void {
-    clearRender();
-    const shown = models.slice(top, top + visibleRows);
-    const title = `${models.length} model(s)${filter ? ` matching "${filter}"` : ""}`;
-    const help = "↑/↓ scroll  PgUp/PgDn jump  wheel scroll  Enter select  Esc cancel";
-    const lines: string[] = [
-      "",
-      useColor ? chalk.bold.cyan(`  ${title}`) : `  ${title}`,
-      useColor ? chalk.dim(`  ${help}`) : `  ${help}`,
-      "",
-    ];
-    for (let i = 0; i < shown.length; i++) {
-      const index = top + i;
-      const model = shown[i];
-      const active = model.id === currentModel;
-      const focused = index === selected;
-      const marker = focused ? "›" : active ? "▶" : " ";
-      const owner = model.owned_by ? `  [${model.owned_by}]` : "";
-      let row = `  ${marker} ${model.id}${owner}`;
-      if (useColor) row = focused ? chalk.inverse(row) : active ? chalk.cyan(row) : row;
-      lines.push(line(row));
-    }
-    const hiddenBefore = top;
-    const hiddenAfter = Math.max(0, models.length - top - shown.length);
-    if (hiddenBefore || hiddenAfter) {
-      lines.push(useColor ? chalk.dim(`  ${hiddenBefore} above, ${hiddenAfter} below`) : `  ${hiddenBefore} above, ${hiddenAfter} below`);
-    }
-    process.stderr.write(lines.join("\n") + "\n");
-    renderedLines = lines.length;
-  }
-
-  function move(delta: number): void {
-    selected += delta;
-    clampSelection();
-    render();
-  }
-
-  function finish(value: string | null): void {
-    done = true;
-    result = value;
-    clearRender();
-  }
-
-  return await new Promise<string | null>((resolve) => {
-    const wasRaw = input.isRaw;
-    const onData = (chunk: Buffer) => {
-      const s = chunk.toString("utf8");
-      if (s === "\u0003") {
-        finish(null);
-        process.emit("SIGINT");
-      } else if (s === "\r" || s === "\n") {
-        finish(models[selected]?.id ?? null);
-      } else if (s === "\u001b" || s === "\u001b[27~") {
-        finish(null);
-      } else if (s === "\u001b[A") {
-        move(-1);
-      } else if (s === "\u001b[B") {
-        move(1);
-      } else if (s === "\u001b[5~") {
-        move(-visibleRows);
-      } else if (s === "\u001b[6~") {
-        move(visibleRows);
-      } else if (/\u001b\[<64;\d+;\d+[mM]/u.test(s)) {
-        move(-3);
-      } else if (/\u001b\[<65;\d+;\d+[mM]/u.test(s)) {
-        move(3);
-      }
-
-      if (done) {
-        process.stderr.write("\x1b[?1000l\x1b[?1006l");
-        input.off("data", onData);
-        input.setRawMode(wasRaw);
-        onActiveChange?.(false);
-        resolve(result);
-      }
-    };
-
-    onActiveChange?.(true);
-    input.setRawMode(true);
-    input.resume();
-    process.stderr.write("\x1b[?1000h\x1b[?1006h");
-    input.on("data", onData);
-    render();
+  process.stderr.write("\n");
+  const picked = await pickFromList(items, {
+    title: `❓ ${req.question}`,
+    useColor,
   });
+  if (picked === null) return { answer: "" }; // dismissed with Esc
+  if (picked === FREE_ID) {
+    // ponytail: free-text may double-echo under a live REPL readline;
+    // revisit with a proper input-owner arbiter if it bites in practice.
+    const typed = await readLineRaw("↳ your answer:", useColor);
+    return { answer: typed ?? "" };
+  }
+  return { answer: picked };
 }
 
 async function runRepl(state: SessionState): Promise<void> {
@@ -537,6 +478,7 @@ async function runRepl(state: SessionState): Promise<void> {
     useColor: state.useColor,
     onReportWritten: (path) => { state.lastReportPath = path; },
     getLedger: replLedger ? () => replLedger.view() : undefined,
+    getQuiet: () => state.quiet === true,
   });
 
   const nativeBase = state.baseURL.replace(/\/v1\/?$/, "");
@@ -559,7 +501,7 @@ async function runRepl(state: SessionState): Promise<void> {
     return pi === p.length ? pi : 0;
   }
 
-  function fuzzyFilter(partial: string): Array<{ name: string; description: string }> {
+  function fuzzyFilter(partial: string): Array<{ name: string; description: string; usage: string }> {
     if (!partial) return ALL_CMDS;
     return ALL_CMDS
       .map(c => ({ c, score: fuzzyScore(partial, c.name) }))
@@ -588,7 +530,7 @@ async function runRepl(state: SessionState): Promise<void> {
   let lastSuggestionKey = "";
   let suggestionTop = 0;
   let lastSuggestionPartial = "";
-  let lastSuggestionMatches: Array<{ name: string; description: string }> = [];
+  let lastSuggestionMatches: Array<{ name: string; description: string; usage: string }> = [];
   let renderToken = 0;
   let renderQueued = false;
   let pickerActive = false;
@@ -626,7 +568,7 @@ async function runRepl(state: SessionState): Promise<void> {
   }
 
   function showSuggestions(
-    matches: Array<{ name: string; description: string }>,
+    matches: Array<{ name: string; description: string; usage: string }>,
     partial: string,
   ): void {
     const visibleRows = Math.max(4, Math.min(12, (process.stderr.rows ?? 24) - 8));
@@ -652,13 +594,17 @@ async function runRepl(state: SessionState): Promise<void> {
     lastSuggestionPartial = partial;
     lastSuggestionMatches = matches;
     const maxLen = Math.max(...items.map(i => i.name.length));
-    const lines = items.map(({ name, description }, i) => {
+    const lines = items.map(({ name, description, usage }, i) => {
       const idx = win.start + i;
       const focused = idx === selectedIndex;
       const marker = focused ? "❯" : " ";
       const hi = highlightMatch(name, partial);
       const pad = " ".repeat(Math.max(1, maxLen - name.length + 2));
-      const desc = opts.color ? chalk.dim(description.slice(0, 44)) : description.slice(0, 44);
+      // Argument hint from the command's usage string (e.g. "[tail <lines>]")
+      // so argful commands are discoverable from the palette itself.
+      const argHint = usage.startsWith(`/${name} `) ? usage.slice(name.length + 2).trim() : "";
+      const detail = (argHint ? `${argHint}  —  ${description}` : description).slice(0, 54);
+      const desc = opts.color ? chalk.dim(detail) : detail;
       let row = `${marker} /${hi}${pad}${desc}`;
       if (focused && opts.color) row = chalk.inverse(row);
       return row;

@@ -89,6 +89,59 @@ describe("/brief and /usage", () => {
   });
 });
 
+describe("/quiet", () => {
+  it("toggles, sets explicitly, and reports status", async () => {
+    const s = state();
+    expect(await executeSlashCommand("/quiet", s)).toContain("quiet mode is ON");
+    expect(s.quiet).toBe(true);
+    expect(await executeSlashCommand("/quiet", s)).toContain("quiet mode is OFF");
+    expect(await executeSlashCommand("/quiet on", s)).toContain("ON");
+    expect(await executeSlashCommand("/quiet status", s)).toContain("ON");
+    expect(s.quiet).toBe(true);
+    expect(await executeSlashCommand("/quiet off", s)).toContain("OFF");
+    expect(s.quiet).toBe(false);
+    expect(await executeSlashCommand("/quiet nonsense", s)).toContain("Unrecognised argument");
+  });
+});
+
+describe("/last", () => {
+  it("explains when there is no ledger or no results", async () => {
+    expect(await executeSlashCommand("/last", state())).toContain("no session ledger");
+    const s = state();
+    const { SessionLedger } = await import("../ledger.js");
+    s.ledger = new SessionLedger(0);
+    expect(await executeSlashCommand("/last", s)).toContain("no tool results recorded");
+  });
+
+  it("reprints a stored tool result, most recent first", async () => {
+    const { SessionLedger } = await import("../ledger.js");
+    const s = state();
+    s.ledger = new SessionLedger(0);
+    s.ledger.beginTurn("task", 10);
+    s.ledger.onAgentEvent({ type: "tool_result", name: "run_bash", output: "first output" });
+    s.ledger.onAgentEvent({ type: "tool_result", name: "read_file", output: "line1\nline2", error: undefined });
+
+    const latest = await executeSlashCommand("/last", s);
+    expect(latest).toContain("read_file");
+    expect(latest).toContain("line1");
+
+    const previous = await executeSlashCommand("/last 2", s);
+    expect(previous).toContain("run_bash");
+    expect(previous).toContain("first output");
+
+    expect(await executeSlashCommand("/last 9", s)).toContain("Usage: /last");
+  });
+});
+
+describe("getSlashCommands", () => {
+  it("exposes usage strings for palette argument hints", () => {
+    const commands = getSlashCommands();
+    const last = commands.find((c) => c.name === "last");
+    expect(last?.usage).toBe("/last [n]");
+    expect(commands.every((c) => typeof c.usage === "string" && c.usage.startsWith("/"))).toBe(true);
+  });
+});
+
 describe("executeSlashCommand native API auth", () => {
   afterEach(() => {
     jest.restoreAllMocks();

@@ -17,6 +17,7 @@ import {
   splashAnimationFrameCount,
   splashCollapseFrameCount,
   renderDigestLines,
+  markdownLite,
   type DashboardState,
   type ToolHistoryEntry,
 } from "../tui.js";
@@ -483,6 +484,41 @@ describe("renderDigestLines (receipts)", () => {
 
   it("omits the token segment when usage is unavailable", () => {
     expect(renderDigestLines(digest({ tokens: undefined }), 100)[0]).toBe("✓ done · 3m 42s · 4 steps");
+  });
+
+  it("surfaces assumptions with a warning marker", () => {
+    const out = renderDigestLines(
+      digest({ assumptions: ['Deploy target? → assumed "staging"'] }),
+      100,
+    ).join("\n");
+    expect(out).toContain('assume ⚠ Deploy target? → assumed "staging"');
+  });
+
+  it("omits the assume section when there are no assumptions", () => {
+    expect(renderDigestLines(digest(), 100).join("\n")).not.toContain("assume");
+  });
+});
+
+describe("markdownLite", () => {
+  it("returns lines unchanged without color", () => {
+    const lines = ["# Title", "```", "code", "```", "body"];
+    expect(markdownLite(lines, false)).toEqual(lines);
+  });
+
+  it("bolds headers and dims fenced code with color on", async () => {
+    // chalk auto-detects no-TTY under jest and becomes a no-op; force a
+    // color level so the styling is observable.
+    const { default: chalkDirect } = await import("chalk");
+    const prevLevel = chalkDirect.level;
+    chalkDirect.level = 2;
+    try {
+      const out = markdownLite(["# Title", "```js", "const x = 1;", "```", "after"], true);
+      expect(out[0]).toContain("["); // header styled
+      expect(out[2]).toContain("["); // dimmed inside fence
+      expect(out[4]).toBe("after"); // untouched outside
+    } finally {
+      chalkDirect.level = prevLevel;
+    }
   });
 });
 

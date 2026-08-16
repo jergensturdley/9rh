@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import { cursorTo, moveCursor, clearScreenDown } from "readline";
 import type { AgentEvent } from "./agent.js";
 import { fmtTokens, fmtDurationMs, type LedgerView, type TurnDigest } from "./ledger.js";
 import {
@@ -341,6 +342,10 @@ export interface TuiOptions {
    *  the narrow-terminal condensed HUD. Optional — panels degrade to the
    *  per-run view when absent. */
   getLedger?: () => LedgerView;
+  /** Quiet mode (/quiet): suppress live thinking snapshots in the
+   *  transcript. The dashboard's thinking panel, tool lines, receipts,
+   *  and the final summary are unaffected. */
+  getQuiet?: () => boolean;
 }
 
 export interface SplashOptions extends TuiOptions {
@@ -802,6 +807,7 @@ const DIGEST_STATUS_WORD: Record<TurnDigest["status"], string> = {
 
 const DIGEST_MAX_FILES = 8;
 const DIGEST_MAX_COMMANDS = 6;
+const DIGEST_MAX_ASSUMPTIONS = 4;
 
 /**
  * Receipts — plain (uncolored, unboxed) lines for the end-of-turn digest.
@@ -849,9 +855,229 @@ export function renderDigestLines(digest: TurnDigest, width: number): string[] {
     }
   }
 
+  // Assumptions — defaults the harness picked when nobody answered an
+  // ask_user call. These must never be silent.
+  const assumptions = digest.assumptions ?? [];
+  if (assumptions.length > 0) {
+    assumptions.slice(0, DIGEST_MAX_ASSUMPTIONS).forEach((a, i) => {
+      lines.push(crop(`${i === 0 ? label("assume") : cont}⚠ ${normalizeWhitespace(a)}`, width));
+    });
+    if (assumptions.length > DIGEST_MAX_ASSUMPTIONS) {
+      lines.push(`${cont}(…${assumptions.length - DIGEST_MAX_ASSUMPTIONS} more assumptions)`);
+    }
+  }
+
   return lines;
 }
 
+/**
+ * Markdown-lite styling for the final summary: headers bold, fenced code
+ * blocks dim. No reflowing, no inline parsing — just enough visual
+ * hierarchy that a structured answer doesn't read as one gray slab.
+ * Pure + exported for tests; returns input unchanged when useColor=false.
+ */
+export function markdownLite(lines: string[], useColor: boolean): string[] {
+  if (!useColor) return lines;
+  let inFence = false;
+  return lines.map((line) => {
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith("```")) {
+      inFence = !inFence;
+      return chalk.dim(line);
+    }
+    if (inFence) return chalk.dim(line);
+    if (/^#{1,6}\s/.test(trimmed)) return chalk.bold(line);
+    return line;
+  });
+}
+
+
+export interface PickItem {
+  id: string;
+  label: string;
+  /** Dim suffix, e.g. an owner tag or argument hint. */
+  hint?: string;
+  /** Marks the currently-active choice with ▶ (e.g. the current model). */
+  active?: boolean;
+}
+
+export interface PickFromListOptions {
+  title: string;
+  help?: string;
+  useColor: boolean;
+  /** Id to focus initially (falls back to the active item, then the top). */
+  initialId?: string;
+  /** Signals raw-mode ownership so a surrounding REPL can mute its own
+   *  keypress handling while the picker is up. */
+  onActiveChange?: (active: boolean) => void;
+}
+
+/**
+ * Generic arrow-key picker on stderr. This is the machinery behind the
+ * model picker, generalized so ask_user and future sub-pickers (/rewind,
+ * /team) share one implementation: ↑/↓ move, PgUp/PgDn jump, mouse wheel
+ * scrolls, Enter selects, Esc cancels (returns null).
+ */
+export async function pickFromList(
+  items: PickItem[],
+  opts: PickFromListOptions,
+): Promise<string | null> {
+  if (!process.stdin.isTTY || !process.stderr.isTTY || items.length === 0) return null;
+
+  const visibleRows = Math.max(6, Math.min(14, (process.stderr.rows ?? 24) - 8));
+  const startId = opts.initialId ?? items.find((i) => i.active)?.id;
+  let selected = Math.max(0, items.findIndex((i) => i.id === startId));
+  if (selected < 0) selected = 0;
+  let top = Math.max(0, Math.min(selected - Math.floor(visibleRows / 2), Math.max(0, items.length - visibleRows)));
+  let renderedLines = 0;
+  let done = false;
+  let result: string | null = null;
+  const input = process.stdin;
+
+  function clampSelection(): void {
+    selected = Math.max(0, Math.min(items.length - 1, selected));
+    if (selected < top) top = selected;
+    if (selected >= top + visibleRows) top = selected - visibleRows + 1;
+    top = Math.max(0, Math.min(top, Math.max(0, items.length - visibleRows)));
+  }
+
+  function clearRender(): void {
+    if (renderedLines === 0) return;
+    moveCursor(process.stderr, 0, -renderedLines);
+    cursorTo(process.stderr, 0);
+    clearScreenDown(process.stderr);
+    renderedLines = 0;
+  }
+
+  function fitLine(text: string): string {
+    const width = Math.max(40, (process.stderr.columns ?? 80) - 2);
+    return text.length > width ? text.slice(0, width - 1) + "…" : text;
+  }
+
+  function render(): void {
+    clearRender();
+    const shown = items.slice(top, top + visibleRows);
+    const help = opts.help ?? "↑/↓ scroll  PgUp/PgDn jump  wheel scroll  Enter select  Esc cancel";
+    const lines: string[] = [
+      "",
+      opts.useColor ? chalk.bold.cyan(`  ${opts.title}`) : `  ${opts.title}`,
+      opts.useColor ? chalk.dim(`  ${help}`) : `  ${help}`,
+      "",
+    ];
+    for (let i = 0; i < shown.length; i++) {
+      const index = top + i;
+      const item = shown[i];
+      const focused = index === selected;
+      const marker = focused ? "›" : item.active ? "▶" : " ";
+      const hint = item.hint ? `  ${item.hint}` : "";
+      let row = `  ${marker} ${item.label}${hint}`;
+      if (opts.useColor) row = focused ? chalk.inverse(row) : item.active ? chalk.cyan(row) : row;
+      lines.push(fitLine(row));
+    }
+    const hiddenBefore = top;
+    const hiddenAfter = Math.max(0, items.length - top - shown.length);
+    if (hiddenBefore || hiddenAfter) {
+      lines.push(opts.useColor ? chalk.dim(`  ${hiddenBefore} above, ${hiddenAfter} below`) : `  ${hiddenBefore} above, ${hiddenAfter} below`);
+    }
+    process.stderr.write(lines.join("\n") + "\n");
+    renderedLines = lines.length;
+  }
+
+  function move(delta: number): void {
+    selected += delta;
+    clampSelection();
+    render();
+  }
+
+  function finish(value: string | null): void {
+    done = true;
+    result = value;
+    clearRender();
+  }
+
+  return await new Promise<string | null>((resolve) => {
+    const wasRaw = input.isRaw;
+    const onData = (chunk: Buffer) => {
+      const s = chunk.toString("utf8");
+      if (s === "\u0003") {
+        finish(null);
+        process.emit("SIGINT");
+      } else if (s === "\r" || s === "\n") {
+        finish(items[selected]?.id ?? null);
+      } else if (s === "\u001b" || s === "\u001b[27~") {
+        finish(null);
+      } else if (s === "\u001b[A") {
+        move(-1);
+      } else if (s === "\u001b[B") {
+        move(1);
+      } else if (s === "\u001b[5~") {
+        move(-visibleRows);
+      } else if (s === "\u001b[6~") {
+        move(visibleRows);
+      } else if (/\u001b\[<64;\d+;\d+[mM]/u.test(s)) {
+        move(-3);
+      } else if (/\u001b\[<65;\d+;\d+[mM]/u.test(s)) {
+        move(3);
+      }
+
+      if (done) {
+        process.stderr.write("\x1b[?1000l\x1b[?1006l");
+        input.off("data", onData);
+        input.setRawMode(wasRaw ?? false);
+        opts.onActiveChange?.(false);
+        resolve(result);
+      }
+    };
+
+    opts.onActiveChange?.(true);
+    input.setRawMode(true);
+    input.resume();
+    process.stderr.write("\x1b[?1000h\x1b[?1006h");
+    input.on("data", onData);
+    render();
+  });
+}
+
+/**
+ * Minimal raw-mode line reader on stderr — used for ask_user free-text
+ * answers while the main readline interface is parked behind a running
+ * agent. Enter submits, Esc/Ctrl+C cancels (null), backspace edits.
+ */
+export async function readLineRaw(prompt: string, useColor: boolean): Promise<string | null> {
+  if (!process.stdin.isTTY || !process.stderr.isTTY) return null;
+  const input = process.stdin;
+  process.stderr.write(useColor ? chalk.cyan(`  ${prompt} `) : `  ${prompt} `);
+  return await new Promise<string | null>((resolve) => {
+    const wasRaw = input.isRaw;
+    let buffer = "";
+    const finish = (value: string | null): void => {
+      input.off("data", onData);
+      input.setRawMode(wasRaw ?? false);
+      process.stderr.write("\n");
+      resolve(value);
+    };
+    const onData = (chunk: Buffer) => {
+      const s = chunk.toString("utf8");
+      if (s === "\u0003" || s === "\u001b") {
+        finish(null);
+        if (s === "\u0003") process.emit("SIGINT");
+      } else if (s === "\r" || s === "\n") {
+        finish(buffer);
+      } else if (s === "\u007f" || s === "\b") {
+        if (buffer.length > 0) {
+          buffer = buffer.slice(0, -1);
+          process.stderr.write("\b \b");
+        }
+      } else if (s >= " " || s === "\t") {
+        buffer += s;
+        process.stderr.write(s);
+      }
+    };
+    input.setRawMode(true);
+    input.resume();
+    input.on("data", onData);
+  });
+}
 
 export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void {
   let spinnerTimer: ReturnType<typeof setInterval> | null = null;
@@ -1020,12 +1246,16 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
     const now = Date.now();
     if (now - lastThinkingSnapshot < 1000) return;
     lastThinkingSnapshot = now;
-    const snippet = normalizeWhitespace(activeThinking).slice(-200);
-    const wrapWidth = Math.max(1, geometry.wrapWidth - 2);
-    const wrapped = wrapStreamChunk(snippet, wrapWidth);
-    process.stdout.write("\n  ⚡ ");
-    if (opts.useColor) process.stdout.write(chalk.cyan(wrapped));
-    else process.stdout.write(wrapped);
+    // Quiet mode: keep the dashboard's thinking panel live but stay out of
+    // the transcript.
+    if (opts.getQuiet?.() !== true) {
+      const snippet = normalizeWhitespace(activeThinking).slice(-200);
+      const wrapWidth = Math.max(1, geometry.wrapWidth - 2);
+      const wrapped = wrapStreamChunk(snippet, wrapWidth);
+      process.stdout.write("\n  ⚡ ");
+      if (opts.useColor) process.stdout.write(chalk.cyan(wrapped));
+      else process.stdout.write(wrapped);
+    }
     // Update dashboard with latest thinking state
     dashboard.thinkingCharCount = activeThinking.length;
     dashboard.thinkingPreview = activeThinking.slice(-200);
@@ -1330,7 +1560,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
           const indent = "  ";
           const wrapWidth = Math.max(1, geometry.wrapWidth - 2);
           const wrapped = wrapStreamChunk(shown, wrapWidth);
-          for (const line of wrapped.split("\n")) {
+          for (const line of markdownLite(wrapped.split("\n"), opts.useColor)) {
             process.stdout.write(`${indent}${line}\n`);
           }
           if (overflow) {

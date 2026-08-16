@@ -46,6 +46,9 @@ export interface TurnDigest {
   files: DigestFileEntry[];
   commands: DigestCommandEntry[];
   toolCounts: Record<string, number>;
+  /** Defaults the harness picked when nobody answered an ask_user call —
+   *  silent decisions made visible. */
+  assumptions?: string[];
   reportPath?: string;
 }
 
@@ -62,6 +65,7 @@ export interface TurnDigestOptions {
   steps: number;
   tokens?: TokenUsage;
   reportPath?: string;
+  assumptions?: string[];
   /** Injectable clock for deterministic tests. */
   now?: number;
 }
@@ -155,6 +159,7 @@ export function buildTurnDigest(
     files: summarizeFileChanges(input.fileChanges, input.workDir),
     commands: summarizeCommands(input.toolCalls),
     toolCounts,
+    assumptions: opts.assumptions && opts.assumptions.length > 0 ? [...opts.assumptions] : undefined,
     reportPath: opts.reportPath,
   };
 }
@@ -196,11 +201,26 @@ export type LedgerAgentEvent =
   | { type: "usage"; lastCompletion: TokenUsage; turn: TokenUsage }
   | { type: "done"; text: string; reportPath?: string; digest?: TurnDigest }
   | { type: "error"; message: string; reportPath?: string; digest?: TurnDigest }
+  | { type: "tool_result"; name: string; output: string; error?: string }
   | { type: string };
+
+export interface StoredToolResult {
+  turnIndex: number;
+  name: string;
+  output: string;
+  error?: string;
+  truncated: boolean;
+}
+
+/** Ring-buffer bounds for /last — enough to revisit the current turn's
+ *  tool outputs without holding a whole session of them in memory. */
+const MAX_STORED_TOOL_RESULTS = 20;
+const MAX_STORED_TOOL_OUTPUT_CHARS = 100_000;
 
 export class SessionLedger {
   readonly startedAt: number;
   private turns: LedgerTurn[] = [];
+  private toolResults: StoredToolResult[] = [];
 
   constructor(now = Date.now()) {
     this.startedAt = now;
@@ -226,10 +246,30 @@ export class SessionLedger {
       open.tokens = { ...e.turn };
       return;
     }
+    if (event.type === "tool_result") {
+      const e = event as { name: string; output: string; error?: string };
+      const truncated = e.output.length > MAX_STORED_TOOL_OUTPUT_CHARS;
+      this.toolResults.push({
+        turnIndex: open?.index ?? this.turns.length,
+        name: e.name,
+        output: truncated ? e.output.slice(0, MAX_STORED_TOOL_OUTPUT_CHARS) : e.output,
+        error: e.error,
+        truncated,
+      });
+      if (this.toolResults.length > MAX_STORED_TOOL_RESULTS) {
+        this.toolResults = this.toolResults.slice(-MAX_STORED_TOOL_RESULTS);
+      }
+      return;
+    }
     if (event.type === "done" || event.type === "error") {
       const e = event as { digest?: TurnDigest };
       this.completeTurn(e.digest, event.type === "done" ? "completed" : "error", now);
     }
+  }
+
+  /** Most-recent-first slice of stored tool results (for /last). */
+  recentToolResults(): readonly StoredToolResult[] {
+    return [...this.toolResults].reverse();
   }
 
   /** Close the open turn. First completion wins (an aborted run emits both

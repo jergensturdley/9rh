@@ -48,6 +48,10 @@ export interface SessionState {
    * without a ledger keeps working.
    */
   ledger?: SessionLedger;
+  /** Quiet mode (/quiet): suppress live thinking narration in the
+   *  transcript. Render-side and instant — the dashboard, receipts, and
+   *  final summary are unaffected. */
+  quiet?: boolean;
 }
 
 export interface RouterCacheEntry<T> {
@@ -364,7 +368,7 @@ const COMMANDS: Record<string, CommandDef> = {
         if (cmd.name === "help" || cmd.name === "clear" || cmd.name === "queue" || cmd.name === "run" || cmd.name === "done" || cmd.name === "setup" || cmd.name === "sandbox" || cmd.name === "doctor") prefix = "system";
         else if (cmd.name === "status" || cmd.name === "providers" || cmd.name === "combos" || cmd.name === "keys" || cmd.name === "router" || cmd.name === "refresh" || cmd.name === "reload") prefix = "router";
         else if (cmd.name === "models" || cmd.name === "switch" || cmd.name === "default-model") prefix = "models";
-        else if (cmd.name === "dir" || cmd.name === "skills" || cmd.name === "history" || cmd.name === "logs" || cmd.name === "index" || cmd.name === "index-status" || cmd.name === "brief" || cmd.name === "usage") prefix = "session";
+        else if (cmd.name === "dir" || cmd.name === "skills" || cmd.name === "history" || cmd.name === "logs" || cmd.name === "index" || cmd.name === "index-status" || cmd.name === "brief" || cmd.name === "usage" || cmd.name === "quiet" || cmd.name === "last") prefix = "session";
         else prefix = "other";
         groups[prefix] = groups[prefix] ?? [];
         groups[prefix].push(cmd);
@@ -425,6 +429,57 @@ const COMMANDS: Record<string, CommandDef> = {
     handler: async (_args, state) => {
       if (!state.ledger) return "\n  (no session ledger — run a task first)\n";
       return renderUsage(state.ledger.view(), state.useColor);
+    },
+  },
+
+  quiet: {
+    usage: "/quiet [on|off|status]",
+    description: "Toggle live thinking narration in the transcript (receipts and summary unaffected)",
+    handler: async (args, state) => {
+      const arg = (args[0] ?? "").toLowerCase();
+      const c = state.useColor;
+      if (arg === "" || arg === "toggle") {
+        state.quiet = state.quiet !== true;
+      } else if (arg === "on" || arg === "true" || arg === "1") {
+        state.quiet = true;
+      } else if (arg === "off" || arg === "false" || arg === "0") {
+        state.quiet = false;
+      } else if (arg !== "status") {
+        return `\n  Unrecognised argument: ${arg}\n  Usage: /quiet [on|off|status]\n`;
+      }
+      const tag = c
+        ? (state.quiet ? chalk.yellow("ON") : chalk.green("OFF"))
+        : (state.quiet ? "ON" : "OFF");
+      return `\n  quiet mode is ${tag} — live thinking narration ${state.quiet ? "hidden (dashboard still shows it)" : "shown in the transcript"}.\n`;
+    },
+  },
+
+  last: {
+    usage: "/last [n]",
+    description: "Reprint the full output of a recent tool result (1 = most recent)",
+    handler: async (args, state) => {
+      if (!state.ledger) return "\n  (no session ledger — run a task first)\n";
+      const results = state.ledger.recentToolResults();
+      if (results.length === 0) return "\n  (no tool results recorded yet)\n";
+      const n = args[0] ? parseInt(args[0], 10) : 1;
+      if (isNaN(n) || n < 1 || n > results.length) {
+        return `\n  Usage: /last [1-${results.length}]  (1 = most recent)\n`;
+      }
+      const r = results[n - 1];
+      const c = state.useColor;
+      const header = `  tool result ${n}/${results.length} — ${r.name}${r.error ? " (errored)" : ""}`;
+      const lines: string[] = ["", c ? chalk.bold.cyan(header) : header];
+      if (r.error) lines.push(c ? chalk.red(`  error: ${r.error}`) : `  error: ${r.error}`);
+      const body = r.output.length > 0 ? r.output : "(empty output)";
+      const bodyLines = body.split("\n");
+      const MAX_LINES = 400;
+      for (const line of bodyLines.slice(0, MAX_LINES)) lines.push(`  ${line}`);
+      if (bodyLines.length > MAX_LINES) {
+        lines.push(`  (…${bodyLines.length - MAX_LINES} more lines — full output in the run report)`);
+      }
+      if (r.truncated) lines.push("  (output was truncated at capture time)");
+      lines.push("");
+      return lines.join("\n");
     },
   },
 
@@ -1128,6 +1183,6 @@ export async function executeSlashCommand(
   }
 }
 
-export function getSlashCommands(): Array<{ name: string; description: string }> {
-  return Object.entries(COMMANDS).map(([name, def]) => ({ name, description: def.description }));
+export function getSlashCommands(): Array<{ name: string; description: string; usage: string }> {
+  return Object.entries(COMMANDS).map(([name, def]) => ({ name, description: def.description, usage: def.usage }));
 }
