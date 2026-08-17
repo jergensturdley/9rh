@@ -39,10 +39,6 @@ interface SpawnResult {
   effectiveTimeoutMs: number;
 }
 
-interface SandboxProfile {
-  create(workDir: string, allowedPaths: string[], networkEnabled: boolean, legacy: boolean, blanketReads: boolean): string;
-}
-
 const SBMAXOUTPUT = 1024 * 1024 * 4;
 
 async function realworkDir(workDir: string): Promise<string> {
@@ -108,7 +104,7 @@ function truncateOutput(s: string): string {
   return s.slice(0, 1024 * 1024) + `\n...(truncated ${s.length - 1024 * 1024} chars)`;
 }
 
-class DarwinSandboxProfile implements SandboxProfile {
+class DarwinSandboxProfile {
   /**
    * Build a restrictive macOS sandbox-exec profile.
    *

@@ -1,5 +1,4 @@
 export { Sandbox, isSandboxAvailable, getSandboxStatus, getDefaultSandboxConfig } from "./sandboxer.js";
-export type { SandboxConfig } from "./sandboxer.js";
 
 export {
   SandboxExecutor,
@@ -15,4 +14,3 @@ export {
   buildDockerArgs,
   buildPodmanArgs,
 } from "./container.js";
-export type { ContainerAction, ContainerSessionConfig, ContainerStatus } from "./container.js";

@@ -314,12 +314,6 @@ export interface TuiOptions {
   onReportWritten?: (path: string) => void;
 }
 
-export interface SplashOptions extends TuiOptions {
-  provider: string;
-  project: string;
-  status: string;
-}
-
 function crop(text: string, max: number): string {
   if (text.length <= max) return text;
   return text.slice(0, Math.max(0, max - 1)) + "…";

@@ -109,26 +109,3 @@ export type {
   SemanticReviewFilter,
   SemanticSeverity,
 } from "./semanticDiff.js";
-export { FaultInjector } from "./faultInjection/index.js";
-export { RecoveryEvaluator } from "./faultInjection/index.js";
-export { ScenarioRegistry, createDefaultRegistry } from "./faultInjection/index.js";
-export { BUILT_IN_SCENARIOS } from "./faultInjection/index.js";
-export { generateResilienceReport, rankByRisk, formatReport } from "./faultInjection/index.js";
-export {
-  FAULT_TO_ERROR_CLASS,
-  MINIMUM_RESILIENCE_THRESHOLD,
-  RECOVERY_SCORES,
-} from "./faultInjection/index.js";
-export type {
-  ExpectedOutcome,
-  FaultScenario,
-  FaultSpec,
-  FaultTarget,
-  FaultType,
-  ObservedErrorEvent,
-  RecoveryPath,
-  ResilienceReport,
-  ResilienceScores,
-  ScenarioResult,
-  TriggerCondition,
-} from "./faultInjection/index.js";

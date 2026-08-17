@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@jest/globals";
-import { compressContextText, compressToolResultForContext } from "../contextCompression.js";
+import { compressContextText, compressToolResultForContext } from "../inputCompression.js";
 
 describe("context compression", () => {
   it("compresses large tool outputs while preserving high-signal lines", () => {
