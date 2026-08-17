@@ -198,6 +198,96 @@ function compressLargeText(input: string, opts: Required<CompressionOptions>): C
   };
 }
 
+// --- Tool-result compaction (merged from contextCompression.ts) ---
+
+export interface ContextCompressionOptions {
+  charThreshold?: number;
+  lineThreshold?: number;
+  maxChars?: number;
+}
+
+export interface ContextCompressionResult {
+  text: string;
+  changed: boolean;
+  originalChars: number;
+  compressedChars: number;
+}
+
+const DEFAULT_CONTEXT_CHAR_THRESHOLD = 6_000;
+const DEFAULT_CONTEXT_LINE_THRESHOLD = 120;
+const SIGNAL_RE = /(?:\b(?:error|exception|failed|failure|fatal|panic|traceback|warning|expected|actual|received|diff|patch|fail|timeout|denied|not found|passed|skipped)\b|\b[\w./-]+\.\w{1,8}:\d+\b|^\s*(?:[-+@]{2,}|FAIL|PASS|✗|✓))/iu;
+
+function cleanContextLine(line: string): string {
+  return stripTerminalNoise(line).slice(0, 260);
+}
+
+function uniqueSignals(lines: string[], limit: number): string[] {
+  const seen = new Set<string>();
+  const signals: string[] = [];
+  for (const line of lines) {
+    if (signals.length >= limit) break;
+    if (!SIGNAL_RE.test(line)) continue;
+    const cleaned = cleanContextLine(line);
+    if (!cleaned || seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    signals.push(cleaned);
+  }
+  return signals;
+}
+
+export function compressContextText(
+  text: string,
+  label = "context",
+  options: ContextCompressionOptions = {},
+): ContextCompressionResult {
+  const opts = {
+    charThreshold: options.charThreshold ?? DEFAULT_CONTEXT_CHAR_THRESHOLD,
+    lineThreshold: options.lineThreshold ?? DEFAULT_CONTEXT_LINE_THRESHOLD,
+    maxChars: options.maxChars ?? DEFAULT_MAX_CHARS,
+  };
+  const lines = text.split(/\r?\n/u);
+  if (text.length <= opts.charThreshold && lines.length < opts.lineThreshold) {
+    return { text, changed: false, originalChars: text.length, compressedChars: text.length };
+  }
+
+  const head = lines.slice(0, 12).map(cleanContextLine).filter(Boolean);
+  const tail = lines.slice(-12).map(cleanContextLine).filter(Boolean);
+  const signals = uniqueSignals(lines, 60);
+  const parts = [
+    `[${label} compressed for model context: ${lines.length.toLocaleString()} lines / ${text.length.toLocaleString()} chars; sha256:${hashText(text)}]`,
+  ];
+  if (signals.length > 0) parts.push(`[High-signal lines]\n${signals.map((line) => `- ${line}`).join("\n")}`);
+  if (head.length > 0) parts.push(`[Head]\n${head.map((line) => `- ${line}`).join("\n")}`);
+  if (tail.length > 0) parts.push(`[Tail]\n${tail.map((line) => `- ${line}`).join("\n")}`);
+  parts.push("[Note]\nFull output was omitted from future model context for token frugality. Re-run the tool with a narrower range/query if exact omitted content is needed.");
+
+  let compressed = parts.join("\n\n");
+  if (compressed.length > opts.maxChars) compressed = compressed.slice(0, opts.maxChars - 1).trimEnd() + "…";
+  return {
+    text: compressed,
+    changed: true,
+    originalChars: text.length,
+    compressedChars: compressed.length,
+  };
+}
+
+export function compressToolResultForContext(
+  toolName: string,
+  output: string,
+  error?: string,
+  options: ContextCompressionOptions = {},
+): ContextCompressionResult {
+  const content = error ? `ERROR: ${error}\n${output}` : output;
+  const result = compressContextText(content, `tool result:${toolName}`, options);
+  if (!result.changed) return result;
+  const compacted = `${result.text}\n\n[Tool context compaction]\nOriginal ${toolName} output kept for UI/replay, but this compact form is what subsequent model turns see.`;
+  return {
+    ...result,
+    text: compacted,
+    compressedChars: compacted.length,
+  };
+}
+
 export function compressUserInput(input: string, options: CompressionOptions = {}): CompressionResult {
   const opts: Required<CompressionOptions> = {
     textCharThreshold: options.textCharThreshold ?? DEFAULT_TEXT_CHAR_THRESHOLD,

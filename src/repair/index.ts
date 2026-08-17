@@ -1,16 +1,13 @@
-export { ErrorClass, ERROR_TAXONOMY, classifyError, tagError } from "./errorTaxonomy.js";
-export type { ErrorClassMetadata, TaggedError, SourceLayer } from "./errorTaxonomy.js";
+export { ErrorClass } from "./errorTaxonomy.js";
+export type { TaggedError } from "./errorTaxonomy.js";
 
 export { withErrorInterception } from "./errorInterceptor.js";
-export type { InterceptionOptions, RepairResult } from "./errorInterceptor.js";
+export type { RepairResult } from "./errorInterceptor.js";
 
-export { captureSnapshot, restoreSnapshot, listSnapshots } from "./snapshotManager.js";
-export type { AgentState, Snapshot } from "./snapshotManager.js";
-
-export { CircuitBreaker, CircuitState } from "./circuitBreaker.js";
+export { captureSnapshot, restoreSnapshot } from "./snapshotManager.js";
+export type { AgentState } from "./snapshotManager.js";
 
 export { runRepairAgent } from "./repairAgent.js";
-export type { RepairContext, RepairResult as RepairResult2, PlaybookEntry } from "./repairAgent.js";
+export type { PlaybookEntry } from "./repairAgent.js";
 
-export { logIncident, generatePlaybookEntry, appendPlaybookEntry } from "./postMortemLogger.js";
-export type { IncidentReport, PlaybookEntry as PlaybookEntry2 } from "./postMortemLogger.js";
+export { logIncident } from "./postMortemLogger.js";
