@@ -1297,6 +1297,30 @@ export class Agent {
         > = new Map();
 
         for await (const chunk of stream) {
+          // Token usage arrives in the final chunk (stream_options.include_usage,
+          // set above). Per the OpenAI spec that chunk has `choices: []` and NO
+          // delta, so usage must be captured BEFORE the delta guard below —
+          // checking it after `continue` silently drops usage from every
+          // spec-compliant provider.
+          // F-07: the provider's reported usage is partly attacker-controlled
+          // (any HTTP server in the chain can claim any value). Clamp to sane
+          // bounds, never trust total_tokens, reject negative/non-finite.
+          if (chunk.usage) {
+            const u = chunk.usage as { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown };
+            const clamp = (n: unknown): number => {
+              const v = Number(n);
+              if (!Number.isFinite(v) || v < 0) return 0;
+              // A single LLM response above 10M tokens is implausible;
+              // the provider's API is doing something unexpected.
+              if (v > 10_000_000) return 10_000_000;
+              return Math.floor(v);
+            };
+            const prompt = clamp(u.prompt_tokens);
+            const completion = clamp(u.completion_tokens);
+            // Recompute total locally — never trust the upstream value.
+            completionUsage = { prompt, completion, total: prompt + completion };
+          }
+
           const delta = chunk.choices?.[0]?.delta;
           if (!delta) continue;
 
@@ -1322,29 +1346,6 @@ export class Agent {
             }
           }
 
-          // Token usage arrives in the final chunk (when stream_options.include_usage
-          // is set, which we do above). Capture it for the run report.
-          // F-07: the LLM provider's reported usage is partly
-          // attacker-controlled (any HTTP server in the chain can
-          // claim any value). Clamp to sane bounds, never trust
-          // total_tokens, and reject negative or non-finite values.
-          if (chunk.usage) {
-            const u = chunk.usage as { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown };
-            const clamp = (n: unknown): number => {
-              const v = Number(n);
-              if (!Number.isFinite(v) || v < 0) return 0;
-              // A single LLM response above 10M tokens is implausible;
-              // the provider's API is doing something unexpected.
-              if (v > 10_000_000) return 10_000_000;
-              return Math.floor(v);
-            };
-            const prompt = clamp(u.prompt_tokens);
-            const completion = clamp(u.completion_tokens);
-            // Recompute total locally — never trust the upstream
-            // value, since an attacker can claim any number.
-            const total = prompt + completion;
-            completionUsage = { prompt, completion, total };
-          }
         }
 
         // Accumulate per-completion usage into the turn total (each API call
