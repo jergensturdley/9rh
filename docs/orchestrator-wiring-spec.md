@@ -1,6 +1,17 @@
 # Spec — `Orchestrator.orchestrate` Wiring Decision
 
-Status: spec only. No production code is modified by this document.
+Status: **RESOLVED (2026-08-18) — Path A implemented**, via PR #7
+("teams on stage"). `Orchestrator.orchestrate` is now wired into the CLI
+as the team pipeline: entry via `/team <task>`, `--orchestrate`, or a
+visible "run as a team?" suggestion prompt (`shouldSuggestTeam` in
+`src/orchestrator/dispatch.ts` — a suggestion trigger, NOT the silent
+keyword router step 2 below proposed). Events stream through the TUI's
+AgentEvent channel with TEAM dashboard lanes and per-role token counts;
+the in-memory cache was kept (disk persistence deferred, as allowed).
+This document is retained as the historical decision record; the
+remainder is the original spec text.
+
+Original status: spec only. No production code is modified by this document.
 Audience: subagents (or a future session) that will implement the chosen
 resolution path.
 

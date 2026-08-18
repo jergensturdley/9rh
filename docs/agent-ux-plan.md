@@ -2,6 +2,8 @@
 
 *Drafted 2026-08-15 on `claude/agent-ux-feature-plan`. Inspiration reference: oh-my-pi (can1357's fork of Mario Zechner's pi — rich TUI, subagents, LSP) and the current generation of terminal agents. Goal: modern session UX with a stronger identity, without losing what 9rh already is.*
 
+**Status (2026-08-18): all three phases shipped.** Phase 1 (ledger, receipts, usage, dashboard panels) and Phase 2 (ask_user, palette v2, /quiet, /last) landed on the agent-ux branch; Phase 3 (orchestrator through the TUI with TEAM lanes, /team + suggestion gate, /rewind, /replay) merged via PR #7. One deviation from the letter of WS7: team auto-suggest uses a harness-side picker rather than the model-initiated `ask_user` tool, since dispatch happens before any model is running. Remaining backlog items: conversation-fork rewind (WS9 §1), user-defined role presets and parallel role dispatch (WS7 "later"), per-command sub-pickers beyond /models and /switch (WS8).
+
 ## The one-line thesis
 
 9rh already owns almost every subsystem a modern agent UX needs — an event log (`src/replay/eventLogger.ts`), checkpoints and branches (`src/replay/checkpointManager.ts`, `branchManager.ts`), workdir snapshots (`src/repair/snapshotManager.ts`, `src/reports/workdirSnapshot.ts`), per-turn token capture (`src/agent.ts` `stream_options: { include_usage: true }`), a multi-role orchestrator (`src/orchestrator/`), semantic diffs (`src/semanticDiff.ts`), and a per-turn HTML run report with changes/reasoning/tools/tokens (`src/reports/runReport.ts`). **Almost none of it is surfaced live, in-terminal, across the session.** This plan is mostly wiring and UI, not new engines. That makes it cheap relative to how big it will feel.
