@@ -31,9 +31,4 @@ export type {
 export { DirectBackend } from "./direct.js";
 export { RouterBackend, NINE_ROUTER_OPENAI } from "./router.js";
 export { detectBackend, type DetectOptions, type DetectResult } from "./detect.js";
-export {
-  PROVIDER_PRESETS,
-  getProviderPreset,
-  listProviderPresetIds,
-  type ProviderPreset,
-} from "./presets.js";
+export { getProviderPreset, listProviderPresetIds } from "./presets.js";

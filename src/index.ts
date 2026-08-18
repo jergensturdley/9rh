@@ -58,7 +58,7 @@ const DEFAULTS = {
   key: process.env.NINE_ROUTER_KEY ?? "9router",
   model: process.env.NINE_ROUTER_MODEL ?? "kr/claude-sonnet-4.5",
   continuationModel: process.env.NINE_ROUTER_CONTINUATION_MODEL,
-  continuationMax: process.env.NINE_ROUTER_CONTINUATION_MAX ?? process.env.NINE_ROUTER_MAX_CONTINUATIONS ?? "20",
+  continuationMax: process.env.NINE_ROUTER_CONTINUATION_MAX ?? "20",
   continuationIter: process.env.NINE_ROUTER_CONTINUATION_ITER,
   continuationSwitchAfter: process.env.NINE_ROUTER_CONTINUATION_SWITCH_AFTER,
   maxIter: 100,

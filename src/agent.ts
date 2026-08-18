@@ -13,7 +13,7 @@ import type {
 import type { Stream } from "openai/streaming.js";
 import { TOOL_DEFINITIONS, executeTool } from "./tools.js";
 import { discoverSkills, buildSkillsSection } from "./skills.js";
-import { compressToolResultForContext } from "./contextCompression.js";
+import { compressToolResultForContext } from "./inputCompression.js";
 import { buildLongHorizonMemory, renderLongHorizonMemory } from "./longHorizonMemory.js";
 import { CircuitBreaker } from "./repair/circuitBreaker.js";
 import {
