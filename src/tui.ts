@@ -1400,7 +1400,9 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
     const inner = w - 2;
     const model = opts.getModel();
     const dir = opts.getWorkDir().replace(process.env.HOME ?? "", "~");
-    const iterStr = `iter ${iterCurrent}/${iterMax}`;
+    // max 0 = unknown cap (e.g. /replay of a recorded log) — "iter 1/0" reads
+    // as a bug, so drop the denominator.
+    const iterStr = iterMax > 0 ? `iter ${iterCurrent}/${iterMax}` : `iter ${iterCurrent}`;
 
     if (iterCurrent === 1) {
       const sep = "═".repeat(inner);
@@ -1459,6 +1461,13 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         dashboard.iterMax = event.max;
         dashboard.activity = "thinking";
         thinkingActive = false;
+        // New LLM round — drop the previous round's thinking buffer so its
+        // tail can't bleed into this round's throttled snapshots (visible as
+        // doubled text when a later run, e.g. /replay, reuses the renderer).
+        activeThinking = "";
+        recentThinking = [];
+        dashboard.thinkingCharCount = 0;
+        dashboard.thinkingPreview = "";
         stopSpinner();
         printIterHeader();
         drawDashboard();
@@ -1651,6 +1660,11 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
           opts.onReportWritten?.(event.reportPath);
         }
         dashboard.activity = "done";
+        thinkingActive = false;
+        activeThinking = "";
+        recentThinking = [];
+        dashboard.thinkingCharCount = 0;
+        dashboard.thinkingPreview = "";
         drawDashboard();
         break;
       }
@@ -1674,6 +1688,11 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
           opts.onReportWritten?.(event.reportPath);
         }
         dashboard.activity = "error";
+        thinkingActive = false;
+        activeThinking = "";
+        recentThinking = [];
+        dashboard.thinkingCharCount = 0;
+        dashboard.thinkingPreview = "";
         drawDashboard();
         break;
 
