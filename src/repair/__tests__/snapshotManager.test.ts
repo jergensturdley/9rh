@@ -1,27 +1,32 @@
-import { describe, it, expect, beforeEach, afterEach } from "@jest/globals";
+import { describe, it, expect, beforeAll, afterAll } from "@jest/globals";
 import { captureSnapshot, restoreSnapshot, listSnapshots, type AgentState } from "../snapshotManager.js";
-import { readFile, readdir, mkdir, rm } from "fs/promises";
+import { readFile, mkdtemp, rm } from "fs/promises";
+import { tmpdir } from "os";
 import { join } from "path";
 
+// Snapshots live under NINE_RH_HOME (default ~/.9rh) — point the app home at
+// a tmpdir so the test never touches the real one (and never the cwd).
+let home: string;
+let prevHome: string | undefined;
+
+beforeAll(async () => {
+  prevHome = process.env.NINE_RH_HOME;
+  home = await mkdtemp(join(tmpdir(), "ninerh-home-"));
+  process.env.NINE_RH_HOME = home;
+});
+
+afterAll(async () => {
+  if (prevHome === undefined) delete process.env.NINE_RH_HOME;
+  else process.env.NINE_RH_HOME = prevHome;
+  await rm(home, { recursive: true, force: true });
+});
+
 describe("snapshotManager", () => {
-  beforeEach(async () => {
-    try { await mkdir("./snapshots", { recursive: true }); } catch {}
-  });
-
-  afterEach(async () => {
-    try {
-      const files = await readdir("./snapshots");
-      for (const f of files) {
-        if (f !== ".gitkeep") await rm(join("./snapshots", f));
-      }
-    } catch {}
-  });
-
-  it("captureSnapshot returns an id and writes a json file", async () => {
+  it("captureSnapshot returns an id and writes a json file under the app home", async () => {
     const state: AgentState = { currentTask: "test task", memory: {}, toolCallHistory: [], stepIndex: 1, environmentVars: {} };
     const id = await captureSnapshot(state);
     expect(id).toMatch(/^snap-/);
-    const raw = await readFile(join("./snapshots", `${id}.json`), "utf-8");
+    const raw = await readFile(join(home, "snapshots", `${id}.json`), "utf-8");
     const parsed = JSON.parse(raw);
     expect(parsed.id).toBe(id);
     expect(parsed.state.currentTask).toBe("test task");

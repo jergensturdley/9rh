@@ -2,6 +2,7 @@ import { readFile, writeFile, readdir, mkdir } from "fs/promises";
 import { join, resolve, normalize, sep } from "path";
 import type { TaggedError } from "./errorTaxonomy.js";
 import { type ErrorClass } from "./errorTaxonomy.js";
+import { ninerhDir } from "../paths.js";
 
 export interface IncidentReport {
   timestamp: number;
@@ -24,7 +25,8 @@ export interface PlaybookEntry {
   autoApply: boolean;
 }
 
-const INCIDENT_DIR = "./logs/incidents";
+// Incident reports live under ~/.9rh (NINE_RH_HOME-overridable) — never the user cwd.
+const incidentDir = (): string => ninerhDir("logs", "incidents");
 // F-32: the playbook path is now configurable. Default is preserved
 // for back-compat. Callers can override per-invocation. We also
 // validate that the resolved path lies under the project root (the
@@ -110,9 +112,9 @@ export async function logIncident(
   };
 
   try {
-    await ensureDir(INCIDENT_DIR);
+    await ensureDir(incidentDir());
     const filename = `incident-${Date.now()}.json`;
-    await writeFile(join(INCIDENT_DIR, filename), JSON.stringify(report, null, 2), "utf-8");
+    await writeFile(join(incidentDir(), filename), JSON.stringify(report, null, 2), "utf-8");
   } catch (err) {
     console.warn("[postMortemLogger] logIncident failed:", err);
   }

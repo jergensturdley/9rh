@@ -17,8 +17,7 @@ import { Orchestrator } from "./orchestrator/index.js";
 import { shouldSuggestTeam } from "./orchestrator/dispatch.js";
 import { planRewind, applyRewind } from "./rewind.js";
 import { listRunLogs, readEventLog, renderEventLog } from "./flightRecorder.js";
-import { homedir } from "os";
-import { join } from "path";
+import { ninerhDir } from "./paths.js";
 import {
   hasOption as hasOptionRaw,
   resolveMaxIter,
@@ -58,7 +57,7 @@ async function maybeAutoIndexCodeGraph(workDir: string): Promise<void> {
 }
 
 /** Where run event logs live — read back by /replay. */
-const RUNS_DIR = join(homedir(), ".9rh", "runs");
+const RUNS_DIR = ninerhDir("runs");
 
 const DEFAULTS = {
   url: process.env.NINE_ROUTER_URL ?? "http://127.0.0.1:20128/v1",

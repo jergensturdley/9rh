@@ -28,6 +28,7 @@ import {
 } from "./repair/index.js";
 import { EventLogger, type EventLoggerConfig } from "./replay/eventLogger.js";
 import { snapshotWorkDir, diffSnapshots } from "./reports/workdirSnapshot.js";
+import { ninerhDir } from "./paths.js";
 import type {
   RunMetadata,
   ReplayEvent,
@@ -491,7 +492,7 @@ export class Agent {
     const cfg: EventLoggerConfig = {
       runId,
       branchId,
-      logDir: this.replay.logDir ?? "./logs/runs",
+      logDir: this.replay.logDir ?? ninerhDir("runs"),
     };
     this.eventLogger = new EventLogger(cfg);
     await this.eventLogger.init();
@@ -530,12 +531,12 @@ export class Agent {
     if (this.config.reportPath === false || this.config.reportPath === "") return undefined;
 
     // Determine the final path. If keepReports is true, embed the runId.
-    const defaultPath = join(homedir(), ".9rh", "last-run.html");
+    const defaultPath = ninerhDir("last-run.html");
     let finalPath: string;
     if (this.config.reportPath) {
       finalPath = this.config.reportPath;
     } else if (this.config.keepReports) {
-      const dir = join(homedir(), ".9rh", "reports");
+      const dir = ninerhDir("reports");
       finalPath = join(dir, `run-${this.report.runId}.html`);
     } else {
       finalPath = defaultPath;
