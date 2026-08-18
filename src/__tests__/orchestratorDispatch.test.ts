@@ -1,50 +1,37 @@
 import { describe, it, expect } from "@jest/globals";
-import { shouldUseOrchestrator } from "../orchestrator/dispatch.js";
+import { shouldSuggestTeam } from "../orchestrator/dispatch.js";
 
-describe("shouldUseOrchestrator — complexity gate", () => {
-  describe("explicit override (--orchestrate flag)", () => {
-    it("dispatches when force is true regardless of task content", () => {
-      expect(shouldUseOrchestrator("fix the typo", { force: true })).toBe(true);
-      expect(shouldUseOrchestrator("", { force: true })).toBe(true);
-      expect(shouldUseOrchestrator("read src/foo.ts", { force: true })).toBe(true);
-    });
-
-    it("does not dispatch when force is false", () => {
-      expect(shouldUseOrchestrator("read src/foo.ts", { force: false })).toBe(false);
-    });
-
-    it("does not dispatch when force is undefined", () => {
-      expect(shouldUseOrchestrator("read src/foo.ts")).toBe(false);
-    });
-  });
-
-  describe("heuristic triggers on design-pattern keywords", () => {
+// shouldSuggestTeam is a SUGGESTION trigger, not a router: a true result
+// means the harness offers "run as a team?"; only the user (or the explicit
+// --orchestrate flag / /team command) actually routes into the pipeline.
+describe("shouldSuggestTeam — team suggestion heuristic", () => {
+  describe("triggers on design-pattern keywords", () => {
     it("matches 'plan'", () => {
-      expect(shouldUseOrchestrator("plan the rollout for v2")).toBe(true);
-      expect(shouldUseOrchestrator("rollout-plan the migration")).toBe(true);
+      expect(shouldSuggestTeam("plan the rollout for v2")).toBe(true);
+      expect(shouldSuggestTeam("rollout-plan the migration")).toBe(true);
     });
 
     it("matches 'design'", () => {
-      expect(shouldUseOrchestrator("design the API surface")).toBe(true);
-      expect(shouldUseOrchestrator("design review for v2")).toBe(true);
+      expect(shouldSuggestTeam("design the API surface")).toBe(true);
+      expect(shouldSuggestTeam("design review for v2")).toBe(true);
     });
 
     it("matches 'audit'", () => {
-      expect(shouldUseOrchestrator("audit the security posture")).toBe(true);
-      expect(shouldUseOrchestrator("audit-log every change")).toBe(true);
+      expect(shouldSuggestTeam("audit the security posture")).toBe(true);
+      expect(shouldSuggestTeam("audit-log every change")).toBe(true);
     });
 
     it("matches 'architect'", () => {
-      expect(shouldUseOrchestrator("architect a multi-tenant system")).toBe(true);
+      expect(shouldSuggestTeam("architect a multi-tenant system")).toBe(true);
     });
 
     it("matches 'implement'", () => {
-      expect(shouldUseOrchestrator("implement the new feature")).toBe(true);
-      expect(shouldUseOrchestrator("implement v2 migration")).toBe(true);
+      expect(shouldSuggestTeam("implement the new feature")).toBe(true);
+      expect(shouldSuggestTeam("implement v2 migration")).toBe(true);
     });
   });
 
-  describe("heuristic does NOT trigger on common short tasks", () => {
+  describe("does NOT trigger on common short tasks", () => {
     it.each([
       "fix the typo in main.ts",
       "read src/foo.ts",
@@ -55,34 +42,31 @@ describe("shouldUseOrchestrator — complexity gate", () => {
       "delete the .cache directory",
       "search for run_bash usage",
     ])("does not trigger on %s", (task) => {
-      expect(shouldUseOrchestrator(task)).toBe(false);
+      expect(shouldSuggestTeam(task)).toBe(false);
     });
   });
 
   describe("case insensitivity", () => {
     it("triggers regardless of case", () => {
-      expect(shouldUseOrchestrator("PLAN the rollout")).toBe(true);
-      expect(shouldUseOrchestrator("Plan The Rollout")).toBe(true);
-      expect(shouldUseOrchestrator("Architect the system")).toBe(true);
+      expect(shouldSuggestTeam("PLAN the rollout")).toBe(true);
+      expect(shouldSuggestTeam("Plan The Rollout")).toBe(true);
+      expect(shouldSuggestTeam("Architect the system")).toBe(true);
     });
   });
 
   describe("edge cases", () => {
     it("returns false on empty task", () => {
-      expect(shouldUseOrchestrator("")).toBe(false);
-      expect(shouldUseOrchestrator("   ")).toBe(false);
+      expect(shouldSuggestTeam("")).toBe(false);
+      expect(shouldSuggestTeam("   ")).toBe(false);
     });
 
     it("does NOT match stems or longer words (strict \\b boundary)", () => {
-      // \b boundaries require exact word match, so prefixes/suffixes
-      // don't trigger the heuristic. Tune the regex to broaden later
-      // if false negatives become a real problem.
-      expect(shouldUseOrchestrator("the plans desk")).toBe(false);
-      expect(shouldUseOrchestrator("redesign the auth flow")).toBe(false);
-      expect(shouldUseOrchestrator("implementation tasks")).toBe(false);
-      expect(shouldUseOrchestrator("auditing the codebase")).toBe(false);
-      expect(shouldUseOrchestrator("auditor picked up")).toBe(false);
-      expect(shouldUseOrchestrator("architectural decision")).toBe(false);
+      expect(shouldSuggestTeam("the plans desk")).toBe(false);
+      expect(shouldSuggestTeam("redesign the auth flow")).toBe(false);
+      expect(shouldSuggestTeam("implementation tasks")).toBe(false);
+      expect(shouldSuggestTeam("auditing the codebase")).toBe(false);
+      expect(shouldSuggestTeam("auditor picked up")).toBe(false);
+      expect(shouldSuggestTeam("architectural decision")).toBe(false);
     });
   });
 });

@@ -37,7 +37,7 @@ import type {
 } from "./replay/eventSchema.js";
 import { Reasoner } from "./reasoner/reasoner.js";
 import { createExecutor, ObservabilityCollector, isSandboxAvailable, getSandboxStatus } from "./sandbox/index.js";
-import { assessToolRisk, riskAtOrAbove, DEFAULT_TOOL_RISK_THRESHOLD, type ToolRiskLevel, type ToolCall as OrchestratorToolCall } from "./orchestrator/index.js";
+import { assessToolRisk, riskAtOrAbove, DEFAULT_TOOL_RISK_THRESHOLD, type ToolRiskLevel, type ToolCall as OrchestratorToolCall, type OrchestratorEvent } from "./orchestrator/index.js";
 import type { SandboxProvider } from "./sandbox/index.js";
 import { formatSpecDrivenPrompt, shouldUseSpecDrivenTesting } from "./spec/specDrivenTesting.js";
 import { renderRunReport, type RunReportData, type RunStatus } from "./reports/index.js";
@@ -149,7 +149,11 @@ export type AgentEvent =
   | { type: "partial_output"; stepId: string; text: string }
   | { type: "incident"; stepId: string; cause: string; repairAttempt?: number; circuitOpen?: boolean }
   | { type: "branch_create"; stepId: string; branchId: string; reason: string }
-  | { type: "sandbox_health"; total: number; sandboxed: number; direct: number; timedOut: number };
+  | { type: "sandbox_health"; total: number; sandboxed: number; direct: number; timedOut: number }
+  // Multi-role pipeline progress — the orchestrator's events forwarded
+  // through the same channel the TUI renders (team lanes + transcript
+  // sections). Emitted by the CLI's team dispatch, not by Agent itself.
+  | { type: "team"; event: OrchestratorEvent };
 
 const DEFAULT_SYSTEM = `You are a skilled coding agent. You help with coding tasks by reading, writing, and modifying files, running commands, and solving problems step by step.
 

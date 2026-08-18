@@ -368,7 +368,7 @@ const COMMANDS: Record<string, CommandDef> = {
         if (cmd.name === "help" || cmd.name === "clear" || cmd.name === "queue" || cmd.name === "run" || cmd.name === "done" || cmd.name === "setup" || cmd.name === "sandbox" || cmd.name === "doctor") prefix = "system";
         else if (cmd.name === "status" || cmd.name === "providers" || cmd.name === "combos" || cmd.name === "keys" || cmd.name === "router" || cmd.name === "refresh" || cmd.name === "reload") prefix = "router";
         else if (cmd.name === "models" || cmd.name === "switch" || cmd.name === "default-model") prefix = "models";
-        else if (cmd.name === "dir" || cmd.name === "skills" || cmd.name === "history" || cmd.name === "logs" || cmd.name === "index" || cmd.name === "index-status" || cmd.name === "brief" || cmd.name === "usage" || cmd.name === "quiet" || cmd.name === "last") prefix = "session";
+        else if (cmd.name === "dir" || cmd.name === "skills" || cmd.name === "history" || cmd.name === "logs" || cmd.name === "index" || cmd.name === "index-status" || cmd.name === "brief" || cmd.name === "usage" || cmd.name === "quiet" || cmd.name === "last" || cmd.name === "team" || cmd.name === "rewind" || cmd.name === "replay") prefix = "session";
         else prefix = "other";
         groups[prefix] = groups[prefix] ?? [];
         groups[prefix].push(cmd);
@@ -481,6 +481,31 @@ const COMMANDS: Record<string, CommandDef> = {
       lines.push("");
       return lines.join("\n");
     },
+  },
+
+  // team / rewind / replay run interactively (pickers, live TUI stream) and
+  // are intercepted by the REPL loop in index.ts before this registry is
+  // consulted — these entries exist for the palette, /help, and fuzzy
+  // completion. The handlers are the non-interactive fallback.
+  team: {
+    usage: "/team <task>",
+    description: "Run a task through the multi-role team pipeline (architect → implementer → auditors → reviewer)",
+    handler: async () =>
+      "\n  /team runs the multi-role pipeline with live team lanes — available in the interactive REPL.\n  Usage: /team <task>   (or start 9rh with --orchestrate)\n",
+  },
+
+  rewind: {
+    usage: "/rewind",
+    description: "Restore the workdir to before a chosen turn (files only — conversation unchanged)",
+    handler: async () =>
+      "\n  /rewind opens a turn picker — available in the interactive REPL.\n",
+  },
+
+  replay: {
+    usage: "/replay [speed]",
+    description: "Flight recorder — re-render a recorded run through the TUI at x-speed",
+    handler: async () =>
+      "\n  /replay opens a run picker — available in the interactive REPL.\n",
   },
 
   logs: {

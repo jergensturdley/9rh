@@ -50,6 +50,9 @@ export interface TurnDigest {
    *  silent decisions made visible. */
   assumptions?: string[];
   reportPath?: string;
+  /** Raw before/after records behind `files` — retained so /rewind can
+   *  restore the workdir to the state before this turn. Not rendered. */
+  fileChangeRecords?: FileChangeRecord[];
 }
 
 export interface TurnDigestInput {
@@ -161,6 +164,7 @@ export function buildTurnDigest(
     toolCounts,
     assumptions: opts.assumptions && opts.assumptions.length > 0 ? [...opts.assumptions] : undefined,
     reportPath: opts.reportPath,
+    fileChangeRecords: input.fileChanges.length > 0 ? [...input.fileChanges] : undefined,
   };
 }
 
@@ -177,6 +181,9 @@ export interface LedgerTurn {
   /** Live-updated during the turn from `usage` events; final from the digest. */
   tokens?: TokenUsage;
   digest?: TurnDigest;
+  /** Per-role token usage when this turn ran the multi-role pipeline.
+   *  Keys are role names; repeated invocations (revision loops) accumulate. */
+  roleTokens?: Record<string, TokenUsage>;
 }
 
 export interface LedgerView {
@@ -202,6 +209,7 @@ export type LedgerAgentEvent =
   | { type: "done"; text: string; reportPath?: string; digest?: TurnDigest }
   | { type: "error"; message: string; reportPath?: string; digest?: TurnDigest }
   | { type: "tool_result"; name: string; output: string; error?: string }
+  | { type: "team"; event: { type: string; role?: string; usage?: TokenUsage } }
   | { type: string };
 
 export interface StoredToolResult {
@@ -258,6 +266,25 @@ export class SessionLedger {
       });
       if (this.toolResults.length > MAX_STORED_TOOL_RESULTS) {
         this.toolResults = this.toolResults.slice(-MAX_STORED_TOOL_RESULTS);
+      }
+      return;
+    }
+    if (event.type === "team" && open) {
+      // Team pipeline turns don't stream `usage` events — per-role token
+      // counts arrive on role_complete. Accumulate them into both the
+      // per-role breakdown (/usage) and the turn total.
+      const e = event as { event: { type: string; role?: string; usage?: TokenUsage } };
+      const inner = e.event;
+      if (inner.type === "role_complete" && inner.role && inner.usage) {
+        open.roleTokens ??= {};
+        const r = (open.roleTokens[inner.role] ??= { prompt: 0, completion: 0, total: 0 });
+        r.prompt += inner.usage.prompt;
+        r.completion += inner.usage.completion;
+        r.total += inner.usage.total;
+        const t = (open.tokens ??= { prompt: 0, completion: 0, total: 0 });
+        t.prompt += inner.usage.prompt;
+        t.completion += inner.usage.completion;
+        t.total += inner.usage.total;
       }
       return;
     }
@@ -408,6 +435,13 @@ export function renderUsage(view: LedgerView, useColor: boolean): string {
     const u = t.tokens ?? { prompt: 0, completion: 0, total: 0 };
     const row = `  ${String(t.index).padEnd(4)}${fmtTokens(u.prompt).padStart(9)}${fmtTokens(u.completion).padStart(9)}${fmtTokens(u.total).padStart(9)}  ${cropText(t.task, 40)}`;
     lines.push(useColor && t.endedAt === undefined ? chalk.cyan(row) : row);
+    // Per-role breakdown when this turn ran the multi-role pipeline.
+    if (t.roleTokens) {
+      for (const [role, ru] of Object.entries(t.roleTokens)) {
+        const roleRow = `      ${fmtTokens(ru.prompt).padStart(9)}${fmtTokens(ru.completion).padStart(9)}${fmtTokens(ru.total).padStart(9)}  └ ${role}`;
+        lines.push(useColor ? chalk.dim(roleRow) : roleRow);
+      }
+    }
   }
   lines.push("");
   lines.push(useColor ? chalk.dim("  counts come from provider stream metadata (tokens only — no cost estimates)") : "  counts come from provider stream metadata (tokens only — no cost estimates)");
