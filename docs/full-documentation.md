@@ -328,7 +328,7 @@ The REPL splash uses an original bounded ASCII plasma intro that completes in un
 |-----------|------|----------------|
 | **Sandbox** | `src/sandbox/sandboxer.ts` | Core sandbox class — validates workspace paths and executes through macOS `sandbox-exec` when available |
 | **Executor** | `src/sandbox/executor.ts` | `SandboxExecutor` (uses sandbox) vs `DirectExecutor` (no sandbox) — both implement `SandboxProvider` interface |
-| **Index** | `src/sandbox/index.ts` | Re-exports all sandbox types and `createExecutor()` factory |
+| **Index** | `src/sandbox/index.ts` | Re-exports the consumed sandbox surface (executors, `createExecutor()`, status helpers, `SandboxProvider`/`ExecutionResult` types) |
 | **Observability** | `src/sandbox/executor.ts` | `ObservabilityCollector` records every execution (stdout, stderr, exitCode, timedOut, durationMs, sandboxUsed) and exposes a summary |
 
 ### How it works
@@ -387,7 +387,7 @@ The replay system reproduces any agent run step-by-step, detects divergence betw
 
 ### Architecture
 
-The system is composed of seven modules:
+The system is composed of six modules:
 
 | Module | File | Responsibility |
 |--------|------|----------------|
@@ -397,7 +397,8 @@ The system is composed of seven modules:
 | **divergenceDetector** | `src/replay/divergenceDetector.ts` | Compares two event logs or a fresh run against a recorded one; reports the exact field, step, and severity of mismatch |
 | **checkpointManager** | `src/replay/checkpointManager.ts` | Saves named snapshots of agent state before major steps; supports restore, list, and prune operations |
 | **branchManager** | `src/replay/branchManager.ts` | Tracks run lineage and branching; stores branch metadata in `branchDir/index.json`; provides `getLineage()` and `getBranchesForRun()` |
-| **index** | `src/replay/index.ts` | Re-exports all public types and classes |
+
+Import replay classes from their concrete modules (there is no barrel `index.ts`).
 
 ### Event Types
 
@@ -418,7 +419,7 @@ The event log records these types (each with monotonic `seq` and `ts`):
 ### Recording a Run
 
 ```ts
-import { EventLogger } from "./replay/index.js";
+import { EventLogger } from "./replay/eventLogger.js";
 
 const logger = new EventLogger({
   runId: "run_abc123",
@@ -435,7 +436,7 @@ agent.on("event", (event) => logger.write(event));
 ### Replaying a Run
 
 ```ts
-import { ReplayEngine } from "./replay/index.js";
+import { ReplayEngine } from "./replay/replayEngine.js";
 
 const engine = new ReplayEngine({
   eventLogPath: "./9rh-runs/run_abc123/events.jsonl",
@@ -478,7 +479,7 @@ divergedAt: {
 When divergence is detected, you can branch from the last checkpoint before the diverging step:
 
 ```ts
-import { BranchManager } from "./replay/index.js";
+import { BranchManager } from "./replay/branchManager.js";
 
 const bm = new BranchManager({ branchDir: "./9rh-runs/branches" });
 await bm.init();
@@ -573,6 +574,7 @@ Development entrypoints:
 - `npm run build` compiles TypeScript to `dist/`
 - `npm run dev` runs the CLI through `ts-node`
 - `npm start` runs the compiled CLI from `dist/index.js`
+- `npm test` runs the Jest suite. Worktree-exclusion patterns in `jest.config.ts` are anchored to `<rootDir>`, so the suite runs both from the repo root (agent worktrees under `.claude/worktrees/` are excluded) and from inside such a worktree.
 
 ## Notes
 
