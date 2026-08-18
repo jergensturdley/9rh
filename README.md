@@ -5,8 +5,13 @@
 ## Highlights
 
 - **Local repo agent** — run coding tasks against a selected working directory.
+- **Receipts, not vibes** — every turn ends with a harness-computed digest: files changed with net +/− line counts, commands run with pass/fail, steps, duration, tokens. Sourced from tool results the harness observed, never from the model's self-report.
+- **Session ledger** — a persistent cross-turn record behind the dashboard panels and the `/brief` and `/usage` commands (token counts only — no dollar estimates).
+- **Team pipeline** — route a task through a multi-role pipeline (architect → implementer → security audit → test strategist → reviewer) with live TEAM lanes in the dashboard and per-role token counts. Explicit entry points only: `/team <task>`, `--orchestrate`, or a visible "run as a team?" prompt on structured-looking tasks.
+- **`/rewind` and `/replay`** — turn-level workdir undo (restore files to before any turn) and a flight recorder that re-renders any recorded run through the live TUI.
+- **Clarifying questions** — the agent can pause and ask via an arrow-key picker (`ask_user`); in non-interactive runs the default is auto-picked and surfaced as an assumption in the receipts.
 - **Pluggable backends** — use 9router for combo chains, or talk straight to OpenAI / OpenRouter / Ollama / LM Studio. Auto-detected from your environment, overridable per-invocation.
-- **Interactive REPL** — slash commands for models, providers, router status, sandbox status, working directory, setup, and diagnostics.
+- **Interactive REPL** — a fuzzy command palette, arrow-key pickers, and slash commands for models, providers, router status, sandbox status, working directory, setup, and diagnostics.
 - **Run reports** — every agent turn writes a self-contained HTML summary of changes made, reasoning, tools used, and tokens used. Linked in the chat, openable via `/report`.
 - **Sandbox-aware tools** — file operations are path-checked, symlinks are blocked for file reads/writes, and shell commands use macOS `sandbox-exec` when available with visible `/sandbox` status.
 - **Spec, replay, and repair systems** — optional spec-driven task framing, live run visualization, replay logs, checkpoints, error taxonomy, and repair hooks.
@@ -97,6 +102,13 @@ Slash commands that depend on 9router's native `/api/*` endpoints (`/providers`,
 |---------|------|-------------|
 | `/models [filter]` | both | List available models |
 | `/switch <model>` | both | Change the active model |
+| `/brief` | both | Session brief — goal, turns, files touched, commands, tokens |
+| `/usage` | both | Token usage per turn (with a per-role breakdown for team runs) |
+| `/team <task>` | both | Run a task through the multi-role team pipeline |
+| `/rewind` | both | Restore the workdir to before a chosen turn (files only) |
+| `/replay [speed]` | both | Re-render a recorded run through the TUI at x-speed |
+| `/quiet [on\|off]` | both | Hide live thinking narration (receipts and summary unaffected) |
+| `/last [n]` | both | Reprint the full output of a recent tool result |
 | `/status` | both | Show backend, health, active model, working directory |
 | `/doctor` | both | Diagnose connectivity and configuration |
 | `/report [open]` | both | Show the path of the most recent run report; `/report open` launches it in the default browser |

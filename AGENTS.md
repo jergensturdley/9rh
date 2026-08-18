@@ -49,10 +49,18 @@ src/
   agent.ts    — streaming ReAct loop (OpenAI client, tool execution, iteration management)
   tools.ts    — sandboxed tools (read_file, write_file, run_bash, list_files, search_files, codegraph_*)
   commands.ts — slash commands + SessionState interface (router-only commands guard in direct mode)
-  index.ts    — CLI (commander), REPL, task runner, backend bootstrap
+  index.ts    — CLI (commander), REPL, task runner, team-pipeline dispatch, backend bootstrap
   main.ts     — programmatic exports for library use
+  ledger.ts   — session ledger + turn digest (receipts) + /brief //usage renderers
+  tui.ts      — raw-ANSI renderer: dashboard (incl. TEAM lanes), receipts box, pickFromList
+  rewind.ts   — /rewind: plan + apply workdir restore from ledger file-change records
+  flightRecorder.ts — /replay: run-log listing, ReplayEvent→AgentEvent mapping, paced render
+  paths.ts    — app home (~/.9rh, NINE_RH_HOME-overridable); all self-writes go under it
   backends/   — Backend abstraction (Backend interface, DirectBackend, RouterBackend, detectBackend, presets)
+  orchestrator/ — multi-role team pipeline (roles, taskState, conflictResolver, cache, suggestion gate)
   reports/    — Run report generator (HTML+CSS, file snapshot tracking, token usage)
+  replay/     — event schema/logger, replay engine, checkpoints, branches
+  repair/     — error taxonomy, circuit breaker, snapshots, incident logging
 ```
 
 ## Tool Sandbox
@@ -170,6 +178,8 @@ If this AGENTS.md says "don't use TDD" and a skill says "always use TDD," follow
 
 REPL intercepts lines starting with `/` **before** sending to the agent. `executeSlashCommand(line, state)` returns `null` for non-slash input, or a string to print.
 
+Interactive commands (`/models`, `/switch`, `/team`, `/rewind`, `/replay`) are intercepted by the REPL loop in `index.ts` **before** `executeSlashCommand` is consulted — they need the live TUI renderer, ledger, and raw-mode pickers that the command registry's plain string handlers can't reach. Their registry entries exist for the palette, `/help`, and fuzzy completion; the handlers are the non-interactive fallback.
+
 `SessionState` is passed by **reference** — mutations from `/switch <model>` and `/dir <path>` persist for all subsequent agent runs and slash commands in the same REPL session. `SessionState.routerCache` is also session-scoped and can be reset with `clearRouterConfigCache(state)` or the `/refresh` command.
 
 ## API Response Safety
@@ -201,4 +211,11 @@ REPL intercepts lines starting with `/` **before** sending to the agent. `execut
 | `/keys` | Lists 9router API keys (preview only) |
 | `/router` | Shows a cached 9router configuration summary (models, providers, combos, keys, cache state) |
 | `/refresh` | Clears and reloads cached 9router configuration for slash commands and pickers |
+| `/brief` | Session brief from the ledger — goal, turns, files, commands, tokens |
+| `/usage` | Per-turn token table; team turns get a per-role breakdown |
+| `/team <task>` | Run a task through the multi-role team pipeline (TEAM lanes in the dashboard) |
+| `/rewind` | Restore the workdir to before a chosen turn (files only, ledger-recorded changes) |
+| `/replay [speed]` | Re-render a recorded run log from `~/.9rh/runs` through the live TUI |
+| `/quiet [on\|off]` | Hide live thinking narration (receipts/summary unaffected) |
+| `/last [n]` | Reprint the full output of a recent tool result |
 | `/clear` | Clears terminal screen |

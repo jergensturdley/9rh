@@ -133,6 +133,8 @@ export OPENROUTER_API_KEY=sk-or-v1-…
 | `--continue-iter <n>` | `NINE_ROUTER_CONTINUATION_ITER` | same as `--max-iter` | Iterations per continuation round |
 | `--continue-switch-after <n>` | `NINE_ROUTER_CONTINUATION_SWITCH_AFTER` | `1` | Continuation round that triggers model switch |
 | `--repl` | — | — | Start an interactive REPL |
+| `--orchestrate` | — | — | Route the task through the multi-role team pipeline (architect → implementer → security audit → test strategist → reviewer). Without the flag, structured-looking tasks get a visible "run as a team?" prompt instead of silent rerouting |
+| `--allow-skill-install` | — | — | Allow the agent to call `install_skill` without prompting |
 | `--doctor` | — | — | Run diagnostics and exit |
 | `--no-color` | — | — | Disable colored output |
 | `--set-default-model <model>` | — | — | Save a default model in `~/.9rh/config.json` |
@@ -202,8 +204,92 @@ The preset only fills in values that weren't supplied explicitly — `--direct-u
 | `/keys` | router | List configured 9router API keys |
 | `/setup` | router | Install and start 9router if needed |
 | `/report [open]` | both | Show the path of the most recent run report; `/report open` launches it in the default browser |
+| `/brief` | both | Session brief — goal, turns, files touched, commands run, token totals |
+| `/usage` | both | Token usage per turn and session total; team turns get a per-role breakdown |
+| `/team <task>` | both | Run a task through the multi-role team pipeline (see [Team pipeline](#team-pipeline)) |
+| `/rewind` | both | Restore the workdir to before a chosen turn — files only (see [/rewind](#rewind--turn-level-workdir-undo)) |
+| `/replay [speed]` | both | Re-render a recorded run through the live TUI (see [/replay](#replay--flight-recorder)) |
+| `/quiet [on\|off\|status]` | both | Toggle live thinking narration in the transcript (dashboard, receipts, and final summary unaffected) |
+| `/last [n]` | both | Reprint the full output of a recent tool result (1 = most recent) — makes the 6-line preview cap safe instead of lossy |
+| `/skills [list\|reload]` | both | List local agent skills from `~/.9rh/skills` |
+| `/allow-skill-install [on\|off]` | both | Toggle the `install_skill` policy for this session |
+
+Typing `/` opens a fuzzy command palette: type to filter, ↑/↓ to focus, Enter runs the focused command, Tab completes it (with argument hints shown per command), Esc cancels. `/models`, `/switch`, `/team`-suggestion, `/rewind`, and `/replay` use a shared arrow-key picker (↑/↓, PgUp/PgDn, mouse wheel, Enter selects, Esc cancels).
 
 9router configuration reads for `/models`, `/providers`, `/combos`, `/keys`, `/router`, and the model picker are cached briefly within the current REPL session. Run `/refresh` after changing providers, API keys, combos, or model settings in the 9router dashboard.
+
+## Session UX
+
+The terminal session is built around one principle: **receipts, not vibes**. What the harness observed — files written, commands run, tokens spent — is rendered as fact; the model's prose renders below it.
+
+### Receipts digest
+
+Every turn ends with a boxed digest computed entirely from tool results and stream metadata (never from the model's self-report):
+
+```
+╔══════════════════════════════════════════════╗
+║ ✓ done · 3m 42s · 6 steps · 12.4k↑ 3.1k↓ tok ║
+║ goal   fix flaky retry test                  ║
+║ files  src/backends/router.ts  +18 −4        ║
+║ ran    ✓ npm test                            ║
+║ assume ⚠ picked "vitest" (ask_user default)  ║
+╚══════════════════════════════════════════════╝
+```
+
+File lines show net +/− line counts (first-seen before vs last-seen after, so a file edited five times shows one honest delta). `assume` lines list defaults the harness picked when nobody answered an `ask_user` call — silent decisions made visible.
+
+### Session ledger
+
+A per-session, append-only record accumulates across turns: goals and outcomes, files touched, commands run, and token usage. It feeds the dashboard's GOAL / SESSION / LAST panels, the receipts digest, `/brief` (turn-by-turn summary), and `/usage` (per-turn token table). Token counts only — 9rh is multi-backend, so no dollar estimates anywhere.
+
+### Clarifying questions (`ask_user`)
+
+The agent has an `ask_user` tool for decisions only the user can make. In a TTY the agent loop pauses and the question renders as an arrow-key picker (options first, recommended default on top, optional free-text escape). In non-interactive sessions the first option is auto-selected and recorded as an **assumption** in the turn digest. The system prompt directs the agent to ask up to 3 clarifying questions upfront on ambiguous tasks and to confirm before destructive actions.
+
+### Team pipeline
+
+`Orchestrator.orchestrate()` runs a multi-role pipeline: **architect → implementer → security audit (risk-gated) → test strategist (task-gated) → reviewer loop** (up to 2 revision rounds), with plan/test-strategy caching and conflict resolution.
+
+Three explicit ways in — there is no silent keyword routing:
+
+- `/team <task>` in the REPL
+- `--orchestrate` on the CLI
+- accepting the suggestion prompt: tasks that look structured (mention plan/design/audit/architect/implement) get a visible "This looks multi-step — run it as a team?" picker; the streaming agent stays the default, and non-interactive sessions never escalate
+
+Pipeline progress streams through the same event channel as normal runs: role transitions render as `─── architect ───` transcript sections, and the dashboard shows a **TEAM panel** while the pipeline is active — one lane per role with a status icon (`⚙` active, `✓` done, `⊘` skipped, `↻` cache hit), live elapsed time, and per-role token counts. Team turns close with a normal receipts digest, and `/usage` shows a `└ role` breakdown under the turn.
+
+### `/rewind` — turn-level workdir undo
+
+The ledger retains each turn's raw before/after file-change records (as observed by the harness, capped at 32KB per side). `/rewind` opens a picker over completed turns; selecting "before turn N" walks turns newest→N and restores every recorded change to its pre-turn content, deleting files that a rewound turn created.
+
+Safety rules:
+
+- records truncated at capture time are **skipped** (a truncated restore would corrupt the file)
+- files whose current on-disk content no longer matches the recorded post-turn state are **skipped** — rewind never clobbers edits it didn't see
+- paths outside the working directory are refused
+
+Conversation history is unchanged — this is a files-only undo, not a conversation fork.
+
+### `/replay` — flight recorder
+
+Every CLI run records its event stream (LLM requests/responses, tool calls and results, checkpoints — redacted before write) to `~/.9rh/runs/run-<runId>.jsonl`. `/replay` lists recorded runs newest-first, and re-renders the chosen log through the live TUI renderer: iteration headers, tool calls, result previews, and thinking snapshots play back paced by the recorded timestamps (default x2 speed, single gaps capped at 400ms; `/replay 5` plays at x5). Esc or `q` stops playback.
+
+Replay through the TUI is a **pure re-render** — no tools are executed and no LLM is called. (Programmatic re-execution with divergence detection is a separate facility; see [Replay System](#replay-system).)
+
+### Data layout
+
+Everything the harness writes for itself lives under one home, never the current working directory:
+
+| Path | Contents |
+|------|----------|
+| `~/.9rh/last-run.html` | Most recent run report (or `~/.9rh/reports/` with `keepReports`) |
+| `~/.9rh/runs/` | Recorded run event logs (`/replay` reads these) |
+| `~/.9rh/snapshots/` | Per-iteration agent-state snapshots (checkpoint restore) |
+| `~/.9rh/logs/incidents/` | Repair-system incident reports |
+| `~/.9rh/config.json` | Persisted defaults (model, provider, report path) |
+| `~/.9rh/skills/` | Installed agent skills |
+
+Set `NINE_RH_HOME` to relocate the whole tree (the test suite points it at a tmpdir).
 
 ## Run reports
 
@@ -383,7 +469,7 @@ All file-based tools (`read_file`, `write_file`, `list_files`, `search_files`) u
 
 ## Replay System
 
-The replay system reproduces any agent run step-by-step, detects divergence between recorded and fresh executions, and supports time-travel branching from recorded checkpoints. Events are written as JSON Lines to `9rh-runs/<runId>/events.jsonl`.
+The replay system reproduces any agent run step-by-step, detects divergence between recorded and fresh executions, and supports time-travel branching from recorded checkpoints. The CLI records every run by default: events are written as JSON Lines to `~/.9rh/runs/run-<runId>.jsonl` (with a `.meta.json` sidecar on clean finalization), redacted before write. Programmatic embedders choose their own `logDir` via `ReplayConfig`. The REPL's `/replay` command (see [Session UX](#replay--flight-recorder)) is a render-only consumer of these logs; the `ReplayEngine` below is the re-execution facility.
 
 ### Architecture
 
@@ -498,7 +584,7 @@ const branch = bm.createBranch({
 
 ### Checkpoints
 
-Checkpoints serialize the full agent state (messages, tool history, step index, iteration count) to `snapshots/<snapshotId>.json`. The `checkpointManager` supports:
+Checkpoints serialize the full agent state (messages, tool history, step index, iteration count) to `~/.9rh/snapshots/<snapshotId>.json` (relocatable via `NINE_RH_HOME`). The `checkpointManager` supports:
 
 - `save(reason)` — periodic, pre-compact, pre-repair, or manual
 - `restore(snapshotId)` — restore workDir git state and agent state
@@ -527,7 +613,7 @@ The `CircuitBreaker` guards against cascading failures. It opens after 3 consecu
 
 ### Snapshot Manager
 
-Before each major step, the agent serializes its state to `./snapshots/` as JSON. On repair success, execution can resume from the last known good state.
+Before each major step, the agent serializes its state to `~/.9rh/snapshots/` as JSON. On repair success, execution can resume from the last known good state.
 
 ### Repair Playbook
 
@@ -560,7 +646,7 @@ After 3 failed attempts, it escalates to the user.
 
 ### Incident Logging
 
-All repair attempts write structured JSON incident reports to `./logs/incidents/`. Successful repairs auto-generate a new playbook entry appended to `repairPlaybook.json`.
+All repair attempts write structured JSON incident reports to `~/.9rh/logs/incidents/`. Successful repairs auto-generate a new playbook entry appended to `repairPlaybook.json`.
 
 ## Development
 
