@@ -79,13 +79,27 @@ describe("container argument builders", () => {
       "/repo:/workspace",
       "--workdir",
       "/workspace",
-      "--no-network",
       "node:22-bookworm-slim",
       "tail",
       "-f",
       "/dev/null",
     ]);
-    expect(buildAppleContainerArgs({ ...startAction, networkEnabled: true })).toContain("--network");
+    expect(buildAppleContainerArgs({ ...startAction, networkEnabled: true })).toEqual([
+      "run",
+      "--detach",
+      "--name",
+      "9rh-test",
+      "--volume",
+      "/repo:/workspace",
+      "--workdir",
+      "/workspace",
+      "--network",
+      "bridge",
+      "node:22-bookworm-slim",
+      "tail",
+      "-f",
+      "/dev/null",
+    ]);
     expect(buildAppleContainerArgs({ action: "exec", name: "9rh-test", command: "npm test" })).toEqual([
       "exec",
       "9rh-test",

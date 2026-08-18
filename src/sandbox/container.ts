@@ -85,7 +85,7 @@ export function buildPodmanArgs(action: ContainerAction): string[] {
 export function buildAppleContainerArgs(action: ContainerAction): string[] {
   if (action.action !== "start") return buildDockerArgs(action);
 
-  return [
+  const args = [
     "run",
     "--detach",
     "--name",
@@ -94,12 +94,10 @@ export function buildAppleContainerArgs(action: ContainerAction): string[] {
     `${action.hostWorkDir}:${action.containerWorkDir}`,
     "--workdir",
     action.containerWorkDir,
-    action.networkEnabled ? "--network" : "--no-network",
-    action.image,
-    "tail",
-    "-f",
-    "/dev/null",
   ];
+  if (action.networkEnabled) args.push("--network", "bridge");
+  args.push(action.image, "tail", "-f", "/dev/null");
+  return args;
 }
 
 export class ContainerSessionExecutor implements SandboxProvider {
