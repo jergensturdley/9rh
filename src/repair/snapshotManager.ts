@@ -1,5 +1,6 @@
 import { readFile, writeFile, readdir, mkdir } from "fs/promises";
 import { join } from "path";
+import { ninerhDir } from "../paths.js";
 
 export interface AgentState {
   currentTask: string;
@@ -15,7 +16,8 @@ export interface Snapshot {
   state: AgentState;
 }
 
-const SNAPSHOT_DIR = "./snapshots";
+// Snapshots live under ~/.9rh (NINE_RH_HOME-overridable) — never the user cwd.
+const snapshotDir = (): string => ninerhDir("snapshots");
 
 async function ensureDir(dir: string): Promise<void> {
   try {
@@ -28,9 +30,9 @@ export async function captureSnapshot(agentState: AgentState): Promise<string> {
   const snapshot: Snapshot = { id, timestamp: Date.now(), state: agentState };
 
   try {
-    await ensureDir(SNAPSHOT_DIR);
+    await ensureDir(snapshotDir());
     await writeFile(
-      join(SNAPSHOT_DIR, `${id}.json`),
+      join(snapshotDir(), `${id}.json`),
       JSON.stringify(snapshot),
       "utf-8"
     );
@@ -49,7 +51,7 @@ export async function restoreSnapshot(snapshotId: string): Promise<AgentState | 
     return null;
   }
   try {
-    const raw = await readFile(join(SNAPSHOT_DIR, `${snapshotId}.json`), "utf-8");
+    const raw = await readFile(join(snapshotDir(), `${snapshotId}.json`), "utf-8");
     const snapshot: Snapshot = JSON.parse(raw);
     return snapshot.state;
   } catch (err) {
@@ -60,14 +62,14 @@ export async function restoreSnapshot(snapshotId: string): Promise<AgentState | 
 
 export async function listSnapshots(): Promise<Snapshot[]> {
   try {
-    await ensureDir(SNAPSHOT_DIR);
-    const files = await readdir(SNAPSHOT_DIR);
+    await ensureDir(snapshotDir());
+    const files = await readdir(snapshotDir());
     const snaps: Snapshot[] = [];
 
     for (const file of files) {
       if (!file.endsWith(".json")) continue;
       try {
-        const raw = await readFile(join(SNAPSHOT_DIR, file), "utf-8");
+        const raw = await readFile(join(snapshotDir(), file), "utf-8");
         snaps.push(JSON.parse(raw) as Snapshot);
       } catch {}
     }

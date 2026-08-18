@@ -38,9 +38,15 @@ import {
   type OrchestratorCache,
 } from "./performanceCache.js";
 
+export interface RoleTokenUsage {
+  prompt: number;
+  completion: number;
+  total: number;
+}
+
 export type OrchestratorEvent =
   | { type: "role_start"; role: RoleName; taskId: string }
-  | { type: "role_complete"; role: RoleName; taskId: string; result: string }
+  | { type: "role_complete"; role: RoleName; taskId: string; result: string; usage?: RoleTokenUsage }
   | { type: "role_skip"; role: RoleName; taskId: string; reason: string }
   | { type: "conflict"; taskId: string; parties: [string, string]; resolution: ConflictResolution }
   | { type: "cache_hit"; role: RoleName; taskId: string }
@@ -48,7 +54,11 @@ export type OrchestratorEvent =
   | { type: "task_complete"; taskId: string; status: string }
   | { type: "task_failed"; taskId: string; error: string };
 
-export type RoleInvoker = (role: RoleName, prompt: string) => Promise<string>;
+/** Role invocation result. Plain string for injected invokers (tests,
+ *  embedders); the default OpenAI invoker returns `{ output, usage }` so the
+ *  TUI's team lanes can show per-role token counts. */
+export type RoleInvocation = string | { output: string; usage?: RoleTokenUsage };
+export type RoleInvoker = (role: RoleName, prompt: string) => Promise<RoleInvocation>;
 
 export interface OrchestratorConfig {
   baseURL: string;
@@ -129,7 +139,7 @@ export class Orchestrator {
       this.invokeRole = config.roleInvoker;
     } else {
       const client = new OpenAI({ baseURL: config.baseURL, apiKey: config.apiKey });
-      this.invokeRole = async (role: RoleName, prompt: string): Promise<string> => {
+      this.invokeRole = async (role: RoleName, prompt: string): Promise<RoleInvocation> => {
         const roleDef = ROLE_DEFINITIONS[role];
         const response = await client.chat.completions.create({
           model: config.model,
@@ -138,13 +148,33 @@ export class Orchestrator {
             { role: "user", content: prompt },
           ],
         });
-        return response.choices[0]?.message?.content ?? "";
+        const output = response.choices[0]?.message?.content ?? "";
+        const u = response.usage;
+        const usage = u
+          ? {
+              prompt: u.prompt_tokens ?? 0,
+              completion: u.completion_tokens ?? 0,
+              total: u.total_tokens ?? (u.prompt_tokens ?? 0) + (u.completion_tokens ?? 0),
+            }
+          : undefined;
+        return { output, usage };
       };
     }
   }
 
   private emit(event: OrchestratorEvent): void {
     this.config.onEvent?.(event);
+  }
+
+  /** Invoke a role with start/complete events, normalizing the invocation
+   *  shape (plain string vs `{ output, usage }`). */
+  private async callRole(role: RoleName, taskId: string, prompt: string): Promise<string> {
+    this.emit({ type: "role_start", role, taskId });
+    const invoked = await this.invokeRole(role, prompt);
+    const output = typeof invoked === "string" ? invoked : invoked.output;
+    const usage = typeof invoked === "string" ? undefined : invoked.usage;
+    this.emit({ type: "role_complete", role, taskId, result: output, usage });
+    return output;
   }
 
   private async runArchitect(state: TaskState): Promise<ArchitectPlan> {
@@ -155,12 +185,11 @@ export class Orchestrator {
       return cached;
     }
 
-    this.emit({ type: "role_start", role: "architect", taskId: state.id });
-    const output = await this.invokeRole(
+    const output = await this.callRole(
       "architect",
+      state.id,
       `Analyze this task and produce a structured implementation plan:\n\n${taskStateToContext(state, "architect")}`
     );
-    this.emit({ type: "role_complete", role: "architect", taskId: state.id, result: output });
 
     const plan = parseRoleOutput<ArchitectPlan>(output, {
       summary: state.originalTask,
@@ -177,18 +206,16 @@ export class Orchestrator {
   }
 
   private async runImplementer(state: TaskState): Promise<ImplementationResult> {
-    this.emit({ type: "role_start", role: "implementer", taskId: state.id });
-
     let revisionContext = "";
     if (state.revisionCount > 0 && state.reviewResult) {
       revisionContext = `\n\nREVISION ${state.revisionCount}: The Reviewer requested these changes:\n${state.reviewResult.requiredChanges.join("\n")}\n\nAddress ALL required changes. For any you cannot address, provide explicit justification.`;
     }
 
-    const output = await this.invokeRole(
+    const output = await this.callRole(
       "implementer",
+      state.id,
       `Execute the following implementation plan:\n\n${taskStateToContext(state, "implementer")}${revisionContext}`
     );
-    this.emit({ type: "role_complete", role: "implementer", taskId: state.id, result: output });
 
     return parseRoleOutput<ImplementationResult>(output, {
       status: "completed",
@@ -201,12 +228,11 @@ export class Orchestrator {
   }
 
   private async runReviewer(state: TaskState): Promise<ReviewResult> {
-    this.emit({ type: "role_start", role: "reviewer", taskId: state.id });
-    const output = await this.invokeRole(
+    const output = await this.callRole(
       "reviewer",
+      state.id,
       `Review this implementation and provide a detailed assessment:\n\n${taskStateToContext(state, "reviewer")}`
     );
-    this.emit({ type: "role_complete", role: "reviewer", taskId: state.id, result: output });
 
     return parseRoleOutput<ReviewResult>(output, {
       decision: "approved",
@@ -218,12 +244,11 @@ export class Orchestrator {
   }
 
   private async runSecurityAuditor(state: TaskState): Promise<SecurityAuditResult> {
-    this.emit({ type: "role_start", role: "security_auditor", taskId: state.id });
-    const output = await this.invokeRole(
+    const output = await this.callRole(
       "security_auditor",
+      state.id,
       `Perform a security audit of these high-risk changes:\n\n${taskStateToContext(state, "security_auditor")}`
     );
-    this.emit({ type: "role_complete", role: "security_auditor", taskId: state.id, result: output });
 
     return parseRoleOutput<SecurityAuditResult>(output, {
       clearance: "approved",
@@ -245,12 +270,11 @@ export class Orchestrator {
       return cached;
     }
 
-    this.emit({ type: "role_start", role: "test_strategist", taskId: state.id });
-    const output = await this.invokeRole(
+    const output = await this.callRole(
       "test_strategist",
+      state.id,
       `Define and assess the test strategy for this implementation:\n\n${taskStateToContext(state, "test_strategist")}`
     );
-    this.emit({ type: "role_complete", role: "test_strategist", taskId: state.id, result: output });
 
     const result = parseRoleOutput<TestStrategyResult>(output, {
       verdict: "adequate",

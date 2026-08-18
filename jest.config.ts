@@ -4,6 +4,8 @@ export default {
     "^.+\\.tsx?$": ["ts-jest", { useESM: true, isolatedModules: true }],
   },
   testMatch: ["**/__tests__/**/*.test.ts"],
+  // Redirect the app home (~/.9rh) to a tmpdir for every worker — see file.
+  setupFiles: ["<rootDir>/jest.setup.ts"],
   // Exclude stale worktree clones and other non-source dirs from test
   // discovery. Worktrees (e.g. .claude/worktrees/*, .worktrees/*) contain
   // copies of the same test suites; when Jest runs them in parallel with

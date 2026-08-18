@@ -639,6 +639,76 @@ export interface ToolHistoryEntry {
   target: string;
 }
 
+/** One lane per orchestrator role in the dashboard's TEAM panel. */
+export interface TeamLane {
+  role: string;
+  status: "active" | "done" | "skipped" | "cache";
+  startedAt?: number;
+  endedAt?: number;
+  /** Total tokens across this role's invocations (revision loops add up). */
+  tokens?: number;
+}
+
+/** Minimal shape of the orchestrator events the lanes consume. */
+export type TeamLaneEvent = {
+  type: string;
+  role?: string;
+  usage?: { total: number };
+};
+
+/**
+ * Fold one orchestrator event into the lane list (first-seen role order).
+ * Pure-ish (mutates `lanes` in place); exported for tests.
+ */
+export function applyTeamEvent(lanes: TeamLane[], event: TeamLaneEvent, now = Date.now()): void {
+  if (!event.role) return;
+  let lane = lanes.find((l) => l.role === event.role);
+  if (!lane) {
+    lane = { role: event.role, status: "active" };
+    lanes.push(lane);
+  }
+  switch (event.type) {
+    case "role_start":
+      lane.status = "active";
+      lane.startedAt ??= now;
+      lane.endedAt = undefined;
+      break;
+    case "role_complete": {
+      lane.status = "done";
+      lane.endedAt = now;
+      if (event.usage) lane.tokens = (lane.tokens ?? 0) + event.usage.total;
+      break;
+    }
+    case "role_skip":
+      lane.status = "skipped";
+      break;
+    case "cache_hit":
+      lane.status = "cache";
+      break;
+  }
+}
+
+const TEAM_LANE_ICON: Record<TeamLane["status"], string> = {
+  active: "⚙",
+  done: "✓",
+  skipped: "⊘",
+  cache: "↻",
+};
+
+/** Render the TEAM panel lanes (no box borders — caller wraps). */
+export function renderTeamLanes(lanes: TeamLane[], now = Date.now()): string[] {
+  return lanes.map((lane) => {
+    const parts = [`${TEAM_LANE_ICON[lane.status]} ${lane.role}`];
+    if (lane.status === "active" && lane.startedAt !== undefined) {
+      parts.push(fmtDurationMs(now - lane.startedAt));
+    } else if (lane.status === "done" && lane.startedAt !== undefined && lane.endedAt !== undefined) {
+      parts.push(fmtDurationMs(lane.endedAt - lane.startedAt));
+    }
+    if (lane.tokens) parts.push(`${fmtTokens(lane.tokens)} tok`);
+    return parts.join(" · ");
+  });
+}
+
 export interface DashboardState {
   startedAt: Date;
   iterCurrent: number;
@@ -656,6 +726,8 @@ export interface DashboardState {
   sessionTokens?: { prompt: number; completion: number; total: number } | null;
   sessionFiles?: number;
   lastOutcome?: string | null;
+  /** TEAM panel — populated while a multi-role pipeline is running. */
+  teamLanes?: TeamLane[];
 }
 
 export function formatElapsed(start: Date): string {
@@ -708,6 +780,14 @@ export function renderDashboardLines(state: DashboardState, useColor: boolean, w
   }
   if (state.lastOutcome) {
     lines.push(`│ ${crop(`↩ ${state.lastOutcome}`, inner).padEnd(inner)} │`);
+  }
+
+  // TEAM panel — one lane per orchestrator role while a pipeline runs.
+  if (state.teamLanes && state.teamLanes.length > 0) {
+    lines.push(`│ ${"▸ team".padEnd(inner)} │`);
+    for (const laneLine of renderTeamLanes(state.teamLanes)) {
+      lines.push(`│ ${crop(laneLine, inner).padEnd(inner)} │`);
+    }
   }
 
   lines.push(`│${" ".repeat(inner + 2)}│`);
@@ -1320,7 +1400,9 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
     const inner = w - 2;
     const model = opts.getModel();
     const dir = opts.getWorkDir().replace(process.env.HOME ?? "", "~");
-    const iterStr = `iter ${iterCurrent}/${iterMax}`;
+    // max 0 = unknown cap (e.g. /replay of a recorded log) — "iter 1/0" reads
+    // as a bug, so drop the denominator.
+    const iterStr = iterMax > 0 ? `iter ${iterCurrent}/${iterMax}` : `iter ${iterCurrent}`;
 
     if (iterCurrent === 1) {
       const sep = "═".repeat(inner);
@@ -1379,6 +1461,13 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         dashboard.iterMax = event.max;
         dashboard.activity = "thinking";
         thinkingActive = false;
+        // New LLM round — drop the previous round's thinking buffer so its
+        // tail can't bleed into this round's throttled snapshots (visible as
+        // doubled text when a later run, e.g. /replay, reuses the renderer).
+        activeThinking = "";
+        recentThinking = [];
+        dashboard.thinkingCharCount = 0;
+        dashboard.thinkingPreview = "";
         stopSpinner();
         printIterHeader();
         drawDashboard();
@@ -1571,6 +1660,11 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
           opts.onReportWritten?.(event.reportPath);
         }
         dashboard.activity = "done";
+        thinkingActive = false;
+        activeThinking = "";
+        recentThinking = [];
+        dashboard.thinkingCharCount = 0;
+        dashboard.thinkingPreview = "";
         drawDashboard();
         break;
       }
@@ -1594,6 +1688,11 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
           opts.onReportWritten?.(event.reportPath);
         }
         dashboard.activity = "error";
+        thinkingActive = false;
+        activeThinking = "";
+        recentThinking = [];
+        dashboard.thinkingCharCount = 0;
+        dashboard.thinkingPreview = "";
         drawDashboard();
         break;
 
@@ -1614,6 +1713,71 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         drawDashboard();
         startSpinner(backgroundLabel());
         break;
+      case "team": {
+        // Orchestrator pipeline progress — transcript sections per role plus
+        // live TEAM lanes in the dashboard.
+        const te = event.event;
+        const dim = (s: string) => (opts.useColor ? chalk.dim(s) : s);
+        switch (te.type) {
+          case "role_start":
+            stopSpinner();
+            process.stdout.write(`\n  ${dim(`─── ${te.role} ───`)}\n`);
+            dashboard.teamLanes ??= [];
+            applyTeamEvent(dashboard.teamLanes, te);
+            dashboard.activity = "thinking";
+            drawDashboard();
+            startSpinner(`team · ${te.role}`);
+            break;
+          case "role_complete": {
+            stopSpinner();
+            const tok = te.usage ? ` · ${fmtTokens(te.usage.total)} tok` : "";
+            const line = `  ✓ ${te.role}${tok}`;
+            process.stdout.write((opts.useColor ? chalk.green(line) : line) + "\n");
+            dashboard.teamLanes ??= [];
+            applyTeamEvent(dashboard.teamLanes, te);
+            drawDashboard();
+            break;
+          }
+          case "role_skip":
+            process.stdout.write(dim(`  ⊘ ${te.role} — ${te.reason}`) + "\n");
+            dashboard.teamLanes ??= [];
+            applyTeamEvent(dashboard.teamLanes, te);
+            drawDashboard();
+            break;
+          case "cache_hit":
+            process.stdout.write(dim(`  ↻ ${te.role} (cache hit)`) + "\n");
+            dashboard.teamLanes ??= [];
+            applyTeamEvent(dashboard.teamLanes, te);
+            drawDashboard();
+            break;
+          case "conflict": {
+            const line = `  ⚠ conflict resolved: ${te.resolution}`;
+            process.stdout.write((opts.useColor ? chalk.yellow(line) : line) + "\n");
+            break;
+          }
+          case "escalation": {
+            stopSpinner();
+            const line = `  ↑ escalated: ${te.reason}`;
+            process.stdout.write((opts.useColor ? chalk.red(line) : line) + "\n");
+            break;
+          }
+          case "task_complete":
+          case "task_failed":
+            stopSpinner();
+            if (te.type === "task_failed") {
+              const line = `  ✗ team failed: ${te.error}`;
+              process.stdout.write((opts.useColor ? chalk.red(line) : line) + "\n");
+            }
+            // Pipeline over — the TEAM panel clears; the receipts digest
+            // (emitted by the team runner as a done/error event) is the
+            // durable record.
+            dashboard.teamLanes = undefined;
+            drawDashboard();
+            break;
+        }
+        break;
+      }
+
       case "step_inspect": {
         stopSpinner();
         const step = inspectStep(visualization, event.stepId);

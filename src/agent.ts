@@ -28,6 +28,7 @@ import {
 } from "./repair/index.js";
 import { EventLogger, type EventLoggerConfig } from "./replay/eventLogger.js";
 import { snapshotWorkDir, diffSnapshots } from "./reports/workdirSnapshot.js";
+import { ninerhDir } from "./paths.js";
 import type {
   RunMetadata,
   ReplayEvent,
@@ -37,7 +38,7 @@ import type {
 } from "./replay/eventSchema.js";
 import { Reasoner } from "./reasoner/reasoner.js";
 import { createExecutor, ObservabilityCollector, isSandboxAvailable, getSandboxStatus } from "./sandbox/index.js";
-import { assessToolRisk, riskAtOrAbove, DEFAULT_TOOL_RISK_THRESHOLD, type ToolRiskLevel, type ToolCall as OrchestratorToolCall } from "./orchestrator/index.js";
+import { assessToolRisk, riskAtOrAbove, DEFAULT_TOOL_RISK_THRESHOLD, type ToolRiskLevel, type ToolCall as OrchestratorToolCall, type OrchestratorEvent } from "./orchestrator/index.js";
 import type { SandboxProvider } from "./sandbox/index.js";
 import { formatSpecDrivenPrompt, shouldUseSpecDrivenTesting } from "./spec/specDrivenTesting.js";
 import { renderRunReport, type RunReportData, type RunStatus } from "./reports/index.js";
@@ -149,7 +150,11 @@ export type AgentEvent =
   | { type: "partial_output"; stepId: string; text: string }
   | { type: "incident"; stepId: string; cause: string; repairAttempt?: number; circuitOpen?: boolean }
   | { type: "branch_create"; stepId: string; branchId: string; reason: string }
-  | { type: "sandbox_health"; total: number; sandboxed: number; direct: number; timedOut: number };
+  | { type: "sandbox_health"; total: number; sandboxed: number; direct: number; timedOut: number }
+  // Multi-role pipeline progress — the orchestrator's events forwarded
+  // through the same channel the TUI renders (team lanes + transcript
+  // sections). Emitted by the CLI's team dispatch, not by Agent itself.
+  | { type: "team"; event: OrchestratorEvent };
 
 const DEFAULT_SYSTEM = `You are a skilled coding agent. You help with coding tasks by reading, writing, and modifying files, running commands, and solving problems step by step.
 
@@ -487,7 +492,7 @@ export class Agent {
     const cfg: EventLoggerConfig = {
       runId,
       branchId,
-      logDir: this.replay.logDir ?? "./logs/runs",
+      logDir: this.replay.logDir ?? ninerhDir("runs"),
     };
     this.eventLogger = new EventLogger(cfg);
     await this.eventLogger.init();
@@ -526,12 +531,12 @@ export class Agent {
     if (this.config.reportPath === false || this.config.reportPath === "") return undefined;
 
     // Determine the final path. If keepReports is true, embed the runId.
-    const defaultPath = join(homedir(), ".9rh", "last-run.html");
+    const defaultPath = ninerhDir("last-run.html");
     let finalPath: string;
     if (this.config.reportPath) {
       finalPath = this.config.reportPath;
     } else if (this.config.keepReports) {
-      const dir = join(homedir(), ".9rh", "reports");
+      const dir = ninerhDir("reports");
       finalPath = join(dir, `run-${this.report.runId}.html`);
     } else {
       finalPath = defaultPath;
@@ -1293,6 +1298,30 @@ export class Agent {
         > = new Map();
 
         for await (const chunk of stream) {
+          // Token usage arrives in the final chunk (stream_options.include_usage,
+          // set above). Per the OpenAI spec that chunk has `choices: []` and NO
+          // delta, so usage must be captured BEFORE the delta guard below —
+          // checking it after `continue` silently drops usage from every
+          // spec-compliant provider.
+          // F-07: the provider's reported usage is partly attacker-controlled
+          // (any HTTP server in the chain can claim any value). Clamp to sane
+          // bounds, never trust total_tokens, reject negative/non-finite.
+          if (chunk.usage) {
+            const u = chunk.usage as { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown };
+            const clamp = (n: unknown): number => {
+              const v = Number(n);
+              if (!Number.isFinite(v) || v < 0) return 0;
+              // A single LLM response above 10M tokens is implausible;
+              // the provider's API is doing something unexpected.
+              if (v > 10_000_000) return 10_000_000;
+              return Math.floor(v);
+            };
+            const prompt = clamp(u.prompt_tokens);
+            const completion = clamp(u.completion_tokens);
+            // Recompute total locally — never trust the upstream value.
+            completionUsage = { prompt, completion, total: prompt + completion };
+          }
+
           const delta = chunk.choices?.[0]?.delta;
           if (!delta) continue;
 
@@ -1318,29 +1347,6 @@ export class Agent {
             }
           }
 
-          // Token usage arrives in the final chunk (when stream_options.include_usage
-          // is set, which we do above). Capture it for the run report.
-          // F-07: the LLM provider's reported usage is partly
-          // attacker-controlled (any HTTP server in the chain can
-          // claim any value). Clamp to sane bounds, never trust
-          // total_tokens, and reject negative or non-finite values.
-          if (chunk.usage) {
-            const u = chunk.usage as { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown };
-            const clamp = (n: unknown): number => {
-              const v = Number(n);
-              if (!Number.isFinite(v) || v < 0) return 0;
-              // A single LLM response above 10M tokens is implausible;
-              // the provider's API is doing something unexpected.
-              if (v > 10_000_000) return 10_000_000;
-              return Math.floor(v);
-            };
-            const prompt = clamp(u.prompt_tokens);
-            const completion = clamp(u.completion_tokens);
-            // Recompute total locally — never trust the upstream
-            // value, since an attacker can claim any number.
-            const total = prompt + completion;
-            completionUsage = { prompt, completion, total };
-          }
         }
 
         // Accumulate per-completion usage into the turn total (each API call

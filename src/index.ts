@@ -13,8 +13,11 @@ import { ReplInputCoalescer } from "./replInput.js";
 import { readUserConfig, resolveConfiguredModel, updateUserConfig } from "./config.js";
 import { existsSync, statSync } from "fs";
 import { spawn } from "child_process";
-import { Orchestrator, type OrchestratorEvent } from "./orchestrator/index.js";
-import { shouldUseOrchestrator } from "./orchestrator/dispatch.js";
+import { Orchestrator } from "./orchestrator/index.js";
+import { shouldSuggestTeam } from "./orchestrator/dispatch.js";
+import { planRewind, applyRewind } from "./rewind.js";
+import { listRunLogs, readEventLog, renderEventLog } from "./flightRecorder.js";
+import { ninerhDir } from "./paths.js";
 import {
   hasOption as hasOptionRaw,
   resolveMaxIter,
@@ -52,6 +55,9 @@ async function maybeAutoIndexCodeGraph(workDir: string): Promise<void> {
     }
   }
 }
+
+/** Where run event logs live — read back by /replay. */
+const RUNS_DIR = ninerhDir("runs");
 
 const DEFAULTS = {
   url: process.env.NINE_ROUTER_URL ?? "http://127.0.0.1:20128/v1",
@@ -95,7 +101,7 @@ program
   .option("--set-default-provider <provider>", "Persist a default provider/prefix for future runs")
   .option("--show-config", "Show persisted 9rh defaults and exit")
   .option("--doctor", "Run pre-flight diagnostics and exit")
-  .option("--orchestrate", "Route the task through the multi-role Orchestrator pipeline (architect → implementer → security audit → test strategist → reviewer loop) instead of the streaming Agent loop. Without this flag, dispatch falls back to the heuristic in `shouldUseOrchestrator`.");
+  .option("--orchestrate", "Route the task through the multi-role team pipeline (architect → implementer → security audit → test strategist → reviewer loop) instead of the streaming Agent loop. Without this flag, structured-looking tasks get a visible \"run as a team?\" prompt instead of silent rerouting.");
 
 const rawArgs = process.argv.slice(2);
 const isInit = rawArgs[0] === "init";
@@ -305,46 +311,78 @@ function makeAgent(state: SessionState, onEvent: (e: AgentEvent) => void) {
       interactiveToolApproval(req, state.useColor),
     onAskUser: (req: AskUserRequest): Promise<AskUserResponse> =>
       interactiveAskUser(req, state.useColor),
+    // Flight recorder — every run's event log lands in ~/.9rh/runs so
+    // /replay can re-render it later. Events are redacted before write.
+    replay: { enabled: true, logDir: RUNS_DIR },
   });
 }
 
 
 /**
- * Telemetry — one-line stderr log per OrchestratorEvent so the user can
- * follow the multi-role pipeline in real time without the TUI plumbing.
+ * Team pipeline — run a task through `Orchestrator.orchestrate()`, streaming
+ * OrchestratorEvents into the SAME AgentEvent channel the TUI renders
+ * (transcript role sections + dashboard TEAM lanes). The turn closes with a
+ * receipts digest like any other run; role token counts fold into the
+ * session ledger via the `team` events.
  */
-function emitOrchestratorTelemetry(useColor: boolean, event: OrchestratorEvent): void {
-  let line = "";
-  switch (event.type) {
-    case "role_start":
-      line = `▸ ${event.role}`;
-      break;
-    case "role_complete":
-      line = `✓ ${event.role}`;
-      break;
-    case "role_skip":
-      line = `⊘ ${event.role} (${event.reason})`;
-      break;
-    case "conflict":
-      line = `⚠ conflict resolved: ${event.resolution}`;
-      break;
-    case "cache_hit":
-      line = `↻ ${event.role} (cache hit)`;
-      break;
-    case "escalation":
-      line = `↑ escalated: ${event.reason}`;
-      break;
-    case "task_complete":
-      line = `done · ${event.status}`;
-      break;
-    case "task_failed":
-      line = `✗ failed · ${event.error}`;
-      break;
+async function runTeamPipeline(
+  state: SessionState,
+  emit: (e: AgentEvent) => void,
+  task: string,
+): Promise<void> {
+  const startedAt = Date.now();
+  let rolesRun = 0;
+  const orchestrator = new Orchestrator({
+    baseURL: state.baseURL,
+    apiKey: state.apiKey,
+    model: state.model,
+    workDir: state.workDir,
+    onEvent: (event) => {
+      if (event.type === "role_complete") rolesRun++;
+      emit({ type: "team", event });
+    },
+  });
+  try {
+    const result = await orchestrator.orchestrate(task);
+    // The ledger accumulated per-role tokens from the team events; read the
+    // open turn's running total so the receipts headline can show it.
+    const tokens = state.ledger?.view().turns.at(-1)?.tokens;
+    const digest = buildTurnDigest(
+      { task, startedAt, workDir: state.workDir, fileChanges: [], toolCalls: [] },
+      { status: result.status === "completed" ? "completed" : "error", steps: rolesRun, tokens },
+    );
+    let text = result.summary;
+    if (result.escalationReason) text += `\n\nEscalated: ${result.escalationReason}`;
+    if (result.status === "completed") {
+      emit({ type: "done", text, digest });
+    } else {
+      emit({ type: "error", message: text, digest });
+    }
+  } catch (err) {
+    emit({ type: "error", message: err instanceof Error ? err.message : String(err) });
+    throw err;
   }
-  if (!line) return;
-  const prefix = "  ";
-  if (useColor) process.stderr.write(prefix + chalk.dim(line) + "\n");
-  else process.stderr.write(prefix + line + "\n");
+}
+
+/**
+ * Auto-suggest gate — when a task looks structured (shouldSuggestTeam), ASK
+ * instead of silently rerouting: a two-item picker with the pipeline
+ * preview. Non-interactive sessions always take the streaming agent.
+ */
+async function offerTeamPipeline(
+  state: SessionState,
+  onActiveChange?: (active: boolean) => void,
+): Promise<boolean> {
+  if (!process.stdin.isTTY || !process.stderr.isTTY) return false;
+  process.stderr.write("\n");
+  const picked = await pickFromList(
+    [
+      { id: "agent", label: "streaming agent", hint: "(default — single agent with live tools)", active: true },
+      { id: "team", label: "team pipeline", hint: "architect → implementer → security audit → test strategist → reviewer" },
+    ],
+    { title: "❓ This looks multi-step — run it as a team?", useColor: state.useColor, onActiveChange },
+  );
+  return picked === "team";
 }
 
 async function runTask(state: SessionState, t: string): Promise<void> {
@@ -355,42 +393,6 @@ async function runTask(state: SessionState, t: string): Promise<void> {
 
   state.ledger?.beginTurn(compressed.text);
 
-  // Path A — wire Orchestrator.orchestrate into CLI dispatch when the
-  // gate decides the task is structured enough to benefit from the
-  // multi-role pipeline (architect → implementer → security audit →
-  // test strategist → reviewer loop).
-  if (shouldUseOrchestrator(compressed.text, { force: state.useOrchestrate === true })) {
-    const startedAt = Date.now();
-    const orchestrator = new Orchestrator({
-      baseURL: state.baseURL,
-      apiKey: state.apiKey,
-      model: state.model,
-      workDir: state.workDir,
-      onEvent: (event) => emitOrchestratorTelemetry(state.useColor, event),
-    });
-    try {
-      const result = await orchestrator.orchestrate(compressed.text);
-      // Map OrchestratorResult → final-response shape (string). The REPL
-      // downstream just prints whatever runTask emits; we write a short
-      // banner plus the summary so users can see the pipeline output.
-      process.stdout.write(`\n  orchestrator\n`);
-      process.stdout.write(`${result.summary}\n`);
-      // The orchestrator pipeline doesn't stream AgentEvents (yet — plan
-      // phase 3), so close the ledger turn with a minimal digest.
-      state.ledger?.completeTurn(
-        buildTurnDigest(
-          { task: compressed.text, startedAt, workDir: state.workDir, fileChanges: [], toolCalls: [] },
-          { status: "completed", steps: 0 },
-        ),
-      );
-    } catch (err) {
-      state.ledger?.completeTurn(undefined, "error");
-      throw err;
-    }
-    return;
-  }
-
-  // Streaming Agent loop (default).
   const ledger = state.ledger;
   const tui = createTuiRenderer({
     getModel: () => state.model,
@@ -402,7 +404,20 @@ async function runTask(state: SessionState, t: string): Promise<void> {
     getLedger: ledger ? () => ledger.view() : undefined,
     getQuiet: () => state.quiet === true,
   });
-  const agent = makeAgent(state, withLedger(ledger, tui));
+  const emit = withLedger(ledger, tui);
+
+  // Team dispatch is explicit: --orchestrate forces the pipeline; otherwise
+  // a structured-looking task triggers a visible suggestion prompt.
+  const useTeam =
+    state.useOrchestrate === true ||
+    (shouldSuggestTeam(compressed.text) && (await offerTeamPipeline(state)));
+  if (useTeam) {
+    await runTeamPipeline(state, emit, compressed.text);
+    return;
+  }
+
+  // Streaming Agent loop (default).
+  const agent = makeAgent(state, emit);
   await agent.run(compressed.text);
 }
 
@@ -842,6 +857,126 @@ async function runRepl(state: SessionState): Promise<void> {
     return true;
   }
 
+  /** /team <task> — run the multi-role pipeline through the session TUI. */
+  async function runTeamCommand(args: string[]): Promise<void> {
+    const teamTask = args.join(" ").trim();
+    if (!teamTask) {
+      process.stdout.write("\n  Usage: /team <task>\n");
+      return;
+    }
+    const compressed = compressUserInput(teamTask);
+    replLedger?.beginTurn(compressed.text);
+    try {
+      await runTeamPipeline(state, withLedger(replLedger, tui), compressed.text);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(opts.color ? chalk.red(`\n✗ ${msg}\n`) : `\n✗ ${msg}\n`);
+    }
+  }
+
+  /** /rewind — picker over ledger turns, restore workdir to before one. */
+  async function runRewindPicker(): Promise<void> {
+    const view = replLedger?.view();
+    if (!view || view.turnCount === 0) {
+      process.stdout.write("\n  (no turns yet — nothing to rewind)\n");
+      return;
+    }
+    const candidates = view.turns.filter(
+      (t) => t.endedAt !== undefined && planRewind(view.turns, t.index).actions.length > 0,
+    );
+    if (candidates.length === 0) {
+      process.stdout.write("\n  (no restorable file changes recorded this session)\n");
+      return;
+    }
+    const items: PickItem[] = candidates
+      .slice()
+      .reverse()
+      .map((t) => {
+        const files = t.digest?.files.length ?? 0;
+        return {
+          id: String(t.index),
+          label: `before turn ${t.index} — ${t.task.replace(/\s+/g, " ").slice(0, 48)}`,
+          hint: files > 0 ? `${files} file${files === 1 ? "" : "s"}` : undefined,
+        };
+      });
+    const picked = await pickFromList(items, {
+      title: "⏪ rewind — restore the workdir to BEFORE which turn?",
+      useColor: opts.color,
+      onActiveChange: (active) => { pickerActive = active; },
+    });
+    if (picked === null) return;
+    const target = parseInt(picked, 10);
+    const plan = planRewind(view.turns, target);
+    const result = await applyRewind(plan, state.workDir);
+    const lines: string[] = ["", `  ⏪ rewound to before turn ${target}`];
+    for (const p of result.restored) lines.push(`  ✓ restored ${p}`);
+    for (const p of result.deleted) lines.push(`  ✓ removed  ${p} (created by a rewound turn)`);
+    for (const s of result.skipped) lines.push(`  ⚠ skipped  ${s.path} — ${s.reason}`);
+    if (result.restored.length + result.deleted.length === 0) {
+      lines.push("  (nothing restored)");
+    }
+    lines.push("  note: conversation history is unchanged — this rewinds files only", "");
+    process.stdout.write(lines.map((l) => (opts.color && l.startsWith("  ⚠") ? chalk.yellow(l) : l)).join("\n") + "\n");
+  }
+
+  /** /replay [speed] — re-render a recorded run through the live renderer. */
+  async function runReplayPicker(args: string[]): Promise<void> {
+    const speedArg = args[0]?.replace(/^x/i, "");
+    const speed = speedArg && /^\d+(\.\d+)?$/.test(speedArg) ? parseFloat(speedArg) : 2;
+    const logs = await listRunLogs(RUNS_DIR);
+    if (logs.length === 0) {
+      process.stdout.write(`\n  (no recorded runs in ${RUNS_DIR} yet — run a task first)\n`);
+      return;
+    }
+    const items: PickItem[] = logs.slice(0, 30).map((l) => ({
+      id: l.path,
+      label: `${new Date(l.mtimeMs).toLocaleString()} · ${l.runId}`,
+      hint: l.eventCount !== undefined ? `${l.eventCount} events${l.reason ? ` · ${l.reason}` : ""}` : undefined,
+    }));
+    const picked = await pickFromList(items, {
+      title: `▶ replay which run? (x${speed} speed)`,
+      useColor: opts.color,
+      onActiveChange: (active) => { pickerActive = active; },
+    });
+    if (picked === null) return;
+    const events = await readEventLog(picked);
+    if (events.length === 0) {
+      process.stdout.write("\n  (event log is empty or unreadable)\n");
+      return;
+    }
+    const banner = `\n  ▶ replay · x${speed} · ${events.length} events · press Esc or q to stop\n`;
+    process.stdout.write(opts.color ? chalk.bold.cyan(banner) : banner);
+    // Raw abort listener — Esc / q / Ctrl+C stops playback. pickerActive
+    // mutes the REPL's own keypress handling for the duration.
+    let abort = false;
+    pickerActive = true;
+    const wasRaw = process.stdin.isRaw ?? false;
+    const onData = (chunk: Buffer): void => {
+      const s = chunk.toString("utf8");
+      if (s === "\u001b" || s === "q" || s === "\u0003") abort = true;
+      if (s === "\u0003") process.emit("SIGINT");
+    };
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
+      process.stdin.on("data", onData);
+    }
+    try {
+      const { rendered, aborted } = await renderEventLog(events, tui, {
+        speed,
+        shouldAbort: () => abort,
+      });
+      const footer = `\n  ▶ replay ${aborted ? "stopped" : "finished"} · ${rendered} events rendered\n`;
+      process.stdout.write(opts.color ? chalk.dim(footer) : footer);
+    } finally {
+      if (process.stdin.isTTY) {
+        process.stdin.off("data", onData);
+        try { process.stdin.setRawMode(wasRaw); } catch {}
+      }
+      pickerActive = false;
+    }
+  }
+
   refreshPrompt();
 
   let queue: Promise<void> = Promise.resolve();
@@ -870,6 +1005,21 @@ async function runRepl(state: SessionState): Promise<void> {
         refreshPrompt();
         return;
       }
+      if (parsed.cmd === "team") {
+        await runTeamCommand(parsed.args);
+        refreshPrompt();
+        return;
+      }
+      if (parsed.cmd === "rewind") {
+        await runRewindPicker();
+        refreshPrompt();
+        return;
+      }
+      if (parsed.cmd === "replay") {
+        await runReplayPicker(parsed.args);
+        refreshPrompt();
+        return;
+      }
       const result = await executeSlashCommand(trimmed, state);
       if (result !== null) {
         process.stderr.write(result);
@@ -893,9 +1043,18 @@ async function runRepl(state: SessionState): Promise<void> {
     }
 
     replLedger?.beginTurn(compressed.text);
-    const agent = makeAgent(state, withLedger(replLedger, tui));
+    const emit = withLedger(replLedger, tui);
     try {
-      await agent.run(compressed.text);
+      const useTeam =
+        state.useOrchestrate === true ||
+        (shouldSuggestTeam(compressed.text) &&
+          (await offerTeamPipeline(state, (active) => { pickerActive = active; })));
+      if (useTeam) {
+        await runTeamPipeline(state, emit, compressed.text);
+      } else {
+        const agent = makeAgent(state, emit);
+        await agent.run(compressed.text);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       process.stderr.write(

@@ -1,22 +1,29 @@
-import { describe, it, expect } from "@jest/globals";
+import { describe, it, expect, beforeAll, afterAll } from "@jest/globals";
 import { logIncident, generatePlaybookEntry, type IncidentReport } from "../postMortemLogger.js";
-import { readFile, readdir, rm } from "fs/promises";
+import { readFile, readdir, rm, mkdtemp } from "fs/promises";
+import { tmpdir } from "os";
 import { join } from "path";
 import { ErrorClass, type TaggedError } from "../errorTaxonomy.js";
 
-const INCIDENT_DIR = "./logs/incidents";
+// Incident reports live under NINE_RH_HOME (default ~/.9rh) — point the app
+// home at a tmpdir so the test never touches the real one (nor the cwd).
+let home: string;
+let prevHome: string | undefined;
+
+beforeAll(async () => {
+  prevHome = process.env.NINE_RH_HOME;
+  home = await mkdtemp(join(tmpdir(), "ninerh-home-"));
+  process.env.NINE_RH_HOME = home;
+});
+
+afterAll(async () => {
+  if (prevHome === undefined) delete process.env.NINE_RH_HOME;
+  else process.env.NINE_RH_HOME = prevHome;
+  await rm(home, { recursive: true, force: true });
+});
 
 describe("postMortemLogger", () => {
-  afterEach(async () => {
-    try {
-      const files = await readdir(INCIDENT_DIR);
-      for (const f of files) {
-        if (f !== ".gitkeep") await rm(join(INCIDENT_DIR, f));
-      }
-    } catch {}
-  });
-
-  it("logIncident writes a json file per incident", async () => {
+  it("logIncident writes a json file per incident under the app home", async () => {
     const errorContext = {
       cause: new Error("test error"),
       message: "test error",
@@ -25,9 +32,10 @@ describe("postMortemLogger", () => {
       timestamp: Date.now(),
     };
     await logIncident(errorContext as TaggedError, 2, "ESCALATED", 500, "Something went wrong");
-    const files = (await readdir(INCIDENT_DIR)).filter((f) => f.startsWith("incident-"));
+    const incidentDir = join(home, "logs", "incidents");
+    const files = (await readdir(incidentDir)).filter((f) => f.startsWith("incident-"));
     expect(files.length).toBe(1);
-    const raw = await readFile(join(INCIDENT_DIR, files[0]), "utf-8");
+    const raw = await readFile(join(incidentDir, files[0]), "utf-8");
     const parsed = JSON.parse(raw);
     expect(parsed.outcome).toBe("ESCALATED");
     expect(parsed.attemptsCount).toBe(2);
