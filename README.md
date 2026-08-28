@@ -4,16 +4,15 @@
 
 ## Highlights
 
-- **Local repo agent** — run coding tasks against a selected working directory.
-- **Receipts, not vibes** — every turn ends with a harness-computed digest: files changed with net +/− line counts, commands run with pass/fail, steps, duration, tokens. Sourced from tool results the harness observed, never from the model's self-report.
-- **Session ledger** — a persistent cross-turn record behind the dashboard panels and the `/brief` and `/usage` commands (token counts only — no dollar estimates).
-- **Team pipeline** — route a task through a multi-role pipeline (architect → implementer → security audit → test strategist → reviewer) with live TEAM lanes in the dashboard and per-role token counts. Explicit entry points only: `/team <task>`, `--orchestrate`, or a visible "run as a team?" prompt on structured-looking tasks.
-- **`/rewind` and `/replay`** — turn-level workdir undo (restore files to before any turn) and a flight recorder that re-renders any recorded run through the live TUI.
-- **Clarifying questions** — the agent can pause and ask via an arrow-key picker (`ask_user`); in non-interactive runs the default is auto-picked and surfaced as an assumption in the receipts.
-- **Pluggable backends** — use 9router for combo chains, or talk straight to OpenAI / OpenRouter / Ollama / LM Studio. Auto-detected from your environment, overridable per-invocation.
-- **Interactive REPL** — a fuzzy command palette, arrow-key pickers, and slash commands for models, providers, router status, sandbox status, working directory, setup, and diagnostics.
-- **Run reports** — every agent turn writes a self-contained HTML summary of changes made, reasoning, tools used, and tokens used. Linked in the chat, openable via `/report`.
-- **Sandbox-aware tools** — file operations are path-checked, symlinks are blocked for file reads/writes, and shell commands use macOS `sandbox-exec` when available with visible `/sandbox` status.
+- **Receipts, not vibes** — every turn ends with a harness-computed digest: files changed with net +/− counts, commands with pass/fail, duration, tokens. Built from observed tool results, never the model's self-report.
+- **Session ledger** — a cross-turn record behind the dashboard panels, `/brief`, and `/usage` (token counts only, no dollar estimates).
+- **Team pipeline** — run a task as architect → implementer → security audit → test strategist → reviewer, with live TEAM lanes and per-role token counts. Entry is always explicit: `/team <task>`, `--orchestrate`, or a visible "run as a team?" prompt.
+- **`/rewind` and `/replay`** — turn-level workdir undo, and a flight recorder that replays any recorded run through the live TUI.
+- **Clarifying questions** — `ask_user` pauses the run with an arrow-key picker; non-interactive runs auto-pick the default and surface it as an assumption in the receipts.
+- **Pluggable backends** — 9router for combo chains and a dashboard, or direct to OpenAI / OpenRouter / Ollama / LM Studio. Auto-detected, overridable per-invocation.
+- **Interactive REPL** — fuzzy command palette, arrow-key pickers, and slash commands for models, router, sandbox, and diagnostics.
+- **Run reports** — each turn writes a self-contained HTML report (changes, reasoning, tools, tokens); open it with `/report`.
+- **Sandbox-aware tools** — path-checked file operations, symlink blocking, and macOS `sandbox-exec` command isolation with visible `/sandbox` status.
 - **Spec, replay, and repair systems** — optional spec-driven task framing, live run visualization, replay logs, checkpoints, error taxonomy, and repair hooks.
 - **Programmatic API** — import the core agent, tools, visualization, spec, replay, and sandbox primitives from the package.
 
@@ -37,6 +36,8 @@ Then open the dashboard and connect at least one provider/API key:
 ```text
 http://127.0.0.1:20128/dashboard
 ```
+
+Then, back in the 9rh checkout:
 
 ```sh
 node dist/index.js --doctor
@@ -98,6 +99,8 @@ Slash commands that depend on 9router's native `/api/*` endpoints (`/providers`,
 
 ## Common slash commands
 
+Type `/` in the REPL to open the fuzzy command palette (↑↓ focus, Enter runs, Tab completes). The full list lives under `/help`; the ones you'll reach for first:
+
 | Command | Mode | Description |
 |---------|------|-------------|
 | `/models [filter]` | both | List available models |
@@ -106,7 +109,7 @@ Slash commands that depend on 9router's native `/api/*` endpoints (`/providers`,
 | `/usage` | both | Token usage per turn (with a per-role breakdown for team runs) |
 | `/team <task>` | both | Run a task through the multi-role team pipeline |
 | `/rewind` | both | Restore the workdir to before a chosen turn (files only) |
-| `/replay [speed]` | both | Re-render a recorded run through the TUI at x-speed |
+| `/replay [speed]` | both | Re-render a recorded run through the TUI at adjustable speed |
 | `/quiet [on\|off]` | both | Hide live thinking narration (receipts and summary unaffected) |
 | `/last [n]` | both | Reprint the full output of a recent tool result |
 | `/status` | both | Show backend, health, active model, working directory |
@@ -138,4 +141,4 @@ npm test
 
 ## License
 
-See the repository license.
+No license file yet — until one is added, all rights reserved by default.
