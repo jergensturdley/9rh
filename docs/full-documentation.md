@@ -18,19 +18,7 @@ The backend is auto-detected at startup and can be overridden per-invocation. Se
 
 ## Install
 
-### Global CLI install
-
-```sh
-npm install -g 9rh
-```
-
-Then verify your setup:
-
-```sh
-9rh --doctor
-```
-
-### Local development install
+9rh is not published to npm — install from source:
 
 ```sh
 git clone https://github.com/jergensturdley/9rh.git
@@ -39,13 +27,20 @@ npm install
 npm run build
 ```
 
-The build script also marks `dist/index.js` executable so the `9rh` CLI symlink works correctly on all shells (fish, zsh, bash).
+To get the `9rh` command on your PATH, link the checkout:
 
-Run the CLI from the repo with:
+```sh
+npm link
+9rh --doctor
+```
+
+The build script marks `dist/index.js` executable so the linked `9rh` command works correctly on all shells (fish, zsh, bash). Without the link, run the CLI from the repo with:
 
 ```sh
 node dist/index.js --doctor
 ```
+
+The `9rh …` examples throughout this document assume the linked command; substitute `node dist/index.js …` if you skipped `npm link`.
 
 ## 9router setup
 

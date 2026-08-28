@@ -141,4 +141,4 @@ npm test
 
 ## License
 
-No license file yet — until one is added, all rights reserved by default.
+[MIT](LICENSE)
