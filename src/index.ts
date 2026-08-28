@@ -148,15 +148,27 @@ if (isInit) {
   const log = (msg: string) => { if (!quiet) process.stderr.write(msg + "\n"); };
 
   if (action === "update") {
-    log(chalk.blue("  Updating 9rh via npm..."));
-    import("child_process").then(({ execFileSync }) => {
+    // 9rh is installed from source (not published to npm), so self-update
+    // means: pull + rebuild the checkout this binary runs from. dist/index.js
+    // lives one level under the repo root; `npm link` resolves through the
+    // symlink to the same place.
+    Promise.all([import("child_process"), import("url")]).then(([{ execFileSync }, { fileURLToPath }]) => {
+      const repoRoot = resolve(fileURLToPath(import.meta.url), "..", "..");
+      if (!existsSync(resolve(repoRoot, ".git"))) {
+        log(chalk.red(`  ✗ ${repoRoot} is not a git checkout — update by pulling your clone and running \`npm run build\``));
+        process.exit(1);
+      }
+      log(chalk.blue(`  Updating 9rh from source (${repoRoot})...`));
       try {
-        execFileSync("npm", ["install", "-g", "9rh@latest"], { stdio: "inherit" });
+        execFileSync("git", ["pull", "--ff-only"], { cwd: repoRoot, stdio: "inherit" });
+        execFileSync("npm", ["install"], { cwd: repoRoot, stdio: "inherit" });
+        execFileSync("npm", ["run", "build"], { cwd: repoRoot, stdio: "inherit" });
         log(chalk.green("  ✓ 9rh updated"));
+        process.exit(0);
       } catch {
         log(chalk.red("  ✗ Update failed"));
+        process.exit(1);
       }
-      process.exit(0);
     });
   } else if (action === "update-router") {
     log(chalk.blue("  Updating 9router via npm..."));
