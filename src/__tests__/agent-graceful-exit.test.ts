@@ -72,7 +72,7 @@ describe("Agent graceful exit", () => {
         return originalStream();
       });
 
-      // run() should handle abort gracefully — returning a string, not throwing
+      // run() should handle abort gracefully, returning a string, not throwing
       const result = await agent.run("test task");
 
       // Should return a string, not throw
@@ -193,7 +193,7 @@ describe("Agent graceful exit", () => {
       expect(errorEvents.length).toBeGreaterThanOrEqual(1);
     });
 
-    it("handles stream errors without abort cleanly — returns error via catch block", async () => {
+    it("handles stream errors without abort cleanly: returns error via catch block", async () => {
       const events: AgentEvent[] = [];
       const agent = new Agent(
         makeConfig({
@@ -243,7 +243,7 @@ describe("Agent graceful exit", () => {
         throw createAbortError("Interrupted by user");
       });
 
-      // Should NOT throw — abort is handled gracefully
+      // Should NOT throw: abort is handled gracefully
       const result = await agent.run("test task");
       expect(typeof result).toBe("string");
 

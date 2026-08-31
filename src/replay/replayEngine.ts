@@ -159,7 +159,7 @@ export class ReplayEngine {
             }
           }
         } catch (err) {
-          // Tool execution failure during replay is a divergence —
+          // Tool execution failure during replay is a divergence:
           // the original run succeeded, but the replay can't reproduce it.
           if (!this.diverged && this.options.stopOnDivergence) {
             const divergence: DivergenceReport = {

@@ -1,14 +1,14 @@
 /**
- * Session Ledger — the harness-computed record of what actually happened.
+ * Session Ledger: the harness-computed record of what actually happened.
  *
  * One append-only per-session structure that accumulates across agent turns:
  * goals, outcomes, files touched, commands run, and token usage. The TUI
  * dashboard, the done-digest ("receipts"), and the /brief and /usage slash
- * commands are all views over this single substrate.
+ * commands are all views over this one structure.
  *
  * Everything here is derived from tool results and stream metadata the
- * harness observed directly — never from the model's own claims. That is
- * the design contract: receipts, not vibes.
+ * harness observed directly, never from the model's own claims. That is
+ * the design contract: report observations, not self-report.
  */
 
 import chalk from "chalk";
@@ -20,7 +20,7 @@ import type {
 } from "./reports/runReportData.js";
 
 // ---------------------------------------------------------------------------
-// Turn digest — the per-turn receipt attached to done/error events.
+// Turn digest: the per-turn receipt attached to done/error events.
 // ---------------------------------------------------------------------------
 
 export interface DigestFileEntry {
@@ -46,11 +46,11 @@ export interface TurnDigest {
   files: DigestFileEntry[];
   commands: DigestCommandEntry[];
   toolCounts: Record<string, number>;
-  /** Defaults the harness picked when nobody answered an ask_user call —
+  /** Defaults the harness picked when nobody answered an ask_user call:
    *  silent decisions made visible. */
   assumptions?: string[];
   reportPath?: string;
-  /** Raw before/after records behind `files` — retained so /rewind can
+  /** Raw before/after records behind `files`, retained so /rewind can
    *  restore the workdir to the state before this turn. Not rendered. */
   fileChangeRecords?: FileChangeRecord[];
 }
@@ -169,7 +169,7 @@ export function buildTurnDigest(
 }
 
 // ---------------------------------------------------------------------------
-// Session ledger — cross-turn accumulation.
+// Session ledger: cross-turn accumulation.
 // ---------------------------------------------------------------------------
 
 export interface LedgerTurn {
@@ -202,7 +202,7 @@ export interface LedgerView {
   turns: LedgerTurn[];
 }
 
-/** Minimal shape of the agent events the ledger consumes — structurally
+/** Minimal shape of the agent events the ledger consumes: structurally
  *  compatible with `AgentEvent` without importing agent.ts (no cycle). */
 export type LedgerAgentEvent =
   | { type: "usage"; lastCompletion: TokenUsage; turn: TokenUsage }
@@ -220,7 +220,7 @@ export interface StoredToolResult {
   truncated: boolean;
 }
 
-/** Ring-buffer bounds for /last — enough to revisit the current turn's
+/** Ring-buffer bounds for /last: enough to revisit the current turn's
  *  tool outputs without holding a whole session of them in memory. */
 const MAX_STORED_TOOL_RESULTS = 20;
 const MAX_STORED_TOOL_OUTPUT_CHARS = 100_000;
@@ -234,7 +234,7 @@ export class SessionLedger {
     this.startedAt = now;
   }
 
-  /** Open a new turn. Any still-open previous turn is closed as errored —
+  /** Open a new turn. Any still-open previous turn is closed as errored;
    *  that only happens when a run died before emitting done/error. */
   beginTurn(task: string, now = Date.now()): void {
     const open = this.openTurn();
@@ -246,7 +246,7 @@ export class SessionLedger {
   }
 
   /** Fold a live agent event into the open turn. Safe to call with every
-   *  event type — non-ledger events are ignored. */
+   *  event type; non-ledger events are ignored. */
   onAgentEvent(event: LedgerAgentEvent, now = Date.now()): void {
     const open = this.openTurn();
     if (event.type === "usage" && open) {
@@ -270,7 +270,7 @@ export class SessionLedger {
       return;
     }
     if (event.type === "team" && open) {
-      // Team pipeline turns don't stream `usage` events — per-role token
+      // Team pipeline turns don't stream `usage` events, so per-role token
       // counts arrive on role_complete. Accumulate them into both the
       // per-role breakdown (/usage) and the turn total.
       const e = event as { event: { type: string; role?: string; usage?: TokenUsage } };
@@ -360,7 +360,7 @@ function outcomeLine(turn: LedgerTurn): string {
 }
 
 // ---------------------------------------------------------------------------
-// Formatting helpers — shared by the TUI dashboard and slash commands.
+// Formatting helpers: shared by the TUI dashboard and slash commands.
 // ---------------------------------------------------------------------------
 
 export function fmtTokens(n: number): string {
@@ -395,7 +395,7 @@ export function renderBrief(view: LedgerView, useColor: boolean): string {
   const lines: string[] = [""];
   lines.push(useColor ? chalk.bold.cyan("  session brief") : "  session brief");
   if (view.turnCount === 0) {
-    lines.push("  (no turns yet — give the agent a task first)");
+    lines.push("  (no turns yet; give the agent a task first)");
     lines.push("");
     return lines.join("\n");
   }
@@ -422,7 +422,7 @@ export function renderBrief(view: LedgerView, useColor: boolean): string {
 
 export function renderUsage(view: LedgerView, useColor: boolean): string {
   const lines: string[] = [""];
-  const title = `  token usage — session ${fmtTokens(view.tokens.total)} total (${fmtTokens(view.tokens.prompt)} in / ${fmtTokens(view.tokens.completion)} out)`;
+  const title = `  token usage: session ${fmtTokens(view.tokens.total)} total (${fmtTokens(view.tokens.prompt)} in / ${fmtTokens(view.tokens.completion)} out)`;
   lines.push(useColor ? chalk.bold.cyan(title) : title);
   if (view.turnCount === 0) {
     lines.push("  (no turns yet)");
@@ -444,7 +444,7 @@ export function renderUsage(view: LedgerView, useColor: boolean): string {
     }
   }
   lines.push("");
-  lines.push(useColor ? chalk.dim("  counts come from provider stream metadata (tokens only — no cost estimates)") : "  counts come from provider stream metadata (tokens only — no cost estimates)");
+  lines.push(useColor ? chalk.dim("  counts come from provider stream metadata (tokens only; no cost estimates)") : "  counts come from provider stream metadata (tokens only; no cost estimates)");
   lines.push("");
   return lines.join("\n");
 }

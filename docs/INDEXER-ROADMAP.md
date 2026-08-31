@@ -1,8 +1,8 @@
-# 9rh Repo Indexer — Roadmap
+# 9rh Repo Indexer Roadmap
 
 Auto-index every repo 9rh touches, zero manual steps. Self-contained, compressed DB, no external deps.
 
-## Phase 1 — Sync Indexer (now)
+## Phase 1: Sync Indexer (now)
 
 **Module:** `src/indexer.ts`  
 **DB:** `.9rh/repo-index.db` (SQLite, WAL mode, <1 KB typical)  
@@ -21,11 +21,11 @@ CREATE UNIQUE INDEX idx_root ON repos(repoRoot);
 CREATE INDEX idx_stale ON repos(stale);
 ```
 
-**Detection heuristics** — look for: `.git`, `.hg`, `.svn`, `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `Gemfile`, `cabal.project`, `project.clj`, `mix.exs`.
+**Detection heuristics**: look for `.git`, `.hg`, `.svn`, `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `Gemfile`, `cabal.project`, `project.clj`, `mix.exs`.
 
-**Auto-prune** — every `refreshIndex()` call deletes rows where `lastSeen < (now - 24h) AND stale = 1`. A row is marked `stale = 1` when its `repoRoot` no longer exists on disk (`access()` fails).
+**Auto-prune**: every `refreshIndex()` call deletes rows where `lastSeen < (now - 24h) AND stale = 1`. A row is marked `stale = 1` when its `repoRoot` no longer exists on disk (`access()` fails).
 
-**Freshness check** — re-hash on every REPL start. If hash changed, update row. Only full re-scans if new `.git` etc appears in parent.
+**Freshness check**: re-hash on every REPL start. If hash changed, update row. Only full re-scans if new `.git` etc appears in parent.
 
 **Commands:**
 | Command | Effect |
@@ -41,7 +41,7 @@ CREATE INDEX idx_stale ON repos(stale);
 
 ---
 
-## Phase 2 — Background Sub-Agent (when needed)
+## Phase 2: Background Sub-Agent (when needed)
 
 When indexing overhead matters (>1s rebuilds, multi-repo workflows):
 
@@ -57,11 +57,11 @@ When indexing overhead matters (>1s rebuilds, multi-repo workflows):
 - Main agent never blocks on index rebuilds.
 - File watcher re-hashes only dirty repos incrementally.
 
-**Not implementing yet** — Phase 1 sync path covers all current needs.
+**Not implementing yet**: the Phase 1 sync path covers all current needs.
 
 ---
 
-## Phase 3 — Cross-Session Persistence (future)
+## Phase 3: Cross-Session Persistence (future)
 
 - Store index in `~/.9rh/repo-index.db` instead of per-project.
 - Merges entries from all workspaces visited across sessions.
@@ -72,9 +72,9 @@ When indexing overhead matters (>1s rebuilds, multi-repo workflows):
 
 ## Future Ideas
 
-- **Compressed content-addressed cache** — store function signatures and file-level hashes for faster re-hash.
-- **Git-aware diff scan** — only re-hash files changed since last commit.
-- **Pre-index of npm/PyPI deps** — skip `node_modules` unless explicitly requested.
+- **Compressed content-addressed cache**: store function signatures and file-level hashes for faster re-hash.
+- **Git-aware diff scan**: only re-hash files changed since the last commit.
+- **Pre-index of npm/PyPI deps**: skip `node_modules` unless explicitly requested.
 
 ---
 
@@ -82,6 +82,6 @@ When indexing overhead matters (>1s rebuilds, multi-repo workflows):
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| 1 — Sync Indexer | ✅ in progress | `src/indexer.ts` drafted, `/index` command wired |
-| 2 — Sub-Agent | 🔲 not started | Wrap RepoIndexer in swarm sub-agent when needed |
-| 3 — Cross-Session | 🔲 not started | Migrate DB to `~/.9rh/` |
+| 1. Sync Indexer | ✅ in progress | `src/indexer.ts` drafted, `/index` command wired |
+| 2. Sub-Agent | 🔲 not started | Wrap RepoIndexer in swarm sub-agent when needed |
+| 3. Cross-Session | 🔲 not started | Migrate DB to `~/.9rh/` |

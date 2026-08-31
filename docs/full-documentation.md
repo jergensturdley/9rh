@@ -4,8 +4,8 @@
 
 9rh talks to a **backend** for its model traffic. Two backends ship today:
 
-- **Router** (default) — routes through [9router](https://github.com/decolua/9router), giving you combo chains, the dashboard, and `/api/*` diagnostics.
-- **Direct** — talks straight to any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, LM Studio, etc.) with no local proxy required.
+- **Router** (default): routes through [9router](https://github.com/decolua/9router), giving you combo chains, the dashboard, and `/api/*` diagnostics.
+- **Direct**: talks straight to any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, LM Studio, etc.) with no local proxy required.
 
 The backend is auto-detected at startup and can be overridden per-invocation. See [Backends](#backends) below.
 
@@ -59,7 +59,7 @@ http://localhost:20128/dashboard
 
 Most first-time users should expect to finish setup in the browser. If 9router is not already running, install and start it in another terminal with `npm install -g 9router` and `9router`, open the dashboard, add an API key/provider, then run `node dist/index.js --doctor` or `/refresh`.
 
-In direct mode, 9rh does not require 9router at all — see [Backends](#backends) below.
+In direct mode, 9rh does not require 9router at all; see [Backends](#backends) below.
 
 ## Quick start
 
@@ -118,28 +118,28 @@ export OPENROUTER_API_KEY=sk-or-v1-…
 |------|---------|---------|-------------|
 | `-m, --model <model>` | `NINE_ROUTER_MODEL` | `kr/claude-sonnet-4.5` | Model identifier |
 | `-b, --backend <name>` | `NINE_ROUTER_BACKEND` | _(auto-detect)_ | Backend choice: `router` or `direct` |
-| `-p, --provider <name>` | — | _(none)_ | Direct-mode preset: `openrouter`, `openai`, `ollama`, `lmstudio`. Fills `--direct-url` and the matching API-key env var |
+| `-p, --provider <name>` | n/a | _(none)_ | Direct-mode preset: `openrouter`, `openai`, `ollama`, `lmstudio`. Fills `--direct-url` and the matching API-key env var |
 | `--direct-url <url>` | `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` / `OPENROUTER_BASE_URL` | _(none)_ | Direct-mode base URL (overrides `--provider` preset) |
 | `--direct-key <key>` | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY` | _(none)_ | Direct-mode API key (overrides env-var detection) |
-| `--report-path <path>` | — | `~/.9rh/last-run.html` | Override the run report path |
-| `--no-report` | — | — | Disable run report generation entirely |
+| `--report-path <path>` | n/a | `~/.9rh/last-run.html` | Override the run report path |
+| `--no-report` | n/a | n/a | Disable run report generation entirely |
 | `-u, --url <url>` | `NINE_ROUTER_URL` | `http://localhost:20128/v1` | 9router API URL (router mode) |
 | `-k, --key <key>` | `NINE_ROUTER_KEY` | `9router` | 9router API key (router mode) |
-| `-d, --dir <dir>` | — | current working directory | Target directory for agent tools |
-| `-i, --max-iter <n>` | — | `100` | Maximum agent iterations |
-| `--no-continue` | — | — | Disable automatic continuation after max iterations |
-| `--continue-model <model>` | `NINE_ROUTER_CONTINUATION_MODEL` | — | Model or 9router combo to switch to after max iterations |
+| `-d, --dir <dir>` | n/a | current working directory | Target directory for agent tools |
+| `-i, --max-iter <n>` | n/a | `100` | Maximum agent iterations |
+| `--no-continue` | n/a | n/a | Disable automatic continuation after max iterations |
+| `--continue-model <model>` | `NINE_ROUTER_CONTINUATION_MODEL` | n/a | Model or 9router combo to switch to after max iterations |
 | `--continue-max <n>` | `NINE_ROUTER_CONTINUATION_MAX` | `20` | Maximum continuation rounds |
 | `--continue-iter <n>` | `NINE_ROUTER_CONTINUATION_ITER` | same as `--max-iter` | Iterations per continuation round |
 | `--continue-switch-after <n>` | `NINE_ROUTER_CONTINUATION_SWITCH_AFTER` | `1` | Continuation round that triggers model switch |
-| `--repl` | — | — | Start an interactive REPL |
-| `--orchestrate` | — | — | Route the task through the multi-role team pipeline (architect → implementer → security audit → test strategist → reviewer). Without the flag, structured-looking tasks get a visible "run as a team?" prompt instead of silent rerouting |
-| `--allow-skill-install` | — | — | Allow the agent to call `install_skill` without prompting |
-| `--doctor` | — | — | Run diagnostics and exit |
-| `--no-color` | — | — | Disable colored output |
-| `--set-default-model <model>` | — | — | Save a default model in `~/.9rh/config.json` |
-| `--set-default-provider <provider>` | — | — | Save a default provider/prefix in `~/.9rh/config.json` |
-| `--show-config` | — | — | Print persisted defaults, the effective model, and the resolved backend |
+| `--repl` | n/a | n/a | Start an interactive REPL |
+| `--orchestrate` | n/a | n/a | Route the task through the multi-role team pipeline (architect → implementer → security audit → test strategist → reviewer). Without the flag, structured-looking tasks get a visible "run as a team?" prompt instead of silent rerouting |
+| `--allow-skill-install` | n/a | n/a | Allow the agent to call `install_skill` without prompting |
+| `--doctor` | n/a | n/a | Run diagnostics and exit |
+| `--no-color` | n/a | n/a | Disable colored output |
+| `--set-default-model <model>` | n/a | n/a | Save a default model in `~/.9rh/config.json` |
+| `--set-default-provider <provider>` | n/a | n/a | Save a default provider/prefix in `~/.9rh/config.json` |
+| `--show-config` | n/a | n/a | Print persisted defaults, the effective model, and the resolved backend |
 
 Persistent defaults are used when `--model` and `NINE_ROUTER_MODEL` are not set. If the saved model does not include a provider prefix and `defaultProvider` is set, 9rh combines them, for example `--set-default-provider kr --set-default-model claude-sonnet-4.5` resolves to `kr/claude-sonnet-4.5`.
 
@@ -147,11 +147,11 @@ When a run reaches `--max-iter`, 9rh automatically compacts into a structured co
 
 ## Backends
 
-A `Backend` in 9rh is the thing that knows the LLM endpoint, the API key, and how to enumerate models. Three backends ship:
+A `Backend` in 9rh owns the LLM endpoint, the API key, and model enumeration. Two backends ship today, plus one reserved name:
 
-- **`RouterBackend`** — talks to a running 9router. Default. Exposes 9router's native `/api/*` endpoints for `/providers`, `/combos`, `/keys`, `/router`.
-- **`DirectBackend`** — talks to any OpenAI-compatible endpoint directly. No local proxy. Does not expose 9router's `/api/*` endpoints.
-- **`EmbeddedBackend`** — _(planned)_ 9rh spawns and supervises 9router as a child process. Reserved; currently falls back to `RouterBackend`.
+- **`RouterBackend`**: talks to a running 9router. Default. Exposes 9router's native `/api/*` endpoints for `/providers`, `/combos`, `/keys`, `/router`.
+- **`DirectBackend`**: talks to any OpenAI-compatible endpoint directly. No local proxy. Does not expose 9router's `/api/*` endpoints.
+- **`EmbeddedBackend`**: _(planned)_ 9rh spawns and supervises 9router as a child process. Reserved; currently falls back to `RouterBackend`.
 
 ### Auto-detection
 
@@ -177,12 +177,12 @@ When using `--backend=direct`, the `--provider=<name>` flag is a shortcut for th
 | `--provider=ollama` | `http://127.0.0.1:11434/v1` | _(none)_ |
 | `--provider=lmstudio` | `http://127.0.0.1:1234/v1` | _(none)_ |
 
-The preset only fills in values that weren't supplied explicitly — `--direct-url` and `--direct-key` always win over the preset. To target a custom proxy, pass `--direct-url` and `--direct-key` directly.
+The preset only fills in values that weren't supplied explicitly; `--direct-url` and `--direct-key` always win over the preset. To target a custom proxy, pass `--direct-url` and `--direct-key` directly.
 
 ### Mode behavior
 
 - **Router mode**: all slash commands work. `/providers`, `/combos`, `/keys`, `/router` hit 9router's `/api/*` endpoints. Setup wizard is `/setup` (installs/starts 9router).
-- **Direct mode**: `/models`, `/switch`, `/status`, `/doctor`, `/sandbox`, `/dir`, `/help`, and `/default-model` all work. `/providers`, `/combos`, `/keys`, `/router` are short-circuited with a friendly "requires 9router mode" message. `/status` shows the backend, baseURL, active model, and workdir. `/doctor` runs a direct-mode check (chat endpoint reachability, API key shape) without the 9router-specific probes.
+- **Direct mode**: `/models`, `/switch`, `/status`, `/doctor`, `/sandbox`, `/dir`, `/help`, and `/default-model` all work. `/providers`, `/combos`, `/keys`, `/router` are short-circuited with a "requires 9router mode" message. `/status` shows the backend, baseURL, active model, and workdir. `/doctor` runs a direct-mode check (chat endpoint reachability, API key shape) without the 9router-specific probes.
 
 ## REPL slash commands
 
@@ -204,13 +204,13 @@ The preset only fills in values that weren't supplied explicitly — `--direct-u
 | `/keys` | router | List configured 9router API keys |
 | `/setup` | router | Install and start 9router if needed |
 | `/report [open]` | both | Show the path of the most recent run report; `/report open` launches it in the default browser |
-| `/brief` | both | Session brief — goal, turns, files touched, commands run, token totals |
+| `/brief` | both | Session brief: goal, turns, files touched, commands run, token totals |
 | `/usage` | both | Token usage per turn and session total; team turns get a per-role breakdown |
 | `/team <task>` | both | Run a task through the multi-role team pipeline (see [Team pipeline](#team-pipeline)) |
-| `/rewind` | both | Restore the workdir to before a chosen turn — files only (see [/rewind](#rewind--turn-level-workdir-undo)) |
-| `/replay [speed]` | both | Re-render a recorded run through the live TUI (see [/replay](#replay--flight-recorder)) |
+| `/rewind` | both | Restore the workdir to before a chosen turn, files only (see [/rewind](#rewind-turn-level-workdir-undo)) |
+| `/replay [speed]` | both | Re-render a recorded run through the live TUI (see [/replay](#replay-flight-recorder)) |
 | `/quiet [on\|off\|status]` | both | Toggle live thinking narration in the transcript (dashboard, receipts, and final summary unaffected) |
-| `/last [n]` | both | Reprint the full output of a recent tool result (1 = most recent) — makes the 6-line preview cap safe instead of lossy |
+| `/last [n]` | both | Reprint the full output of a recent tool result (1 = most recent), which makes the 6-line preview cap safe instead of lossy |
 | `/skills [list\|reload]` | both | List local agent skills from `~/.9rh/skills` |
 | `/allow-skill-install [on\|off]` | both | Toggle the `install_skill` policy for this session |
 
@@ -220,7 +220,7 @@ Typing `/` opens a fuzzy command palette: type to filter, ↑/↓ to focus, Ente
 
 ## Session UX
 
-The terminal session is built around one principle: **receipts, not vibes**. What the harness observed — files written, commands run, tokens spent — is rendered as fact; the model's prose renders below it.
+The terminal session is built around one rule: report only what the harness observed. Files written, commands run, and tokens spent are rendered as fact; the model's prose renders below them.
 
 ### Receipts digest
 
@@ -236,11 +236,11 @@ Every turn ends with a boxed digest computed entirely from tool results and stre
 ╚══════════════════════════════════════════════╝
 ```
 
-File lines show net +/− line counts (first-seen before vs last-seen after, so a file edited five times shows one honest delta). `assume` lines list defaults the harness picked when nobody answered an `ask_user` call — silent decisions made visible.
+File lines show net +/− line counts (first-seen before vs last-seen after, so a file edited five times shows one honest delta). `assume` lines list defaults the harness picked when nobody answered an `ask_user` call, so silent decisions stay visible.
 
 ### Session ledger
 
-A per-session, append-only record accumulates across turns: goals and outcomes, files touched, commands run, and token usage. It feeds the dashboard's GOAL / SESSION / LAST panels, the receipts digest, `/brief` (turn-by-turn summary), and `/usage` (per-turn token table). Token counts only — 9rh is multi-backend, so no dollar estimates anywhere.
+A per-session, append-only record accumulates across turns: goals and outcomes, files touched, commands run, and token usage. It feeds the dashboard's GOAL / SESSION / LAST panels, the receipts digest, `/brief` (turn-by-turn summary), and `/usage` (per-turn token table). Token counts only: 9rh is multi-backend, so it shows no dollar estimates anywhere.
 
 ### Clarifying questions (`ask_user`)
 
@@ -250,31 +250,31 @@ The agent has an `ask_user` tool for decisions only the user can make. In a TTY 
 
 `Orchestrator.orchestrate()` runs a multi-role pipeline: **architect → implementer → security audit (risk-gated) → test strategist (task-gated) → reviewer loop** (up to 2 revision rounds), with plan/test-strategy caching and conflict resolution.
 
-Three explicit ways in — there is no silent keyword routing:
+Three explicit ways in, with no silent keyword routing:
 
 - `/team <task>` in the REPL
 - `--orchestrate` on the CLI
-- accepting the suggestion prompt: tasks that look structured (mention plan/design/audit/architect/implement) get a visible "This looks multi-step — run it as a team?" picker; the streaming agent stays the default, and non-interactive sessions never escalate
+- accepting the suggestion prompt: tasks that look structured (mention plan/design/audit/architect/implement) get a visible "This looks multi-step. Run it as a team?" picker; the streaming agent stays the default, and non-interactive sessions never escalate
 
-Pipeline progress streams through the same event channel as normal runs: role transitions render as `─── architect ───` transcript sections, and the dashboard shows a **TEAM panel** while the pipeline is active — one lane per role with a status icon (`⚙` active, `✓` done, `⊘` skipped, `↻` cache hit), live elapsed time, and per-role token counts. Team turns close with a normal receipts digest, and `/usage` shows a `└ role` breakdown under the turn.
+Pipeline progress streams through the same event channel as normal runs: role transitions render as `─── architect ───` transcript sections, and the dashboard shows a **TEAM panel** while the pipeline is active, with one lane per role with a status icon (`⚙` active, `✓` done, `⊘` skipped, `↻` cache hit), live elapsed time, and per-role token counts. Team turns close with a normal receipts digest, and `/usage` shows a `└ role` breakdown under the turn.
 
-### `/rewind` — turn-level workdir undo
+### `/rewind`: turn-level workdir undo
 
 The ledger retains each turn's raw before/after file-change records (as observed by the harness, capped at 32KB per side). `/rewind` opens a picker over completed turns; selecting "before turn N" walks turns newest→N and restores every recorded change to its pre-turn content, deleting files that a rewound turn created.
 
 Safety rules:
 
 - records truncated at capture time are **skipped** (a truncated restore would corrupt the file)
-- files whose current on-disk content no longer matches the recorded post-turn state are **skipped** — rewind never clobbers edits it didn't see
+- files whose current on-disk content no longer matches the recorded post-turn state are **skipped**; rewind never clobbers edits it didn't see
 - paths outside the working directory are refused
 
-Conversation history is unchanged — this is a files-only undo, not a conversation fork.
+Conversation history is unchanged: this is a files-only undo, not a conversation fork.
 
-### `/replay` — flight recorder
+### `/replay`: flight recorder
 
-Every CLI run records its event stream (LLM requests/responses, tool calls and results, checkpoints — redacted before write) to `~/.9rh/runs/run-<runId>.jsonl`. `/replay` lists recorded runs newest-first, and re-renders the chosen log through the live TUI renderer: iteration headers, tool calls, result previews, and thinking snapshots play back paced by the recorded timestamps (default x2 speed, single gaps capped at 400ms; `/replay 5` plays at x5). Esc or `q` stops playback.
+Every CLI run records its event stream (LLM requests/responses, tool calls and results, checkpoints, all redacted before write) to `~/.9rh/runs/run-<runId>.jsonl`. `/replay` lists recorded runs newest-first, and re-renders the chosen log through the live TUI renderer: iteration headers, tool calls, result previews, and thinking snapshots play back paced by the recorded timestamps (default x2 speed, single gaps capped at 400ms; `/replay 5` plays at x5). Esc or `q` stops playback.
 
-Replay through the TUI is a **pure re-render** — no tools are executed and no LLM is called. (Programmatic re-execution with divergence detection is a separate facility; see [Replay System](#replay-system).)
+Replay through the TUI is a **pure re-render**: no tools are executed and no LLM is called. (Programmatic re-execution with divergence detection is a separate facility; see [Replay System](#replay-system).)
 
 ### Data layout
 
@@ -303,8 +303,8 @@ When a run completes, the TUI prints the report path as a `file://` link in the 
 
 From the REPL:
 
-- `/report` — show the path of the most recent report
-- `/report open` — launch the report in the default browser (macOS `open`, Linux `xdg-open`, Windows `start`)
+- `/report`: show the path of the most recent report
+- `/report open`: launch the report in the default browser (macOS `open`, Linux `xdg-open`, Windows `start`)
 
 ### Lifecycle
 
@@ -318,7 +318,7 @@ To preserve each turn's report instead of overwriting, set `keepReports: true` i
 
 ### File change tracking
 
-For every `write_file` call, 9rh captures the file's content **before** the call and reads it **after** the call. The report shows a real before/after diff (computed inline using LCS — no external diff library). File contents larger than ~32KB are truncated for the diff with a marker.
+For every `write_file` call, 9rh captures the file's content **before** the call and reads it **after** the call. The report shows a real before/after diff (computed inline using LCS, with no external diff library). File contents larger than ~32KB are truncated for the diff with a marker.
 
 ### Token usage
 
@@ -381,20 +381,20 @@ await agent.run("Create a fibonacci function in src/math.ts");
 
 The package exports:
 
-- `Agent` — the ReAct loop and tool execution
-- `TOOL_DEFINITIONS`, `executeTool` — sandboxed tool primitives
-- `ensureRouter` — start 9router and return its baseURL/apiKey (legacy helper, superseded by `detectBackend`)
-- `detectBackend` — auto-detect a `Backend` from env vars, CLI flags, and reachability
-- `DirectBackend`, `RouterBackend` — concrete backend implementations
-- `Backend`, `BackendName`, `ModelInfo`, `ProviderInfo`, `ComboInfo`, `KeyInfo`, `HealthSnapshot` — backend interface and types
-- `parseTaskSpecification`, `synthesizeTestPlan`, `formatSpecDrivenPrompt`, `shouldUseSpecDrivenTesting` — spec-driven testing primitives
-- `createRunVisualization`, `applyAgentEvent`, `applyReplayEvent`, `renderRunVisualization`, `exportRunVisualization`, `visibleSteps` — live run visualization
+- `Agent`: the ReAct loop and tool execution
+- `TOOL_DEFINITIONS`, `executeTool`: sandboxed tool primitives
+- `ensureRouter`: start 9router and return its baseURL/apiKey (legacy helper, superseded by `detectBackend`)
+- `detectBackend`: auto-detect a `Backend` from env vars, CLI flags, and reachability
+- `DirectBackend`, `RouterBackend`: concrete backend implementations
+- `Backend`, `BackendName`, `ModelInfo`, `ProviderInfo`, `ComboInfo`, `KeyInfo`, `HealthSnapshot`: backend interface and types
+- `parseTaskSpecification`, `synthesizeTestPlan`, `formatSpecDrivenPrompt`, `shouldUseSpecDrivenTesting`: spec-driven testing primitives
+- `createRunVisualization`, `applyAgentEvent`, `applyReplayEvent`, `renderRunVisualization`, `exportRunVisualization`, `visibleSteps`: live run visualization
 
 ## Spec-driven testing mode
 
 For implementation-like tasks, 9rh wraps the raw request with a generated specification and test-plan artifact before the agent loop begins. The artifact preserves the original wording, extracts functional behavior, edge cases, constraints, non-goals, explicit bug reports, and ambiguities, then maps those statements to reviewable unit, integration, edge-case, failure-path, or regression test targets.
 
-The harness emits a `spec_plan` event before major code changes. That event is shown in the TUI and written to replay logs when replay is enabled, so reviewers can inspect which assumptions, coverage entries, gaps, and baseline-failure expectations guided the implementation. Set `specDrivenTesting: false` in `AgentConfig` to opt out for custom embeddings.
+The harness emits a `spec_plan` event before major code changes. That event is shown in the TUI and written to replay logs when replay is enabled, so reviewers can inspect which assumptions, coverage entries, gaps, and baseline-failure expectations guided the implementation. Set `specDrivenTesting: false` in `AgentConfig` to opt out.
 
 ## Live run visualization
 
@@ -412,8 +412,8 @@ The REPL splash uses an original bounded ASCII plasma intro that completes in un
 
 | Component | File | Responsibility |
 |-----------|------|----------------|
-| **Sandbox** | `src/sandbox/sandboxer.ts` | Core sandbox class — validates workspace paths and executes through macOS `sandbox-exec` when available |
-| **Executor** | `src/sandbox/executor.ts` | `SandboxExecutor` (uses sandbox) vs `DirectExecutor` (no sandbox) — both implement `SandboxProvider` interface |
+| **Sandbox** | `src/sandbox/sandboxer.ts` | Core sandbox class that validates workspace paths and executes through macOS `sandbox-exec` when available |
+| **Executor** | `src/sandbox/executor.ts` | `SandboxExecutor` (uses sandbox) vs `DirectExecutor` (no sandbox); both implement the `SandboxProvider` interface |
 | **Index** | `src/sandbox/index.ts` | Re-exports the consumed sandbox surface (executors, `createExecutor()`, status helpers, `SandboxProvider`/`ExecutionResult` types) |
 | **Observability** | `src/sandbox/executor.ts` | `ObservabilityCollector` records every execution (stdout, stderr, exitCode, timedOut, durationMs, sandboxUsed) and exposes a summary |
 
@@ -426,13 +426,13 @@ The built-in isolation guarantees are path-level checks around the selected `wor
 ### Sandbox provisioning
 
 Each agent run creates a `Sandbox` instance configured with:
-- `workDir` — the project workspace (read/write allowed here only)
-- `allowedPaths` — extra directories to permit access to
-- `deniedPaths` — always-blocked paths (home dirs, SSH, etc.)
-- `networkEnabled` — default false; enable only when needed
-- `maxMemoryMB` — memory cap (default 512 MB)
-- `maxCPUMs` — CPU time cap (default 30s)
-- `timeoutMs` — per-command timeout (default 60s)
+- `workDir`: the project workspace (read/write allowed here only)
+- `allowedPaths`: extra directories to permit access to
+- `deniedPaths`: always-blocked paths (home dirs, SSH, etc.)
+- `networkEnabled`: default false; enable only when needed
+- `maxMemoryMB`: memory cap (default 512 MB)
+- `maxCPUMs`: CPU time cap (default 30s)
+- `timeoutMs`: per-command timeout (default 60s)
 
 When macOS `sandbox-exec` is available, the sandbox profile is generated as a string and passed to `sandbox-exec` on each command invocation.
 
@@ -469,7 +469,7 @@ All file-based tools (`read_file`, `write_file`, `list_files`, `search_files`) u
 
 ## Replay System
 
-The replay system reproduces any agent run step-by-step, detects divergence between recorded and fresh executions, and supports time-travel branching from recorded checkpoints. The CLI records every run by default: events are written as JSON Lines to `~/.9rh/runs/run-<runId>.jsonl` (with a `.meta.json` sidecar on clean finalization), redacted before write. Programmatic embedders choose their own `logDir` via `ReplayConfig`. The REPL's `/replay` command (see [Session UX](#replay--flight-recorder)) is a render-only consumer of these logs; the `ReplayEngine` below is the re-execution facility.
+The replay system reproduces any agent run step-by-step, detects divergence between recorded and fresh executions, and supports time-travel branching from recorded checkpoints. The CLI records every run by default: events are written as JSON Lines to `~/.9rh/runs/run-<runId>.jsonl` (with a `.meta.json` sidecar on clean finalization), redacted before write. Programmatic embedders choose their own `logDir` via `ReplayConfig`. The REPL's `/replay` command (see [Session UX](#replay-flight-recorder)) is a render-only consumer of these logs; the `ReplayEngine` below is the re-execution facility.
 
 ### Architecture
 
@@ -575,7 +575,7 @@ const branch = bm.createBranch({
   runId: "run_def456",
   parentRunId: "run_abc123",   // replayed run
   parentStep: divergedStep - 1,
-  branchReason: "agent went wrong at step N — retry with claude-sonnet-5",
+  branchReason: "agent went wrong at step N, retry with claude-sonnet-5",
   eventLogPath: "./9rh-runs/run_abc123/events.jsonl",
 });
 ```
@@ -586,9 +586,9 @@ const branch = bm.createBranch({
 
 Checkpoints serialize the full agent state (messages, tool history, step index, iteration count) to `~/.9rh/snapshots/<snapshotId>.json` (relocatable via `NINE_RH_HOME`). The `checkpointManager` supports:
 
-- `save(reason)` — periodic, pre-compact, pre-repair, or manual
-- `restore(snapshotId)` — restore workDir git state and agent state
-- `list()` — enumerate all snapshots with timestamps and reasons
+- `save(reason)`: periodic, pre-compact, pre-repair, or manual
+- `restore(snapshotId)`: restore workDir git state and agent state
+- `list()`: enumerate all snapshots with timestamps and reasons
 
 On replay with `fromStep > 0`, the engine skips to the nearest checkpoint at or before `fromStep`, restores it, then processes remaining events from that point.
 
@@ -605,7 +605,7 @@ All errors are classified into four tiers:
 | `RECOVERABLE` | Yes | 3 | Yes |
 | `AGENT_ERROR` | No | 1 | Yes |
 | `ENVIRONMENT_ERROR` | No | 1 | Yes |
-| `FATAL` | No | 0 | No — halts immediately |
+| `FATAL` | No | 0 | No; halts immediately |
 
 ### Circuit Breaker
 

@@ -267,7 +267,7 @@ export function formatSpecDrivenPrompt(task: string): string {
 
   const coverageSummary = plan.coverage.map((entry) => {
     const tests = entry.testIds.length > 0 ? entry.testIds.join(", ") : "GAP";
-    return `- ${entry.requirementId}: ${entry.status.toUpperCase()} via ${tests} — ${entry.statement}`;
+    return `- ${entry.requirementId}: ${entry.status.toUpperCase()} via ${tests}: ${entry.statement}`;
   });
 
   return [

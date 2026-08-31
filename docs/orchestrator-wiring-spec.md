@@ -1,10 +1,10 @@
-# Spec — `Orchestrator.orchestrate` Wiring Decision
+# Spec: `Orchestrator.orchestrate` Wiring Decision
 
-Status: **RESOLVED (2026-08-18) — Path A implemented**, via PR #7
+Status: **RESOLVED (2026-08-18), Path A implemented** via PR #7
 ("teams on stage"). `Orchestrator.orchestrate` is now wired into the CLI
 as the team pipeline: entry via `/team <task>`, `--orchestrate`, or a
 visible "run as a team?" suggestion prompt (`shouldSuggestTeam` in
-`src/orchestrator/dispatch.ts` — a suggestion trigger, NOT the silent
+`src/orchestrator/dispatch.ts` is a suggestion trigger, NOT the silent
 keyword router step 2 below proposed). Events stream through the TUI's
 AgentEvent channel with TEAM dashboard lanes and per-role token counts;
 the in-memory cache was kept (disk persistence deferred, as allowed).
@@ -39,7 +39,7 @@ Consequences:
    degree 36) that connects to role definitions (Community 2) and
    state/context helpers (Community 15) via the barrel re-export in
    `src/orchestrator/index.ts`. A reader who follows those edges
-   reasonably concludes that the orchestrator is load-bearing — it
+   reasonably concludes that the orchestrator is load-bearing, but it
    is not.
 2. **Dead public API surface.** External embedders can `import { Orchestrator }`
    but receive no guidance on whether to use it or how. There is no
@@ -55,7 +55,7 @@ end-to-end.
 
 ---
 
-## Path A — Wire `Orchestrator.orchestrate` into the CLI
+## Path A: Wire `Orchestrator.orchestrate` into the CLI
 
 **Effort:** Medium (touches CLI dispatch + agent loop).
 **Risk:** Medium (changes the runtime path users hit).
@@ -94,7 +94,7 @@ end-to-end.
   result includes an `ArchitectPlan`, `ImplementationResult`,
   `ReviewResult`, and (if risk is high) `SecurityAuditResult`.
 - All 8 existing tests in `src/__tests__/orchestrator.test.ts` still
-  pass — they exercise the class directly and are unaffected by CLI
+  pass; they exercise the class directly and are unaffected by CLI
   wiring.
 - A `--help` flag documents the new path.
 - The orchestrator-cache file is created on second run with the same
@@ -107,7 +107,7 @@ behavior. The `Orchestrator` class is unchanged.
 
 ---
 
-## Path B — Mark as `@internal` / library-only
+## Path B: Mark as `@internal` / library-only
 
 **Effort:** Low (JSDoc + README only, no runtime change).
 **Risk:** Low (additive documentation).
@@ -122,7 +122,7 @@ behavior. The `Orchestrator` class is unchanged.
     * @internal
     *
     * This module is a public embedding API for external integrations.
-    * The 9rh CLI itself does NOT use `Orchestrator` — runtime
+    * The 9rh CLI itself does NOT use `Orchestrator`; runtime
     * dispatch goes through the streaming `Agent` loop in
     * `src/agent.ts`. Do not assume that calling `orchestrate()`
     * from within this repo will be exercised by tests of the CLI;
@@ -146,11 +146,11 @@ behavior. The `Orchestrator` class is unchanged.
 
 ### Rollback
 
-Trivial — revert the docs commit.
+Trivial: revert the docs commit.
 
 ---
 
-## Path C — Delete the unused scaffolding
+## Path C: Delete the unused scaffolding
 
 **Effort:** Low–Medium (delete files + tests + barrel).
 **Risk:** Medium (public API surface change).
@@ -161,7 +161,7 @@ Trivial — revert the docs commit.
    - `Orchestrator` and friends in `src/orchestrator/index.ts`
    - Direct usage in `src/__tests__/orchestrator.test.ts` (8 sites)
    - Any other test fixtures (`src/__tests__/*.test.ts` that imports
-     from the orchestrator barrel — grep to confirm).
+     from the orchestrator barrel; grep to confirm).
 2. **Decide the deletion scope.**
    - Conservative: delete `src/orchestrator/` and
      `src/__tests__/orchestrator.test.ts` entirely.

@@ -5,7 +5,7 @@ import { join } from "path";
 import { RepoIndexer, findRepos } from "../indexer.js";
 
 // ────────────────────────────────────────────────────────────────────
-// Bug #1 — saveStore silently swallows write errors via .catch(()=>{})
+// Bug #1: saveStore silently swallows write errors via .catch(()=>{})
 //
 // Today: saveStore does `mkdir().catch(()=>{})` and `writeFile().catch(()=>{})`.
 // Neither await, both swallow errors. If the disk is full or the parent dir
@@ -17,7 +17,7 @@ import { RepoIndexer, findRepos } from "../indexer.js";
 //   - The in-memory `repos` array must NOT silently diverge from disk.
 // ────────────────────────────────────────────────────────────────────
 
-describe("RepoIndexer — error propagation on write failure (bug #1)", () => {
+describe("RepoIndexer: error propagation on write failure (bug #1)", () => {
   let workDir: string;
 
   beforeEach(() => {
@@ -109,7 +109,7 @@ describe("RepoIndexer — error propagation on write failure (bug #1)", () => {
     // Contract 2: in-memory state must NOT have been mutated. If the bug
     // were still present, this.store would be set to the post-scan value
     // (which omits ghost-repo, since it does not exist on disk) and
-    // listRepos() would now return [] — diverging from the on-disk truth.
+    // listRepos() would now return [], diverging from the on-disk truth.
     const after = idx.listRepos();
     expect(after).toEqual(before);
     expect(after).toContain(seedRecord.repoRoot);
@@ -159,9 +159,9 @@ describe("RepoIndexer — error propagation on write failure (bug #1)", () => {
 
     // Contract 2: in-memory state must NOT have been mutated. Without the
     // fix, the stale entry would have been removed from this.store.repos
-    // and persisted to void — diverging from disk.
+    // and persisted to void, diverging from disk.
     expect(idx.listRepos()).toEqual([freshRecord.repoRoot]);
-    // Inspect raw this.store.repos via status() — both entries should still
+    // Inspect raw this.store.repos via status(); both entries should still
     // be present in the in-memory store.
     const status = idx.status();
     expect(status.totalRepos).toBe(2);
@@ -183,7 +183,7 @@ async function captureErrors(fn: () => unknown): Promise<{ error: unknown }> {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Bug #2 — findRepos docstring says "skip .git contents" but the code
+// Bug #2: findRepos docstring says "skip .git contents" but the code
 // only filters the directory entry name. There is no test guarding the
 // contract for nested .git subdirs or the .config carve-out.
 //
@@ -192,7 +192,7 @@ async function captureErrors(fn: () => unknown): Promise<{ error: unknown }> {
 //   - .config must be walked into; other dot-dirs must NOT.
 // ────────────────────────────────────────────────────────────────────
 
-describe("findRepos — traversal rules (bug #2)", () => {
+describe("findRepos: traversal rules (bug #2)", () => {
   let root: string;
 
   beforeEach(() => {
@@ -259,7 +259,7 @@ describe("findRepos — traversal rules (bug #2)", () => {
     symlinkSync(realRepo, linkPath);
 
     const repos = findRepos(root);
-    // Exactly one entry — and it must be the resolved (realpath) of the
+    // Exactly one entry, and it must be the resolved (realpath) of the
     // target, not the symlink path.
     expect(repos).toHaveLength(1);
     expect(repos[0]).toBe(realpathSync(linkPath));

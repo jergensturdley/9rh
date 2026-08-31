@@ -236,7 +236,7 @@ function contentWidth(): number {
 }
 
 /**
- * Two-column TUI geometry — pure function (testable in isolation).
+ * Two-column TUI geometry. A pure function, testable in isolation.
  *
  * Right column: dashboard panel of `dashWidth` cols starting at `dashCol`.
  * Left column: `leftColWidth` cols with a 1-col gutter before the dashboard.
@@ -256,7 +256,7 @@ export interface Geometry {
   leftColWidth: number;
   leftInner: number;
   wrapWidth: number;
-  /** False on narrow terminals — the side dashboard is dropped and the
+  /** False on narrow terminals: the side dashboard is dropped and the
    *  streamed body gets the full width (a condensed HUD rides the spinner
    *  line instead; below MIN_HUD_COLS even that is dropped). */
   showDashboard: boolean;
@@ -339,7 +339,7 @@ export interface TuiOptions {
   /** Called when a run report is written to disk. Receives the absolute path. */
   onReportWritten?: (path: string) => void;
   /** Session-ledger snapshot for the dashboard's goal/session panels and
-   *  the narrow-terminal condensed HUD. Optional — panels degrade to the
+   *  the narrow-terminal condensed HUD. Optional; panels degrade to the
    *  per-run view when absent. */
   getLedger?: () => LedgerView;
   /** Quiet mode (/quiet): suppress live thinking snapshots in the
@@ -357,7 +357,7 @@ function crop(text: string, max: number): string {
  * Pad a list of dashboard lines to `target` rows by appending blank
  * `│…│` rows sized to `innerWidth` content. If the input already exceeds
  * `target`, the input is returned unchanged (truncation is the caller's
- * responsibility — see drawDashboard).
+ * responsibility; see drawDashboard).
  */
 export function padDashboardToHeight(
   lines: string[],
@@ -596,7 +596,7 @@ export async function printSplash(useColor: boolean): Promise<void> {
     process.stdout.write("\x1b[?25h");
   };
   // SIGINT during the splash should skip the animation, not kill the
-  // process — the user is interrupting the greeting, not the upcoming
+  // process: the user is interrupting the greeting, not the upcoming
   // agent run. We jump to the end frame and let the normal cleanup run.
   let interrupted = false;
   const sigintHandler = (): void => {
@@ -695,7 +695,7 @@ const TEAM_LANE_ICON: Record<TeamLane["status"], string> = {
   cache: "↻",
 };
 
-/** Render the TEAM panel lanes (no box borders — caller wraps). */
+/** Render the TEAM panel lanes (no box borders; the caller wraps). */
 export function renderTeamLanes(lanes: TeamLane[], now = Date.now()): string[] {
   return lanes.map((lane) => {
     const parts = [`${TEAM_LANE_ICON[lane.status]} ${lane.role}`];
@@ -719,14 +719,14 @@ export interface DashboardState {
   currentTool: string | null;
   currentToolTarget: string | null;
   toolHistory: ToolHistoryEntry[];
-  // Session-ledger panels (optional — populated from TuiOptions.getLedger).
+  // Session-ledger panels (optional; populated from TuiOptions.getLedger).
   goal?: string | null;
   goalActive?: boolean;
   sessionTurns?: number;
   sessionTokens?: { prompt: number; completion: number; total: number } | null;
   sessionFiles?: number;
   lastOutcome?: string | null;
-  /** TEAM panel — populated while a multi-role pipeline is running. */
+  /** TEAM panel: populated while a multi-role pipeline is running. */
   teamLanes?: TeamLane[];
 }
 
@@ -761,10 +761,10 @@ export function renderDashboardLines(state: DashboardState, useColor: boolean, w
   lines.push(`╭${headerText}${"─".repeat(dashFill)}╮`);
 
   const elapsed = formatElapsed(state.startedAt);
-  const iterStr = state.iterMax > 0 ? `iter ${state.iterCurrent}/${state.iterMax}` : "iter —";
+  const iterStr = state.iterMax > 0 ? `iter ${state.iterCurrent}/${state.iterMax}` : `iter ${state.iterCurrent}`;
   lines.push(`│ ` + `⏱ ${elapsed}    ${iterStr}`.padEnd(inner) + ` │`);
 
-  // Session panels — goal / totals / last outcome, fed by the session
+  // Session panels: goal / totals / last outcome, fed by the session
   // ledger. Rendered only when a ledger is wired so per-run consumers
   // (tests, programmatic use) keep the historical layout.
   if (state.goal) {
@@ -782,7 +782,7 @@ export function renderDashboardLines(state: DashboardState, useColor: boolean, w
     lines.push(`│ ${crop(`↩ ${state.lastOutcome}`, inner).padEnd(inner)} │`);
   }
 
-  // TEAM panel — one lane per orchestrator role while a pipeline runs.
+  // TEAM panel: one lane per orchestrator role while a pipeline runs.
   if (state.teamLanes && state.teamLanes.length > 0) {
     lines.push(`│ ${"▸ team".padEnd(inner)} │`);
     for (const laneLine of renderTeamLanes(state.teamLanes)) {
@@ -849,7 +849,7 @@ export function renderDashboardLines(state: DashboardState, useColor: boolean, w
 
   const sandStr = runMap.sandboxHealth
     ? `${runMap.sandboxHealth.sandboxed}/${runMap.sandboxHealth.direct}/${runMap.sandboxHealth.timedOut}`
-    : "—";
+    : "n/a";
   const checkStr = runMap.lastGoodCheckpointId ? crop(runMap.lastGoodCheckpointId, Math.max(1, inner - 22)) : "none";
   const footer = `sandbox ${sandStr}  check ${checkStr}`;
   lines.push(`│ ${footer.padEnd(inner)} │`);
@@ -884,7 +884,7 @@ const DIGEST_MAX_COMMANDS = 6;
 const DIGEST_MAX_ASSUMPTIONS = 4;
 
 /**
- * Receipts — plain (uncolored, unboxed) lines for the end-of-turn digest.
+ * Receipts: plain (uncolored, unboxed) lines for the end-of-turn digest.
  * Everything here is harness-computed fact: files with net +/- line counts,
  * commands with pass/fail, steps, duration, tokens. The model's prose is
  * rendered separately, below.
@@ -929,7 +929,7 @@ export function renderDigestLines(digest: TurnDigest, width: number): string[] {
     }
   }
 
-  // Assumptions — defaults the harness picked when nobody answered an
+  // Assumptions: defaults the harness picked when nobody answered an
   // ask_user call. These must never be silent.
   const assumptions = digest.assumptions ?? [];
   if (assumptions.length > 0) {
@@ -946,7 +946,7 @@ export function renderDigestLines(digest: TurnDigest, width: number): string[] {
 
 /**
  * Markdown-lite styling for the final summary: headers bold, fenced code
- * blocks dim. No reflowing, no inline parsing — just enough visual
+ * blocks dim. No reflowing, no inline parsing, just enough visual
  * hierarchy that a structured answer doesn't read as one gray slab.
  * Pure + exported for tests; returns input unchanged when useColor=false.
  */
@@ -1113,7 +1113,7 @@ export async function pickFromList(
 }
 
 /**
- * Minimal raw-mode line reader on stderr — used for ask_user free-text
+ * Minimal raw-mode line reader on stderr, used for ask_user free-text
  * answers while the main readline interface is parked behind a running
  * agent. Enter submits, Esc/Ctrl+C cancels (null), backspace edits.
  */
@@ -1194,7 +1194,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
   // render the receipts box once, not twice.
   let lastRenderedDigest: TurnDigest | null = null;
 
-  /** Receipts box — the harness-computed end-of-turn digest. */
+  /** Receipts box: the harness-computed end-of-turn digest. */
   function writeDigestBox(digest: TurnDigest): void {
     if (digest === lastRenderedDigest) return;
     lastRenderedDigest = digest;
@@ -1222,7 +1222,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
   function recomputeGeometry(): void {
     geometry = computeGeometry(cols(), rows());
   }
-  // SIGWINCH — re-anchor dashboard + re-wrap streamed output on terminal
+  // SIGWINCH: re-anchor dashboard + re-wrap streamed output on terminal
   // resize. Debounced: 'resize' can fire dozens of times during a single
   // drag-resize (and on some terminals fires on every cursor move). Without
   // a debounce, the synchronous write storm stalls stdout and the agent
@@ -1237,7 +1237,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
       if (!resizePending) return;
       resizePending = false;
       recomputeGeometry();
-      // Erase the previous dashboard footprint BEFORE redrawing — the old
+      // Erase the previous dashboard footprint BEFORE redrawing: the old
       // dashCol may now be inside the new left column, and characters
       // left there would ghost over the streamed body.
       erasePreviousDashboard();
@@ -1280,7 +1280,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
     // Narrow terminal → no side dashboard; the condensed HUD rides the
     // spinner line instead (see startSpinner).
     if (!geometry.showDashboard) return;
-    if (drawing) return; // R2 — drop a redraw rather than corrupt the screen
+    if (drawing) return; // R2: drop a redraw rather than corrupt the screen
     drawing = true;
     try {
       syncLedgerPanels();
@@ -1293,7 +1293,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
       const target = Math.max(lines.length, geometry.termRows - 1);
       const padded = padDashboardToHeight(lines, target, Math.max(0, dashWidth - 2));
       // Erase the OLD footprint first (lastDashboardCol / lastDashboardHeight)
-      // — after a shrink the previous dashCol may now overlap the body
+      // because after a shrink the previous dashCol may now overlap the body
       // column, so clearing only the new position would leave ghosts.
       if (lastDashboardHeight > 0 && lastDashboardCol > 0) {
         for (let i = 0; i < lastDashboardHeight; i++) {
@@ -1347,7 +1347,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
       const secs = Math.floor((Date.now() - spinnerStartedAt) / 1000);
       // Elapsed always; on narrow terminals (no side dashboard) the spinner
       // line doubles as a condensed HUD: iter + session tokens. Below
-      // MIN_HUD_COLS even that is dropped — just spinner + label.
+      // MIN_HUD_COLS even that is dropped, leaving just spinner + label.
       const hudParts: string[] = [];
       if (secs >= 1) hudParts.push(`${secs}s`);
       if (!geometry.showDashboard && geometry.termCols >= MIN_HUD_COLS) {
@@ -1400,7 +1400,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
     const inner = w - 2;
     const model = opts.getModel();
     const dir = opts.getWorkDir().replace(process.env.HOME ?? "", "~");
-    // max 0 = unknown cap (e.g. /replay of a recorded log) — "iter 1/0" reads
+    // max 0 = unknown cap (e.g. /replay of a recorded log), and "iter 1/0" reads
     // as a bug, so drop the denominator.
     const iterStr = iterMax > 0 ? `iter ${iterCurrent}/${iterMax}` : `iter ${iterCurrent}`;
 
@@ -1461,7 +1461,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         dashboard.iterMax = event.max;
         dashboard.activity = "thinking";
         thinkingActive = false;
-        // New LLM round — drop the previous round's thinking buffer so its
+        // New LLM round: drop the previous round's thinking buffer so its
         // tail can't bleed into this round's throttled snapshots (visible as
         // doubled text when a later run, e.g. /replay, reuses the renderer).
         activeThinking = "";
@@ -1499,7 +1499,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         process.stdout.write(`\n${line1}\n${line2}\n`);
         // (The thinking snapshot already streamed live via
         // printThinkingSnapshot and the dashboard carries its own
-        // thinking panel — no need to re-echo a reasoning excerpt here.)
+        // thinking panel, no need to re-echo a reasoning excerpt here.)
         // Update dashboard state
         dashboard.activity = "tool";
         dashboard.currentTool = event.name;
@@ -1558,8 +1558,8 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         process.stdout.write(
           "\n" +
             (opts.useColor
-              ? chalk.yellow(`  ⟳  compacting context — ${event.summary}`)
-              : `  compacting context — ${event.summary}`) +
+              ? chalk.yellow(`  ⟳  compacting context: ${event.summary}`)
+              : `  compacting context: ${event.summary}`) +
             "\n\n",
         );
         drawDashboard();
@@ -1605,7 +1605,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         if (event.digest) {
           writeDigestBox(event.digest);
         } else {
-          // No digest (programmatic caller without receipts) — keep the
+          // No digest (programmatic caller without receipts): keep the
           // historical plain done banner.
           const w = contentWidth() + 2;
           const sep = "═".repeat(w - 2);
@@ -1625,7 +1625,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         const finalText = (event.text ?? "").trim();
         if (finalText) {
           // Preserve the model's structure (newlines, code blocks, bullet
-          // lists) instead of collapsing to a single run-on line — a coding
+          // lists) instead of collapsing to a single run-on line; a coding
           // agent's final answer is usually structured. Only collapse
           // 3+ consecutive blank lines so we don't get huge vertical gaps.
           const normalized = finalText.replace(/\n{3,}/g, "\n\n");
@@ -1647,7 +1647,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
             process.stdout.write(`${indent}${line}\n`);
           }
           if (overflow) {
-            const hint = `(…${normalized.length - MAX_FINAL} more chars — full text in the run report)`;
+            const hint = `(…${normalized.length - MAX_FINAL} more chars; full text in the run report)`;
             const hintLine = opts.useColor ? chalk.dim(`${indent}${hint}`) : `${indent}${hint}`;
             process.stdout.write(`${hintLine}\n`);
           }
@@ -1697,7 +1697,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         break;
 
       case "usage":
-        // Session token totals changed — refresh the dashboard panels
+        // Session token totals changed: refresh the dashboard panels
         // without touching the spinner (usage lands mid-run).
         drawDashboard();
         break;
@@ -1714,7 +1714,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
         startSpinner(backgroundLabel());
         break;
       case "team": {
-        // Orchestrator pipeline progress — transcript sections per role plus
+        // Orchestrator pipeline progress: transcript sections per role plus
         // live TEAM lanes in the dashboard.
         const te = event.event;
         const dim = (s: string) => (opts.useColor ? chalk.dim(s) : s);
@@ -1739,7 +1739,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
             break;
           }
           case "role_skip":
-            process.stdout.write(dim(`  ⊘ ${te.role} — ${te.reason}`) + "\n");
+            process.stdout.write(dim(`  ⊘ ${te.role}: ${te.reason}`) + "\n");
             dashboard.teamLanes ??= [];
             applyTeamEvent(dashboard.teamLanes, te);
             drawDashboard();
@@ -1768,7 +1768,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
               const line = `  ✗ team failed: ${te.error}`;
               process.stdout.write((opts.useColor ? chalk.red(line) : line) + "\n");
             }
-            // Pipeline over — the TEAM panel clears; the receipts digest
+            // Pipeline over: the TEAM panel clears; the receipts digest
             // (emitted by the team runner as a done/error event) is the
             // durable record.
             dashboard.teamLanes = undefined;
@@ -1800,7 +1800,7 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
           const wrapWidth = Math.max(1, geometry.wrapWidth - 2);
           const wrapped = wrapStreamChunk(event.text, wrapWidth);
           // The assistant's streamed answer is the highest-value content in
-          // the UI — render at normal weight, not dim. Dim reads as system
+          // the UI: render at normal weight, not dim. Dim reads as system
           // noise and tanks contrast against the dashboard background.
           process.stdout.write(wrapped);
           // Streamed text has no trailing newline; flag so the next

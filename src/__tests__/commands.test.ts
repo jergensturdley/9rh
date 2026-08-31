@@ -79,7 +79,7 @@ describe("/brief and /usage", () => {
 
     const usage = await executeSlashCommand("/usage", s);
     expect(usage).toContain("1.2k total");
-    expect(usage).toContain("tokens only — no cost estimates");
+    expect(usage).toContain("tokens only; no cost estimates");
   });
 
   it("are listed in /help under the session group", async () => {
@@ -736,7 +736,7 @@ describe("router-dependent slash-command handlers", () => {
           ],
         });
       }
-      // /api/providers — return empty so reconcile doesn't add models
+      // /api/providers: return empty so reconcile doesn't add models
       return jsonResponse({ connections: [] }, { status: 200 });
     });
     const out = await executeSlashCommand("/models claude", state());
@@ -763,9 +763,9 @@ describe("executeSlashCommand dispatch", () => {
 // ────────────────────────────────────────────────────────────────────
 // Additional branch coverage (merged from the parallel coverage PR):
 // browser-opener, skills fs-listing, index refresh, usage/failure paths,
-// and full doctor pass/fail — branches not already exercised above.
+// and full doctor pass/fail, branches not already exercised above.
 // ────────────────────────────────────────────────────────────────────
-describe("commands.ts — extra branch coverage", () => {
+describe("commands.ts: extra branch coverage", () => {
   afterEach(() => {
     jest.restoreAllMocks();
   });

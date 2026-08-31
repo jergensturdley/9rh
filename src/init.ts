@@ -122,7 +122,7 @@ async function installAndStart(): Promise<{ success: boolean; error?: string }> 
       await execFileAsync("npm", ["install", "-g", "9router"], { timeout: 60_000 });
     } catch (err) {
       const npmError = processErrorMessage(err).split("\n").slice(0, 4).join("\n");
-      process.stderr.write(chalk.yellow(`  npm install failed — trying npx...\n${npmError ? `  ${npmError}\n` : ""}`));
+      process.stderr.write(chalk.yellow(`  npm install failed; trying npx...\n${npmError ? `  ${npmError}\n` : ""}`));
       try {
         await execFileAsync("npx", ["-y", "9router", "--version"], { timeout: 30_000 });
         startCommand = "npx";
@@ -192,7 +192,7 @@ export async function ensureRouter(routerUrl?: string, apiKey?: string): Promise
     return { baseURL, apiKey: storedKey ?? defaultKey, wasStarted: false };
   }
 
-  process.stderr.write(chalk.blue("\n  9router not running — setting up automatically\n\n"));
+  process.stderr.write(chalk.blue("\n  9router not running; setting it up automatically\n\n"));
 
   const install = await installAndStart();
   if (!install.success) {

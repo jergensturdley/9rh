@@ -1,4 +1,4 @@
-# Bug Fix Spec — Top 6 Findings
+# Bug Fix Spec: Top 6 Findings
 
 Status: spec only. No production code is modified by this document.
 Audience: a future engineer (or future session) who will implement the fixes.
@@ -10,11 +10,11 @@ See "Verification log" at the bottom.
 
 ---
 
-## #1 — `saveStore` silently swallows write errors
+## #1: `saveStore` silently swallows write errors
 
 **Severity:** High (data-integrity / silent corruption).
 **File:** `src/indexer.ts:165,168`
-**Test that pins it:** `RepoIndexer — error propagation on write failure
+**Test that pins it:** `RepoIndexer: error propagation on write failure
 (bug #1) › surfaces a write failure when the index file is not writable`
 
 ### Current behavior
@@ -35,7 +35,7 @@ in-memory `store.repos` diverges from disk, and the user has no signal.
    - throw from `refresh()` so the caller is forced to handle it, OR
    - attach the error to the returned `RefreshResult` as a new
      `lastWriteError: Error | null` field.
-3. Do NOT silently fall back to a "best effort" write — the test
+3. Do NOT silently fall back to a "best effort" write; the test
    contract requires the failure to be observable.
 
 ### Acceptance
@@ -46,11 +46,11 @@ in-memory `store.repos` diverges from disk, and the user has no signal.
 
 ---
 
-## #2 — `findRepos` traversal contract (DOCSTRING vs REALITY)
+## #2: `findRepos` traversal contract (DOCSTRING vs REALITY)
 
 **Severity:** Low (docstring rot, not runtime bug).
 **File:** `src/indexer.ts:48-66`
-**Test that pins it:** `findRepos — traversal rules (bug #2)`
+**Test that pins it:** `findRepos: traversal rules (bug #2)`
 
 ### Current behavior
 ```ts
@@ -67,17 +67,17 @@ at every level, `.config` is carved out. Both pin-tests pass today.
    the same false positive. Specifically, mention:
    - `.git` is skipped at every depth (not just top-level).
    - `.config` is the only dotted directory that is descended into.
-3. Keep the two pin-tests as-is — they protect the contract.
+3. Keep the two pin-tests as-is; they protect the contract.
 
 This is a documentation-only change.
 
 ---
 
-## #3 — `DirectExecutor.validatePath` is a pass-through
+## #3: `DirectExecutor.validatePath` is a pass-through
 
 **Severity:** High (sandbox boundary violation).
 **File:** `src/sandbox/executor.ts:98-103`
-**Test that pins it:** `DirectExecutor.validatePath — sandbox-bounds
+**Test that pins it:** `DirectExecutor.validatePath: sandbox-bounds
 enforcement (bug #3)` (both tests in that block fail today)
 
 ### Current behavior
@@ -116,29 +116,29 @@ async validatePath(filePath: string): Promise<string> {
 ```
 
 Notes for the implementer:
-- The error message must include enough detail to debug — both the
+- The error message must include enough detail to debug: both the
   input and the resolved absolute path.
 - Throwing is acceptable (one of the two test cases treats throw as a
   pass). Returning a normalized-inside path is also acceptable; pick
-  one and stick with it. Recommend **throw** — silent normalization
+  one and stick with it. Recommend **throw**; silent normalization
   can mask intent in user code that constructs paths dynamically.
-- Do not remove `pathValidationCache` — other callers may rely on the
+- Do not remove `pathValidationCache`; other callers may rely on the
   memoization. Keep the cache key as the raw input, value as resolved.
 
 ### Acceptance
 - Both bug-#3 tests pass.
 - Other tests that use `validatePath` for legitimate in-workDir paths
-  (e.g. `/tmp/test.txt`) still pass — see the `DirectExecutor` describe
+  (e.g. `/tmp/test.txt`) still pass; see the `DirectExecutor` describe
   block in `sandbox.test.ts`.
 
 ---
 
-## #4 — `ExecutionResult` drops the signal name on child kill
+## #4: `ExecutionResult` drops the signal name on child kill
 
 **Severity:** Medium (observability gap; user cannot distinguish
 "timeout" from "manual SIGKILL" from "OOM kill").
 **File:** `src/sandbox/executor.ts:84-94`
-**Test that pins it:** `ExecutionResult — signal preservation on kill
+**Test that pins it:** `ExecutionResult: signal preservation on kill
 (bug #4)`
 
 ### Current behavior
@@ -170,16 +170,16 @@ indication of the signal.
 
 ### Acceptance
 - The bug-#4 test passes (`signal`, `killed`, or `timedOut` set).
-- Existing tests for `exit 42` (non-signal exit) still pass — they
+- Existing tests for `exit 42` (non-signal exit) still pass; they
   expect `exitCode: 42`, not `signal`.
 
 ---
 
-## #5 — `DirectExecutor.exec` silently clamps `timeoutMs` at 120_000
+## #5: `DirectExecutor.exec` silently clamps `timeoutMs` at 120_000
 
 **Severity:** Medium (caller expectation violated without notice).
 **File:** `src/sandbox/executor.ts:69`
-**Test that pins it:** `DirectExecutor.exec — timeout clamp visibility
+**Test that pins it:** `DirectExecutor.exec: timeout clamp visibility
 (bug #5)`
 
 ### Current behavior
@@ -220,7 +220,7 @@ Notes:
   `requestedTimeoutMs > 120_000`, or a clamp-related `error` string.
 - The recommended shape is to BOTH raise the default cap (to a saner
   value like 10 min) AND expose the requested-vs-actual on the result.
-  Do not silently cap and silently expand — always surface the actual
+  Do not silently cap and silently expand; always surface the actual
   value used.
 
 ### Acceptance
@@ -230,11 +230,11 @@ Notes:
 
 ---
 
-## #6 — `hasRouterHint` tautology (DEAD CODE, not a runtime bug)
+## #6: `hasRouterHint` tautology (DEAD CODE, not a runtime bug)
 
-**Severity:** Low (code quality only — no observable runtime impact).
+**Severity:** Low (code quality only, with no observable runtime impact).
 **File:** `src/backends/detect.ts:86`
-**Test that pins it:** `detectBackend — router-hint tautology (bug #6)`
+**Test that pins it:** `detectBackend: router-hint tautology (bug #6)`
 
 ### Current behavior
 ```ts
@@ -253,7 +253,7 @@ Simplify to:
 const hasRouterHint = routerUrl !== NINE_ROUTER_OPENAI;
 ```
 
-This is the single source of truth — "router URL is non-default". The
+This is the single source of truth: "router URL is non-default". The
 boolean env-var check was always redundant.
 
 ### Why this is safe
@@ -265,7 +265,7 @@ boolean env-var check was always redundant.
 
 ### Acceptance
 - The two pin-tests in the bug-#6 describe block continue to pass.
-- The simplify-only commit does not require a test change — the tests
+- The simplify-only commit does not require a test change; the tests
   already pin the contracts on either side.
 
 ---
@@ -299,13 +299,13 @@ Per-bug confirmation:
 
 ## Recommended commit order
 
-1. #3 (highest impact — sandbox escape) — touches
+1. #3 (highest impact, sandbox escape): touches
    `src/sandbox/executor.ts` only.
-2. #1 (data integrity) — touches `src/indexer.ts`.
-3. #5 (caller contract) — touches `src/sandbox/executor.ts`.
-4. #4 (observability) — touches `src/sandbox/executor.ts`.
-5. #6 (dead code) — touches `src/backends/detect.ts`.
-6. #2 (docstring) — touches the comment on `findRepos` only.
+2. #1 (data integrity): touches `src/indexer.ts`.
+3. #5 (caller contract): touches `src/sandbox/executor.ts`.
+4. #4 (observability): touches `src/sandbox/executor.ts`.
+5. #6 (dead code): touches `src/backends/detect.ts`.
+6. #2 (docstring): touches the comment on `findRepos` only.
 
 Each commit should be small enough that the corresponding test goes
 red → green in a single PR.

@@ -66,7 +66,7 @@ describe("classifyError", () => {
   });
 });
 
-describe("classifyError — F-31 origin-first behavior", () => {
+describe("classifyError: F-31 origin-first behavior", () => {
   it("origin: sandbox layer defaults to ENVIRONMENT_ERROR", () => {
     const r = classifyError(new Error("anything"), "sandbox");
     expect(r.errorClass).toBe(ErrorClass.ENVIRONMENT_ERROR);

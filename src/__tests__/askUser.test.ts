@@ -75,7 +75,7 @@ describe("resolveAskUserCall", () => {
 
   it("records a best-judgment assumption with no callback and no options", async () => {
     const result = await resolveAskUserCall({ question: "Anything to add?" });
-    expect(result.output).toContain("no answer available");
+    expect(result.output).toContain("no answer is available");
     expect(result.assumption).toContain("model's best judgment");
   });
 

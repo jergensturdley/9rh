@@ -331,19 +331,19 @@ export class Orchestrator {
           type: "role_skip",
           role: "reviewer",
           taskId,
-          reason: "Trivial edit — skipping specialized review per performance policy",
+          reason: "Trivial edit: skipping specialized review per performance policy",
         });
         this.emit({
           type: "role_skip",
           role: "security_auditor",
           taskId,
-          reason: "Trivial edit — low risk, security audit not required",
+          reason: "Trivial edit: low risk, security audit not required",
         });
         this.emit({
           type: "role_skip",
           role: "test_strategist",
           taskId,
-          reason: "Trivial edit — test strategy not required",
+          reason: "Trivial edit: test strategy not required",
         });
       } else {
         state.architectPlan = await this.runArchitect(state);

@@ -25,7 +25,7 @@ export interface PlaybookEntry {
   autoApply: boolean;
 }
 
-// Incident reports live under ~/.9rh (NINE_RH_HOME-overridable) — never the user cwd.
+// Incident reports live under ~/.9rh (NINE_RH_HOME-overridable), never the user cwd.
 const incidentDir = (): string => ninerhDir("logs", "incidents");
 // F-32: the playbook path is now configurable. Default is preserved
 // for back-compat. Callers can override per-invocation. We also

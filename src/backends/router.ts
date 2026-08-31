@@ -76,7 +76,7 @@ function readFirstApiKey(): string | null {
 /**
  * The original 9router behavior, extracted into a Backend impl.
  *
- * This is a thin wrapper today — the heavy lifting (auto-starting 9router,
+ * This is a thin wrapper today; the heavy lifting (auto-starting 9router,
  * sqlite key lookup, health probes) is still in `init.ts` because commands.ts
  * and the legacy code paths call it directly. Future refactor: move
  * `ensureRouter` into this file as `RouterBackend.ensureReady()`.

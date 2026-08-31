@@ -50,7 +50,7 @@ function isVcsRoot(dir: string): boolean {
  *
  * Traversal rules:
  *  - `.git`/`.hg`/`.svn` directories are skipped at every depth (not just
- *    top-level) — descending into `.git/objects` would be wasted I/O and
+ *    top-level); descending into `.git/objects` would be wasted I/O and
  *    a security smell.
  *  - Dotted directories other than `.config` are skipped at every depth.
  *  - Build / cache directories (`node_modules`, `target`, `dist`, `build`,
@@ -62,7 +62,7 @@ function isVcsRoot(dir: string): boolean {
  *    (e.g. a symlink to a sibling repo doesn't cause it to be reported
  *    twice). Returned paths are realpath-canonical.
  *
- * Errors (permission denied, broken symlinks) are skipped silently — the
+ * Errors (permission denied, broken symlinks) are skipped silently; the
  * walker tolerates a missing path without aborting the whole traversal.
  */
 export function findRepos(root: string, maxDepth = 6): string[] {
@@ -88,7 +88,7 @@ export function findRepos(root: string, maxDepth = 6): string[] {
         walk(join(resolved, e.name), depth + 1);
       }
     } catch {
-      // permission denied etc — skip
+      // permission denied etc: skip
     }
   }
 
@@ -100,7 +100,7 @@ export function findRepos(root: string, maxDepth = 6): string[] {
 
 const HASH_IGNORE = new Set(["node_modules", ".git", ".hg", ".svn", "target", "dist", "build", "__pycache__", ".venv", "vendor", ".9rh", ".codegraph"]);
 
-/** Deterministic hash of file listing + sizes. Fast — no content reads. */
+/** Deterministic hash of file listing + sizes. Fast: no content reads. */
 export function hashRepo(root: string): string {
   const entries: string[] = [];
   const walk = (dir: string): void => {
@@ -174,7 +174,7 @@ function loadStore(workDir: string): Store {
       return parsed as Store;
     }
   } catch {
-    // corrupt or missing — return empty
+    // corrupt or missing: return empty
   }
   return { version: 1, repos: [] };
 }
@@ -182,7 +182,7 @@ function loadStore(workDir: string): Store {
 async function saveStore(workDir: string, store: Store): Promise<void> {
   const dir = repoDir(workDir);
   await mkdir(dir, { recursive: true });
-  // Compact JSON — no extra whitespace
+  // Compact JSON: no extra whitespace
   await writeFile(dbPath(workDir), JSON.stringify(store), "utf-8");
 }
 
@@ -221,7 +221,7 @@ export class RepoIndexer {
       const size = roughSize(root);
       const existingRec = existing.get(root);
       if (existingRec && existingRec.repoHash === hash) {
-        // Same hash — just bump lastSeen
+        // Same hash: just bump lastSeen
         updated.push({ ...existingRec, lastSeen: now, stale: 0 });
       } else {
         updated.push({ repoRoot: root, repoHash: hash, sizeBytes: size, lastSeen: now, stale: 0 });
@@ -231,7 +231,7 @@ export class RepoIndexer {
     // Mark stale: rows whose root is no longer on disk
     for (const r of this.store.repos) {
       if (!seenRoots.has(r.repoRoot) && now - r.lastSeen < 24 * 60 * 60 * 1000) {
-        // Keep but mark stale — might be temporary unmount
+        // Keep but mark stale: this might be a temporary unmount
         updated.push({ ...r, stale: 1 });
       }
     }
@@ -251,7 +251,7 @@ export class RepoIndexer {
     };
   }
 
-  /** Quick status — reads from in-memory store, no re-scan */
+  /** Quick status: reads from the in-memory store, no re-scan */
   status(): IndexStatus {
     const now = Date.now();
     let totalSize = 0;
@@ -276,7 +276,7 @@ export class RepoIndexer {
   }
 
   /** Prune stale entries immediately. Persists before mutating in-memory
-   *  state — same contract as refresh() (audit-fix A5). If saveStore throws,
+   *  state: same contract as refresh() (audit-fix A5). If saveStore throws,
    *  this.store must NOT be mutated and the caller is forced to handle the
    *  error. */
   async prune(): Promise<number> {
