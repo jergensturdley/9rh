@@ -324,6 +324,51 @@ export function filterModels(models: ModelInfo[], filter: string): ModelInfo[] {
   return normalized ? models.filter((m) => m.id.toLowerCase().includes(normalized)) : models;
 }
 
+/** Provider label for a model: `owned_by` when set, else the id's prefix
+ *  before the first slash (`kr/claude-x` belongs to `kr`), else "other". */
+export function modelProvider(m: ModelInfo): string {
+  const owner = typeof m.owned_by === "string" ? m.owned_by.trim() : "";
+  if (owner) return owner;
+  const slash = m.id.indexOf("/");
+  if (slash > 0) return m.id.slice(0, slash);
+  return "other";
+}
+
+export interface ModelGroup {
+  provider: string;
+  models: ModelInfo[];
+}
+
+/** Group models by provider, first-seen provider order, list order within. */
+export function groupModelsByProvider(models: ModelInfo[]): ModelGroup[] {
+  const groups: ModelGroup[] = [];
+  const byProvider = new Map<string, ModelGroup>();
+  for (const m of models) {
+    const provider = modelProvider(m);
+    let group = byProvider.get(provider);
+    if (!group) {
+      group = { provider, models: [] };
+      byProvider.set(provider, group);
+      groups.push(group);
+    }
+    group.models.push(m);
+  }
+  return groups;
+}
+
+/** Catalog diff for the REPL's background model poll. Order-insensitive. */
+export function diffModelCatalog(
+  prev: readonly string[],
+  next: readonly string[],
+): { added: string[]; removed: string[] } {
+  const prevSet = new Set(prev);
+  const nextSet = new Set(next);
+  return {
+    added: next.filter((id) => !prevSet.has(id)),
+    removed: prev.filter((id) => !nextSet.has(id)),
+  };
+}
+
 export function formatModelsList(models: ModelInfo[], state: SessionState, filter = ""): string {
   if (!models.length) return `\n  (no models${filter ? ` matching "${filter}"` : ""})\n`;
 

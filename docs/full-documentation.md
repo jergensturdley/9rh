@@ -211,6 +211,10 @@ The preset only fills in values that weren't supplied explicitly; `--direct-url`
 
 Typing `/` opens a fuzzy command palette: type to filter, ↑/↓ to focus, Enter runs the focused command, Tab completes it (with argument hints shown per command), Esc cancels. `/models`, `/switch`, `/team`-suggestion, `/rewind`, and `/replay` use a shared arrow-key picker (↑/↓, PgUp/PgDn, mouse wheel, Enter selects, Esc cancels).
 
+When more than one provider serves models and the terminal is at least 64 columns wide, the `/models` and `/switch` pickers show **one column per provider** (grouped by `owned_by`, falling back to the id prefix): ←/→ or Tab switches provider, ↑/↓ moves within one, and the provider prefix is dropped from ids inside its own column. Narrow terminals and single-provider catalogs keep the flat list.
+
+The REPL also **polls the model catalog in the background** (every 30 seconds; `NINE_RH_MODEL_POLL_MS` overrides the interval, `0` disables). When models appear or disappear (a provider connected or dropped on the router side), a one-line notice prints between turns: `⟳ model catalog changed: +2 (kr/x, kr/y) (/models to browse)`. Polling stays quiet while a task or picker owns the terminal, and a failed or empty fetch is skipped rather than reported as a mass removal. `/models` and `/refresh` remain the manual paths.
+
 9router configuration reads for `/models`, `/providers`, `/combos`, `/keys`, `/router`, and the model picker are cached briefly within the current REPL session. Run `/refresh` after changing providers, API keys, combos, or model settings in the 9router dashboard.
 
 ## Session UX

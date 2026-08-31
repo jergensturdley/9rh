@@ -1112,6 +1112,232 @@ export async function pickFromList(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Column picker: pickFromList's multi-column sibling. Used by the model
+// picker to show one column per provider. Left/right switches provider,
+// up/down moves within it; each column remembers its own row.
+// ---------------------------------------------------------------------------
+
+export interface PickColumn {
+  title: string;
+  items: PickItem[];
+}
+
+export interface ColumnLayout {
+  colWidth: number;
+  visibleCols: number;
+}
+
+/** How many columns fit, and how wide each gets. Pure; exported for tests. */
+export function computeColumnLayout(
+  colCount: number,
+  termCols: number,
+  minColWidth = 20,
+  maxColWidth = 34,
+): ColumnLayout {
+  const usable = Math.max(minColWidth + 2, termCols - 4);
+  const fit = Math.max(1, Math.floor(usable / (minColWidth + 2)));
+  const visibleCols = Math.max(1, Math.min(colCount, fit));
+  const colWidth = Math.max(
+    minColWidth,
+    Math.min(maxColWidth, Math.floor(usable / visibleCols) - 2),
+  );
+  return { colWidth, visibleCols };
+}
+
+/**
+ * Render one frame of the column picker (headers, item grid, overflow
+ * hints). Pure and deterministic; the interactive loop below feeds it the
+ * live selection state. Colors only when useColor.
+ */
+export function renderColumnPickerLines(
+  columns: PickColumn[],
+  activeCol: number,
+  selectedRows: readonly number[],
+  visibleRows: number,
+  layout: ColumnLayout,
+  useColor: boolean,
+): string[] {
+  const pad = (text: string, width: number): string =>
+    text.length >= width ? text.slice(0, width) : text + " ".repeat(width - text.length);
+  const colWin = menuWindow(activeCol, columns.length, layout.visibleCols);
+  const visible = columns.slice(colWin.start, colWin.end);
+  const rowWins = visible.map((col, i) =>
+    menuWindow(selectedRows[colWin.start + i] ?? 0, col.items.length, visibleRows),
+  );
+
+  const lines: string[] = [];
+
+  const headerCells = visible.map((col, i) => {
+    const index = colWin.start + i;
+    const text = pad(crop(col.title, layout.colWidth), layout.colWidth);
+    if (index !== activeCol) return useColor ? chalk.dim(text) : text;
+    return useColor ? chalk.bold.cyan(text) : text.replace(/ $/, "") + "▾";
+  });
+  lines.push("  " + headerCells.join("  "));
+
+  const maxRows = Math.min(visibleRows, Math.max(...visible.map((c) => c.items.length)));
+  for (let r = 0; r < maxRows; r++) {
+    const cells = visible.map((col, i) => {
+      const index = colWin.start + i;
+      const itemIndex = rowWins[i].start + r;
+      const item = col.items[itemIndex];
+      if (!item) return pad("", layout.colWidth);
+      const focused = index === activeCol && itemIndex === (selectedRows[index] ?? 0);
+      const marker = focused ? "›" : item.active ? "▶" : " ";
+      const cell = pad(`${marker} ${crop(item.label, layout.colWidth - 2)}`, layout.colWidth);
+      if (!useColor) return cell;
+      if (focused) return chalk.inverse(cell);
+      if (item.active) return chalk.cyan(cell);
+      return index === activeCol ? cell : chalk.dim(cell);
+    });
+    lines.push("  " + cells.join("  "));
+  }
+
+  const overflowCells = visible.map((col, i) => {
+    const win = rowWins[i];
+    const above = win.start;
+    const below = Math.max(0, col.items.length - win.end);
+    const text = above || below ? `${above}↑ ${below}↓` : "";
+    return pad(text, layout.colWidth);
+  });
+  if (overflowCells.some((c) => c.trim().length > 0)) {
+    const row = "  " + overflowCells.join("  ");
+    lines.push(useColor ? chalk.dim(row) : row);
+  }
+
+  const hiddenLeft = colWin.start;
+  const hiddenRight = Math.max(0, columns.length - colWin.end);
+  if (hiddenLeft || hiddenRight) {
+    const parts: string[] = [];
+    if (hiddenLeft) parts.push(`‹ ${hiddenLeft} more provider${hiddenLeft === 1 ? "" : "s"}`);
+    if (hiddenRight) parts.push(`${hiddenRight} more provider${hiddenRight === 1 ? "" : "s"} ›`);
+    const row = "  " + parts.join("   ");
+    lines.push(useColor ? chalk.dim(row) : row);
+  }
+
+  return lines;
+}
+
+/**
+ * Interactive multi-column picker on stderr. Same contract as pickFromList
+ * (Enter resolves an item id, Esc resolves null) with left/right and Tab
+ * moving between columns. Falls back to null on non-TTY like pickFromList.
+ */
+export async function pickFromColumns(
+  columns: PickColumn[],
+  opts: PickFromListOptions,
+): Promise<string | null> {
+  const nonEmpty = columns.filter((c) => c.items.length > 0);
+  if (!process.stdin.isTTY || !process.stderr.isTTY || nonEmpty.length === 0) return null;
+
+  const visibleRows = Math.max(6, Math.min(14, (process.stderr.rows ?? 24) - 10));
+  const layout = computeColumnLayout(nonEmpty.length, process.stderr.columns ?? 80);
+  let activeCol = 0;
+  const selectedRows = nonEmpty.map(() => 0);
+  const startId = opts.initialId ?? nonEmpty.flatMap((c) => c.items).find((i) => i.active)?.id;
+  if (startId) {
+    for (let c = 0; c < nonEmpty.length; c++) {
+      const row = nonEmpty[c].items.findIndex((i) => i.id === startId);
+      if (row >= 0) {
+        activeCol = c;
+        selectedRows[c] = row;
+        break;
+      }
+    }
+  }
+
+  let renderedLines = 0;
+  let done = false;
+  let result: string | null = null;
+  const input = process.stdin;
+
+  function clearRender(): void {
+    if (renderedLines === 0) return;
+    moveCursor(process.stderr, 0, -renderedLines);
+    cursorTo(process.stderr, 0);
+    clearScreenDown(process.stderr);
+    renderedLines = 0;
+  }
+
+  function render(): void {
+    clearRender();
+    const help = opts.help ?? "←/→ provider  ↑/↓ model  PgUp/PgDn jump  Enter select  Esc cancel";
+    const lines: string[] = [
+      "",
+      opts.useColor ? chalk.bold.cyan(`  ${opts.title}`) : `  ${opts.title}`,
+      opts.useColor ? chalk.dim(`  ${help}`) : `  ${help}`,
+      "",
+      ...renderColumnPickerLines(nonEmpty, activeCol, selectedRows, visibleRows, layout, opts.useColor),
+    ];
+    process.stderr.write(lines.join("\n") + "\n");
+    renderedLines = lines.length;
+  }
+
+  function moveRow(delta: number): void {
+    const len = nonEmpty[activeCol].items.length;
+    selectedRows[activeCol] = Math.max(0, Math.min(len - 1, selectedRows[activeCol] + delta));
+    render();
+  }
+
+  function moveCol(delta: number): void {
+    activeCol = clampMenuFocus(activeCol, delta, nonEmpty.length);
+    render();
+  }
+
+  function finish(value: string | null): void {
+    done = true;
+    result = value;
+    clearRender();
+  }
+
+  return await new Promise<string | null>((resolve) => {
+    const wasRaw = input.isRaw;
+    const onData = (chunk: Buffer) => {
+      const s = chunk.toString("utf8");
+      if (s === "\u0003") {
+        finish(null);
+        process.emit("SIGINT");
+      } else if (s === "\r" || s === "\n") {
+        finish(nonEmpty[activeCol].items[selectedRows[activeCol]]?.id ?? null);
+      } else if (s === "\u001b" || s === "\u001b[27~") {
+        finish(null);
+      } else if (s === "\u001b[A") {
+        moveRow(-1);
+      } else if (s === "\u001b[B") {
+        moveRow(1);
+      } else if (s === "\u001b[D") {
+        moveCol(-1);
+      } else if (s === "\u001b[C" || s === "\t") {
+        moveCol(1);
+      } else if (s === "\u001b[5~") {
+        moveRow(-visibleRows);
+      } else if (s === "\u001b[6~") {
+        moveRow(visibleRows);
+      } else if (/\u001b\[<64;\d+;\d+[mM]/u.test(s)) {
+        moveRow(-3);
+      } else if (/\u001b\[<65;\d+;\d+[mM]/u.test(s)) {
+        moveRow(3);
+      }
+
+      if (done) {
+        process.stderr.write("\x1b[?1000l\x1b[?1006l");
+        input.off("data", onData);
+        input.setRawMode(wasRaw ?? false);
+        opts.onActiveChange?.(false);
+        resolve(result);
+      }
+    };
+
+    opts.onActiveChange?.(true);
+    input.setRawMode(true);
+    input.resume();
+    process.stderr.write("\x1b[?1000h\x1b[?1006h");
+    input.on("data", onData);
+    render();
+  });
+}
+
 /**
  * Minimal raw-mode line reader on stderr, used for ask_user free-text
  * answers while the main readline interface is parked behind a running

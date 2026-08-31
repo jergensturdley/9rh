@@ -4,9 +4,9 @@ import { resolve } from "path";
 import { program } from "commander";
 import chalk from "chalk";
 import { Agent, type AgentEvent, type ContinuationPolicy, type ToolApprovalRequest, type ToolApprovalDecision, type AskUserRequest, type AskUserResponse } from "./agent.js";
-import { executeSlashCommand, fetchModels, filterModels, type ModelInfo, type SessionState, toArray, getSlashCommands } from "./commands.js";
+import { executeSlashCommand, fetchModels, filterModels, groupModelsByProvider, diffModelCatalog, type ModelInfo, type SessionState, toArray, getSlashCommands } from "./commands.js";
 import { ensureRouter, readFirstApiKey, getCliToken } from "./init.js";
-import { createTuiRenderer, printSplash, clampMenuFocus, menuWindow, pickFromList, readLineRaw, type PickItem } from "./tui.js";
+import { createTuiRenderer, printSplash, clampMenuFocus, menuWindow, pickFromList, pickFromColumns, readLineRaw, type PickItem, type PickColumn } from "./tui.js";
 import { detectBackend, getProviderPreset, listProviderPresetIds, type Backend } from "./backends/index.js";
 import { compressUserInput } from "./inputCompression.js";
 import { ReplInputCoalescer } from "./replInput.js";
@@ -445,6 +445,24 @@ async function selectModelFromList(
   useColor: boolean,
   onActiveChange?: (active: boolean) => void,
 ): Promise<string | null> {
+  const title = `${models.length} model(s)${filter ? ` matching "${filter}"` : ""}`;
+
+  // Provider columns when there is more than one provider and the terminal
+  // is wide enough for at least two columns side by side. Model ids drop
+  // their provider prefix inside a column (the column header carries it).
+  const groups = groupModelsByProvider(models);
+  if (groups.length > 1 && (process.stderr.columns ?? 80) >= 64) {
+    const columns: PickColumn[] = groups.map((g) => ({
+      title: `${g.provider} (${g.models.length})`,
+      items: g.models.map((m) => ({
+        id: m.id,
+        label: m.id.startsWith(`${g.provider}/`) ? m.id.slice(g.provider.length + 1) : m.id,
+        active: m.id === currentModel,
+      })),
+    }));
+    return pickFromColumns(columns, { title, useColor, onActiveChange });
+  }
+
   return pickFromList(
     models.map((m) => ({
       id: m.id,
@@ -453,7 +471,7 @@ async function selectModelFromList(
       active: m.id === currentModel,
     })),
     {
-      title: `${models.length} model(s)${filter ? ` matching "${filter}"` : ""}`,
+      title,
       useColor,
       onActiveChange,
     },
@@ -992,8 +1010,64 @@ async function runRepl(state: SessionState): Promise<void> {
   refreshPrompt();
 
   let queue: Promise<void> = Promise.resolve();
+  let replBusy = false;
+
+  // Background model polling: re-fetch the catalog on an interval and print
+  // a one-line notice when models appear or disappear (providers connecting
+  // or dropping on the router side). Quiet while a task or picker owns the
+  // terminal; a failed or empty fetch is skipped rather than reported as
+  // "all models removed". NINE_RH_MODEL_POLL_MS overrides the interval;
+  // 0 disables. Manual refresh stays /models and /refresh.
+  const pollMsRaw = Number(process.env.NINE_RH_MODEL_POLL_MS ?? 30_000);
+  const modelPollMs = Number.isFinite(pollMsRaw) && pollMsRaw >= 0 ? pollMsRaw : 30_000;
+  let knownCatalog: string[] | null = null;
+  let pollInFlight = false;
+  const modelPollTimer = modelPollMs > 0
+    ? setInterval(() => {
+        if (replBusy || pickerActive || pollInFlight) return;
+        pollInFlight = true;
+        void (async () => {
+          try {
+            const models = await fetchModels(state);
+            if (models.length === 0) return;
+            const ids = models.map((m) => m.id);
+            if (knownCatalog === null) {
+              knownCatalog = ids;
+              return;
+            }
+            const { added, removed } = diffModelCatalog(knownCatalog, ids);
+            if (added.length === 0 && removed.length === 0) return;
+            knownCatalog = ids;
+            if (replBusy || pickerActive) return;
+            const parts: string[] = [];
+            if (added.length > 0) {
+              const preview = added.slice(0, 3).join(", ") + (added.length > 3 ? ", …" : "");
+              parts.push(`+${added.length} (${preview})`);
+            }
+            if (removed.length > 0) parts.push(`−${removed.length}`);
+            const line = `  ⟳ model catalog changed: ${parts.join(" · ")} (/models to browse)`;
+            process.stderr.write("\n" + (opts.color ? chalk.dim(line) : line) + "\n");
+            refreshPrompt();
+          } catch {
+            // Router briefly unreachable; try again next tick.
+          } finally {
+            pollInFlight = false;
+          }
+        })();
+      }, modelPollMs)
+    : null;
+  modelPollTimer?.unref?.();
 
   async function processSubmittedInput(rawInput: string): Promise<void> {
+    replBusy = true;
+    try {
+      await processSubmittedInputInner(rawInput);
+    } finally {
+      replBusy = false;
+    }
+  }
+
+  async function processSubmittedInputInner(rawInput: string): Promise<void> {
     const trimmed = rawInput.trim();
     if (!trimmed) {
       refreshPrompt();
@@ -1090,6 +1164,7 @@ async function runRepl(state: SessionState): Promise<void> {
   });
 
   rl.on("close", () => {
+    if (modelPollTimer) clearInterval(modelPollTimer);
     inputCoalescer.flush();
     void queue.finally(() => process.exit(0));
   });

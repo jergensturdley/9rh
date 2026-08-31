@@ -4,13 +4,13 @@
 
 ## Highlights
 
-- **Receipts every turn**: a harness-computed digest closes each turn: files changed with net +/− counts, commands with pass/fail, duration, tokens. Built from observed tool results, never the model's self-report.
+- **Receipts every turn**: each turn closes with a harness-computed digest of files changed (net +/− counts), commands with pass/fail, duration, and tokens. Built from observed tool results, never the model's self-report.
 - **Session ledger**: a cross-turn record behind the dashboard panels, `/brief`, and `/usage` (token counts only; no dollar estimates).
 - **Team pipeline**: run a task as architect → implementer → security audit → test strategist → reviewer, with live TEAM lanes and per-role token counts. Entry is always explicit: `/team <task>`, `--orchestrate`, or a visible "run as a team?" prompt.
 - **`/rewind` and `/replay`**: turn-level workdir undo, and a flight recorder that replays any recorded run through the live TUI.
 - **Clarifying questions**: `ask_user` pauses the run with an arrow-key picker; non-interactive runs auto-pick the default and surface it as an assumption in the receipts.
 - **Pluggable backends**: 9router for combo chains and a dashboard, or direct to OpenAI / OpenRouter / Ollama / LM Studio. Auto-detected, overridable per-invocation.
-- **Interactive REPL**: fuzzy command palette, arrow-key pickers, and slash commands for models, router, sandbox, and diagnostics.
+- **Interactive REPL**: fuzzy command palette, arrow-key pickers, and slash commands for models, router, sandbox, and diagnostics. The model picker shows one column per provider, and the catalog is polled in the background so new or dropped models surface as a one-line notice.
 - **Run reports**: each turn writes a self-contained HTML report (changes, reasoning, tools, tokens); open it with `/report`.
 - **Sandbox-aware tools**: path-checked file operations, symlink blocking, and macOS `sandbox-exec` command isolation with visible `/sandbox` status.
 - **Spec, replay, and repair systems**: optional spec-driven task framing, live run visualization, replay logs, checkpoints, error taxonomy, and repair hooks.
