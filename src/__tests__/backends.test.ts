@@ -40,7 +40,7 @@ describe("DirectBackend", () => {
           data: [
             { id: "gpt-4o-mini", owned_by: "openai" },
             { id: "gpt-4o", owned_by: "openai" },
-            // garbage entry — should be filtered out
+            // garbage entry: should be filtered out
             { owned_by: "openai" },
           ],
         }),
@@ -98,7 +98,7 @@ describe("DirectBackend", () => {
   });
 });
 
-describe("detectBackend — precedence and routing", () => {
+describe("detectBackend: precedence and routing", () => {
   beforeEach(() => {
     // Make sure no env vars leak between tests.
     delete process.env.NINE_ROUTER_BACKEND;
@@ -182,7 +182,7 @@ describe("detectBackend — precedence and routing", () => {
     });
     expect(r.backend.name).toBe("direct");
     expect(r.backend.apiKey).toBe("");
-    // The warning is informational — at least one warning should be present.
+    // The warning is informational: at least one warning should be present.
     expect(r.warnings.length).toBeGreaterThan(0);
   });
 

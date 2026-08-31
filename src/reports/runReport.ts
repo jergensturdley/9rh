@@ -41,7 +41,7 @@ export function renderRunReport(data: RunReportData): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>9rh run report — ${escapeHtml(data.runId)}</title>
+<title>9rh run report: ${escapeHtml(data.runId)}</title>
 <style>${BASE_CSS}</style>
 </head>
 <body>
@@ -306,7 +306,7 @@ function renderRepairsSection(repairs: RepairRecord[]): string {
           : r.outcome === "ESCALATED"
           ? `<span class="tag err">escalated</span>`
           : `<span class="tag warn">pending</span>`;
-      return `<div>${tag} <span class="muted">step ${escapeHtml(String(r.step))} attempt ${escapeHtml(String(r.attempt))}</span> — ${escapeHtml(r.message)}</div>`;
+      return `<div>${tag} <span class="muted">step ${escapeHtml(String(r.step))} attempt ${escapeHtml(String(r.attempt))}</span>: ${escapeHtml(r.message)}</div>`;
     })
     .join("\n");
   return `<h2>Repairs (${repairs.length})</h2>\n${items}`;
@@ -317,7 +317,7 @@ function renderCompactionsSection(compactions: CompactionRecord[]): string {
     return `<h2>Compactions</h2><div class="empty">no context compactions</div>`;
   }
   const items = compactions
-    .map((c) => `<div>⟳ <span class="muted">step ${escapeHtml(String(c.step))}</span> — ${escapeHtml(c.summary)}</div>`)
+    .map((c) => `<div>⟳ <span class="muted">step ${escapeHtml(String(c.step))}</span>: ${escapeHtml(c.summary)}</div>`)
     .join("\n");
   return `<h2>Compactions (${compactions.length})</h2>\n${items}`;
 }
@@ -327,7 +327,7 @@ function renderErrorsSection(errors: ErrorRecord[]): string {
     return `<h2>Errors</h2><div class="empty">no errors</div>`;
   }
   const items = errors
-    .map((e) => `<div><span class="tag err">error</span> <span class="muted">step ${escapeHtml(String(e.step))}</span> — ${escapeHtml(e.message)}</div>`)
+    .map((e) => `<div><span class="tag err">error</span> <span class="muted">step ${escapeHtml(String(e.step))}</span>: ${escapeHtml(e.message)}</div>`)
     .join("\n");
   return `<h2>Errors (${errors.length})</h2>\n${items}`;
 }
@@ -396,7 +396,7 @@ interface DiffRow {
 /**
  * Minimal unified diff using a longest-common-subsequence approach.
  * Not as clever as git's diff, but good enough for the report.
- * O(n*m) — fine for the size of files an agent typically edits.
+ * O(n*m), fine for the size of files an agent typically edits.
  */
 function computeLineDiff(before: string[], after: string[]): DiffRow[] {
   const m = before.length;

@@ -388,7 +388,7 @@ Include:
 ```text
 configured backend: <value>
 active backend: <value>
-image: <image or —>
+image: <image or none>
 approval mode: ask|lfg|omglfg
 workDir: <path>
 mount: <workDir> -> /workspace

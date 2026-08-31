@@ -128,9 +128,9 @@ describe("isSandboxAvailable", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// audit-fix A3 — signal handling in DirectExecutor
+// audit-fix A3: signal handling in DirectExecutor
 // ────────────────────────────────────────────────────────────────────
-describe("DirectExecutor — signal handling (audit A3)", () => {
+describe("DirectExecutor: signal handling (audit A3)", () => {
   it("does not flag benign 'Killed: …' output as a signal kill", async () => {
     const exec = new DirectExecutor("/tmp");
     const result = await exec.exec("echo 'Killed: 42 enemies defeated in battle'");
@@ -159,9 +159,9 @@ describe("DirectExecutor — signal handling (audit A3)", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// audit-fix A2 — symlink-aware path validation in DirectExecutor
+// audit-fix A2: symlink-aware path validation in DirectExecutor
 // ────────────────────────────────────────────────────────────────────
-describe("DirectExecutor — symlink path validation (audit A2)", () => {
+describe("DirectExecutor: symlink path validation (audit A2)", () => {
   it("rejects a symlink whose target escapes workDir", async () => {
     const linkPath = `/tmp/9rh-symlink-test-${process.pid}-${Date.now()}`;
     symlinkSync("/etc", linkPath);
@@ -187,9 +187,9 @@ describe("DirectExecutor — symlink path validation (audit A2)", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// audit-fix A1 — timeout clamp visibility on the sandbox path
+// audit-fix A1: timeout clamp visibility on the sandbox path
 // ────────────────────────────────────────────────────────────────────
-describe("SandboxExecutor — timeout clamp visibility (audit A1)", () => {
+describe("SandboxExecutor: timeout clamp visibility (audit A1)", () => {
   it("surfaces clampedTimeout=false when maxTimeoutMs allows the requested budget", async () => {
     const executor = new SandboxExecutor("/tmp", { maxTimeoutMs: 1_000_000 });
     const result = await executor.exec("echo hi", { timeoutMs: 10 * 60 * 1000 });

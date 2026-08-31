@@ -1,7 +1,7 @@
 /**
  * App data directories. Everything the harness writes for itself
  * (snapshots, incident logs, run event logs, reports) lives under one
- * home — never under the user's cwd, which earlier versions polluted
+ * home, never under the user's cwd, which earlier versions polluted
  * with ./snapshots and ./logs on every run.
  *
  * NINE_RH_HOME overrides the base (used by tests to write to a tmpdir).

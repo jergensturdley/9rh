@@ -5,7 +5,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { ErrorClass, type TaggedError } from "../errorTaxonomy.js";
 
-// Incident reports live under NINE_RH_HOME (default ~/.9rh) — point the app
+// Incident reports live under NINE_RH_HOME (default ~/.9rh); point the app
 // home at a tmpdir so the test never touches the real one (nor the cwd).
 let home: string;
 let prevHome: string | undefined;

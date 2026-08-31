@@ -64,7 +64,7 @@ export class CheckpointManager {
 
   async capture(agentState: AgentState, stepIndex: number, reason: string): Promise<Checkpoint> {
     const id = `cp-${this.runId}-${stepIndex}`;
-    const git = await this.captureGitState(`checkpoint: step ${stepIndex} — ${reason}`);
+    const git = await this.captureGitState(`checkpoint: step ${stepIndex}: ${reason}`);
     const snapshotId = await captureAgentSnapshot(agentState);
 
     const checkpoint: Checkpoint = {

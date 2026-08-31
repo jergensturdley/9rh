@@ -250,9 +250,9 @@ describe("renderers", () => {
 
   it("renderUsage shows session totals and per-turn rows without cost", () => {
     const out = renderUsage(populatedLedger().view(40), false);
-    expect(out).toContain("token usage — session 1.5k total");
+    expect(out).toContain("token usage: session 1.5k total");
     expect(out).toContain("fix flaky retry test");
-    expect(out).toContain("tokens only — no cost estimates");
+    expect(out).toContain("tokens only; no cost estimates");
     expect(out).not.toContain("$");
   });
 });

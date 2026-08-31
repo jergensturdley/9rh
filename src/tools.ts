@@ -172,7 +172,7 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
     function: {
       name: "ask_user",
       description:
-        "Ask the user a clarifying question and wait for their answer. Use BEFORE starting work when the task is ambiguous (up to 3 upfront questions), and to confirm before destructive or hard-to-reverse actions. Put your recommended choice FIRST in options — in non-interactive sessions it is auto-selected and recorded as an assumption. Do not use for questions you can answer by reading the code.",
+        "Ask the user a clarifying question and wait for their answer. Use BEFORE starting work when the task is ambiguous (up to 3 upfront questions), and to confirm before destructive or hard-to-reverse actions. Put your recommended choice FIRST in options; in non-interactive sessions it is auto-selected and recorded as an assumption. Do not use for questions you can answer by reading the code.",
       parameters: {
         type: "object",
         properties: {
@@ -344,7 +344,7 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
     function: {
       name: "web_fetch",
       description:
-        "Fetch a URL over HTTPS and return its content as plain text. HTML responses are stripped of tags, scripts, and styles. Useful for reading documentation, SKILL.md files, or any public web page. Read-only — no side effects. Times out after 30s. Output is truncated to ~40KB.",
+        "Fetch a URL over HTTPS and return its content as plain text. HTML responses are stripped of tags, scripts, and styles. Useful for reading documentation, SKILL.md files, or any public web page. Read-only, with no side effects. Times out after 30s. Output is truncated to ~40KB.",
       parameters: {
         type: "object",
         properties: {
@@ -367,7 +367,7 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
     function: {
       name: "web_search",
       description:
-        "Search the web via the Hacker News Algolia search API (no API key required). Returns a list of {title, url, author, date, points, comments, snippet} results. Read-only — no side effects. Use when you need to find documentation, a SKILL.md, library recommendations, or technical answers. (General web pages, marketing content, and current events are not well-covered by this backend — for those, fetch a known URL directly with web_fetch.)",
+        "Search the web via the Hacker News Algolia search API (no API key required). Returns a list of {title, url, author, date, points, comments, snippet} results. Read-only, with no side effects. Use when you need to find documentation, a SKILL.md, library recommendations, or technical answers. (General web pages, marketing content, and current events are not well-covered by this backend; for those, fetch a known URL directly with web_fetch.)",
       parameters: {
         type: "object",
         properties: {
@@ -414,7 +414,7 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
     function: {
       name: "load_skill",
       description:
-        "Load the full body of a previously installed skill by name. The system prompt lists every available skill with a one-line description; call this tool with the matching name to pull the full instructions into context. Use this when a skill's description matches the current task and you need its detailed guidance. Read-only — no side effects. Skills are searched in ~/.9rh/skills/ first, then ~/.hermes/skills/, then the current workdir's skills/ folders.",
+        "Load the full body of a previously installed skill by name. The system prompt lists every available skill with a one-line description; call this tool with the matching name to pull the full instructions into context. Use this when a skill's description matches the current task and you need its detailed guidance. Read-only, with no side effects. Skills are searched in ~/.9rh/skills/ first, then ~/.hermes/skills/, then the current workdir's skills/ folders.",
       parameters: {
         type: "object",
         properties: {
@@ -514,7 +514,7 @@ const CODEGRAPH_KINDS = new Set([
 // Formats for codegraph commands that produce text/structured output
 // (context, search, status, affected).
 const CODEGRAPH_FORMATS = new Set(["text", "json", "yaml", "md", "compact"]);
-// Formats specific to `codegraph files` — entirely different vocabulary.
+// Formats specific to `codegraph files`: entirely different vocabulary.
 const CODEGRAPH_FILES_FORMATS = new Set(["tree", "flat", "grouped"]);
 
 function asEnum<T extends string>(v: unknown, name: string, allowed: Set<T>): ArgResult<T> {
@@ -794,7 +794,7 @@ export async function executeTool(
         "the command line for non-interactive sessions.",
     };
   }
-  // ask_user is a UI interaction, not a sandboxed tool — the agent loop
+  // ask_user is a UI interaction, not a sandboxed tool; the agent loop
   // intercepts it before execution and routes it to the harness's
   // onAskUser callback. Reaching this executor means a programmatic
   // caller invoked it directly; fail with a clear explanation.
@@ -984,7 +984,7 @@ function addStringFlag(args: string[], flag: string, value: unknown): void {
     // Strip control chars that have no business in CLI flags. Newlines
     // are kept because grep patterns often use them. Tab and space are
     // already whitespace; sandbox-exec handles them safely when run via
-    // execFile (which we use — no shell interpretation).
+    // execFile (which we use: no shell interpretation).
     const sanitized = value.replace(/[\x00\x07\x1b]/g, "");
     if (sanitized.trim()) args.push(flag, sanitized.trim());
   }
@@ -1058,7 +1058,7 @@ async function toolCodegraphStatus(args: Record<string, unknown>, workDir: strin
 
 // ---------- Web tools ----------
 
-// Lightweight HTML → text converter. Not a full parser — strips
+// Lightweight HTML → text converter. Not a full parser; it strips
 // <script>/<style>/<noscript> blocks, then tags, then collapses
 // whitespace. Good enough for documentation, skill files, and
 // general web reading. The goal is "agent can read this", not
@@ -1207,7 +1207,7 @@ async function toolWebSearch(
   }
   const lines = [`Search: ${query} (${hits.length} results)\n`];
   hits.forEach((h, i) => {
-    // Comments don't have a top-level title/url — use the parent
+    // Comments don't have a top-level title/url, so use the parent
     // story's fields as fallback so the result line is informative.
     const title =
       (typeof h.title === "string" && h.title) ||
@@ -1269,7 +1269,7 @@ async function toolInstallSkill(
     return { output: "", error: "name failed safety check; refusing to write" };
   }
   // Skill lives at ~/.9rh/skills/<name>/SKILL.md. The directory is
-  // OUTSIDE the agent's workDir sandbox on purpose — these skills
+  // OUTSIDE the agent's workDir sandbox on purpose: these skills
   // persist across runs and are the agent's own long-term memory.
   const { mkdir, writeFile } = await import("fs/promises");
   const { join } = await import("path");

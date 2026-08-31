@@ -6,7 +6,7 @@ import { executeTool } from "../tools.js";
 import { DirectExecutor } from "../sandbox/index.js";
 
 // executeTool requires an executor even for tools that never touch it
-// (web_*, list_files, etc). A real DirectExecutor is fine — these paths
+// (web_*, list_files, etc). A real DirectExecutor is fine; these paths
 // never call opts().
 const opts = () => ({ executor: new DirectExecutor(process.cwd()) });
 

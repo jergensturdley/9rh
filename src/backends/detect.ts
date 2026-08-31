@@ -37,7 +37,7 @@ export interface DetectResult {
  * Pick the right Backend for this run.
  *
  * Resolution order (first non-empty wins):
- *   1. `cliBackend` (--backend flag) — explicit, no detection
+ *   1. `cliBackend` (--backend flag): explicit, no detection
  *   2. `envBackend` (NINE_ROUTER_BACKEND)
  *   3. Persisted config (`~/.9rh/config.json` → `backend`)
  *   4. Env-var heuristics:
@@ -70,7 +70,7 @@ export async function detectBackend(opts: DetectOptions = {}): Promise<DetectRes
   }
 
   // Layer 4+5: heuristics. If BOTH a router URL and a direct key are present,
-  // we have to guess — prefer router (the historic default) and warn.
+  // we have to guess: prefer router (the historic default) and warn.
   const routerUrl = opts.routerBaseURL ?? process.env.NINE_ROUTER_URL ?? NINE_ROUTER_OPENAI;
   const directKey =
     opts.directApiKey ??
@@ -96,7 +96,7 @@ export async function detectBackend(opts: DetectOptions = {}): Promise<DetectRes
   }
 
   // Default: router. Try a reachability probe first; if it fails, fall back
-  // to ensureRouter() (which may auto-start 9router) — preserves the legacy
+  // to ensureRouter() (which may auto-start 9router); preserves the legacy
   // "just works" behavior for users who have 9router installed locally.
   if (!opts.skipReachabilityProbe) {
     const init = await ensureRouter(opts.routerBaseURL, opts.routerApiKey);
@@ -159,7 +159,7 @@ async function build(
       warnings.push(
         "direct backend selected but no API key found (set OPENAI_API_KEY or --direct-key)",
       );
-      // Return a backend that will fail at chat time — better than crashing the CLI.
+      // Return a backend that will fail at chat time, which beats crashing the CLI.
     }
     return {
       backend: new DirectBackend(url, key ?? "", "cli"),

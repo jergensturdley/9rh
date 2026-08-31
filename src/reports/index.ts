@@ -2,7 +2,7 @@
  * Run report generation for 9rh.
  *
  * After every agent turn, the harness writes a self-contained HTML report
- * summarizing the run — what the model reasoned about, which tools it
+ * summarizing the run: what the model reasoned about, which tools it
  * called, which files it changed, how many tokens it spent, and any errors
  * or repairs that happened along the way.
  *

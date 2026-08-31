@@ -29,8 +29,8 @@ When the chosen backend is 9router (default), 9router must be running for the ag
 ```
 
 9router's API has two surfaces:
-- **OpenAI-compatible** at `/v1/*` — used by the agent for completions and model catalog reads
-- **Native REST** at `/api/*` — used by slash commands (`/status`, `/providers`, `/combos`, `/keys`, `/router`). These commands are disabled in direct mode.
+- **OpenAI-compatible** at `/v1/*`: used by the agent for completions and model catalog reads
+- **Native REST** at `/api/*`: used by slash commands (`/status`, `/providers`, `/combos`, `/keys`, `/router`). These commands are disabled in direct mode.
 
 `baseURL` in config includes `/v1`; the slash command module strips it via `base()` to reach `/api/*`.
 
@@ -38,36 +38,36 @@ Slash-command reads of 9router configuration are cached briefly on `SessionState
 
 ## TypeScript
 
-- `"type": "module"` — use `.js` extensions in imports even when authoring `.ts`
-- `moduleResolution: NodeNext` — imports map to `dist/*.js`
+- `"type": "module"`: use `.js` extensions in imports even when authoring `.ts`
+- `moduleResolution: NodeNext`: imports map to `dist/*.js`
 - Strict mode enabled; no `as any` suppression
 
 ## Project Structure
 
 ```
 src/
-  agent.ts    — streaming ReAct loop (OpenAI client, tool execution, iteration management)
-  tools.ts    — sandboxed tools (read_file, write_file, run_bash, list_files, search_files, codegraph_*)
-  commands.ts — slash commands + SessionState interface (router-only commands guard in direct mode)
-  index.ts    — CLI (commander), REPL, task runner, team-pipeline dispatch, backend bootstrap
-  main.ts     — programmatic exports for library use
-  ledger.ts   — session ledger + turn digest (receipts) + /brief //usage renderers
-  tui.ts      — raw-ANSI renderer: dashboard (incl. TEAM lanes), receipts box, pickFromList
-  rewind.ts   — /rewind: plan + apply workdir restore from ledger file-change records
-  flightRecorder.ts — /replay: run-log listing, ReplayEvent→AgentEvent mapping, paced render
-  paths.ts    — app home (~/.9rh, NINE_RH_HOME-overridable); all self-writes go under it
-  backends/   — Backend abstraction (Backend interface, DirectBackend, RouterBackend, detectBackend, presets)
-  orchestrator/ — multi-role team pipeline (roles, taskState, conflictResolver, cache, suggestion gate)
-  reports/    — Run report generator (HTML+CSS, file snapshot tracking, token usage)
-  replay/     — event schema/logger, replay engine, checkpoints, branches
-  repair/     — error taxonomy, circuit breaker, snapshots, incident logging
+  agent.ts      streaming ReAct loop (OpenAI client, tool execution, iteration management)
+  tools.ts      sandboxed tools (read_file, write_file, run_bash, list_files, search_files, codegraph_*)
+  commands.ts   slash commands + SessionState interface (router-only commands guard in direct mode)
+  index.ts      CLI (commander), REPL, task runner, team-pipeline dispatch, backend bootstrap
+  main.ts       programmatic exports for library use
+  ledger.ts     session ledger + turn digest (receipts) + /brief and /usage renderers
+  tui.ts        raw-ANSI renderer: dashboard (incl. TEAM lanes), receipts box, pickFromList
+  rewind.ts     /rewind: plan + apply workdir restore from ledger file-change records
+  flightRecorder.ts   /replay: run-log listing, ReplayEvent→AgentEvent mapping, paced render
+  paths.ts      app home (~/.9rh, NINE_RH_HOME-overridable); all self-writes go under it
+  backends/     Backend abstraction (Backend interface, DirectBackend, RouterBackend, detectBackend, presets)
+  orchestrator/   multi-role team pipeline (roles, taskState, conflictResolver, cache, suggestion gate)
+  reports/      Run report generator (HTML+CSS, file snapshot tracking, token usage)
+  replay/       event schema/logger, replay engine, checkpoints, branches
+  repair/       error taxonomy, circuit breaker, snapshots, incident logging
 ```
 
 ## Tool Sandbox
 
 Tools may **not** escape `workDir`. The `sandboxPath()` function resolves relative paths against `workDir` and throws if the normalized result leaves the sandbox. Do not disable or bypass this.
 
-`run_bash` uses `execFile("sh", ["-c", cmd])` (no shell wrapper) — shell operators like `&&`, `|`, `>` are passed to `sh -c`, which is intentional.
+`run_bash` uses `execFile("sh", ["-c", cmd])` (no shell wrapper), so shell operators like `&&`, `|`, `>` are passed to `sh -c`, which is intentional.
 
 <!-- CODEGRAPH_START -->
 ## CodeGraph
@@ -79,7 +79,7 @@ This project has a CodeGraph MCP server (`codegraph_*` tools) configured. CodeGr
 | Question | Tool |
 |---|---|
 | "Where is X defined?" / "Find symbol named X" | `codegraph_search` |
-| "What's the deal with this task / area?" | `codegraph_context` (PRIMARY — composes search + node + callers + callees in one call) |
+| "What's the deal with this task / area?" | `codegraph_context` (PRIMARY; composes search + node + callers + callees in one call) |
 | "What calls function Y?" | `codegraph_callers` |
 | "What does Y call?" | `codegraph_callees` |
 | "What would break if I changed Z?" | `codegraph_impact` |
@@ -90,11 +90,11 @@ This project has a CodeGraph MCP server (`codegraph_*` tools) configured. CodeGr
 
 ### Rules of thumb
 
-- **Answer directly — don't delegate exploration.** For "how does X work" / architecture / trace questions, answer with 2-3 codegraph calls: `codegraph_context` first, then ONE `codegraph_explore` for the source of the symbols it surfaces. Codegraph IS the pre-built index, so spawning a separate file-reading sub-task/agent — or running a grep + read loop — repeats work codegraph already did and costs more for the same answer.
-- **Trust codegraph results.** They come from a full AST parse. Do NOT re-verify them with grep — that's slower, less accurate, and wastes context.
+- **Answer directly; don't delegate exploration.** For "how does X work" / architecture / trace questions, answer with 2-3 codegraph calls: `codegraph_context` first, then ONE `codegraph_explore` for the source of the symbols it surfaces. Codegraph IS the pre-built index, so spawning a separate file-reading sub-task/agent, or running a grep + read loop, repeats work codegraph already did and costs more for the same answer.
+- **Trust codegraph results.** They come from a full AST parse. Do NOT re-verify them with grep; that's slower, less accurate, and wastes context.
 - **Don't grep first** when looking up a symbol by name. `codegraph_search` is faster and returns kind + location + signature in one call.
-- **Don't chain `codegraph_search` + `codegraph_node`** when you just want context — `codegraph_context` is one call.
-- **Don't loop `codegraph_node` over many symbols** — one `codegraph_explore` call returns several symbols' source grouped in a single capped call, while each separate node/Read call re-reads the whole context and costs far more.
+- **Don't chain `codegraph_search` + `codegraph_node`** when you just want context; `codegraph_context` is one call.
+- **Don't loop `codegraph_node` over many symbols**: one `codegraph_explore` call returns several symbols' source grouped in a single capped call, while each separate node/Read call re-reads the whole context and costs far more.
 - **Index lag**: the file watcher debounces ~500ms behind writes; don't re-query immediately after editing a file in the same turn.
 - Do not rely solely on CodeGraph before modifying files: re-open the target file section directly before editing.
 
@@ -123,7 +123,7 @@ The MCP server returns "not initialized." Ask the user: *"I notice this project 
 <!-- SUPERPOWERS_START -->
 ## Superpowers
 
-This project has [Superpowers](https://github.com/obra/superpowers) installed — a skills-based software development methodology. Skills live in `skills/<name>/SKILL.md` and are loaded by reading the file.
+This project has [Superpowers](https://github.com/obra/superpowers) installed, a skills-based software development methodology. Skills live in `skills/<name>/SKILL.md` and are loaded by reading the file.
 
 ### Rule: check skills before acting
 
@@ -146,7 +146,7 @@ skills/<skill-name>/SKILL.md
 | **writing-plans** | After design approval, before implementation | `skills/writing-plans/SKILL.md` |
 | **subagent-driven-development** | When executing a plan with multiple tasks | `skills/subagent-driven-development/SKILL.md` |
 | **executing-plans** | When executing a plan solo or with checkpoints | `skills/executing-plans/SKILL.md` |
-| **test-driven-development** | During implementation — RED-GREEN-REFACTOR | `skills/test-driven-development/SKILL.md` |
+| **test-driven-development** | During implementation, RED-GREEN-REFACTOR | `skills/test-driven-development/SKILL.md` |
 | **systematic-debugging** | When debugging a bug or regression | `skills/systematic-debugging/SKILL.md` |
 | **requesting-code-review** | Before requesting code review | `skills/requesting-code-review/SKILL.md` |
 | **receiving-code-review** | When responding to code review feedback | `skills/receiving-code-review/SKILL.md` |
@@ -167,9 +167,9 @@ skills/<skill-name>/SKILL.md
 
 ### Priority
 
-1. User's explicit instructions — highest priority
-2. Superpowers skills — override default system behavior where they conflict
-3. Default system prompt — lowest priority
+1. User's explicit instructions: highest priority
+2. Superpowers skills: override default system behavior where they conflict
+3. Default system prompt: lowest priority
 
 If this AGENTS.md says "don't use TDD" and a skill says "always use TDD," follow the user's instructions. The user is in control.
 <!-- SUPERPOWERS_END -->
@@ -178,13 +178,13 @@ If this AGENTS.md says "don't use TDD" and a skill says "always use TDD," follow
 
 REPL intercepts lines starting with `/` **before** sending to the agent. `executeSlashCommand(line, state)` returns `null` for non-slash input, or a string to print.
 
-Interactive commands (`/models`, `/switch`, `/team`, `/rewind`, `/replay`) are intercepted by the REPL loop in `index.ts` **before** `executeSlashCommand` is consulted — they need the live TUI renderer, ledger, and raw-mode pickers that the command registry's plain string handlers can't reach. Their registry entries exist for the palette, `/help`, and fuzzy completion; the handlers are the non-interactive fallback.
+Interactive commands (`/models`, `/switch`, `/team`, `/rewind`, `/replay`) are intercepted by the REPL loop in `index.ts` **before** `executeSlashCommand` is consulted; they need the live TUI renderer, ledger, and raw-mode pickers that the command registry's plain string handlers can't reach. Their registry entries exist for the palette, `/help`, and fuzzy completion; the handlers are the non-interactive fallback.
 
-`SessionState` is passed by **reference** — mutations from `/switch <model>` and `/dir <path>` persist for all subsequent agent runs and slash commands in the same REPL session. `SessionState.routerCache` is also session-scoped and can be reset with `clearRouterConfigCache(state)` or the `/refresh` command.
+`SessionState` is passed by **reference**: mutations from `/switch <model>` and `/dir <path>` persist for all subsequent agent runs and slash commands in the same REPL session. `SessionState.routerCache` is also session-scoped and can be reset with `clearRouterConfigCache(state)` or the `/refresh` command.
 
 ## API Response Safety
 
-`fetchJSON()` returns `unknown`. All handlers use `toArray<T>()` helper (guards with `Array.isArray`) before iterating. Malformed API payloads are handled gracefully — they produce empty-state messages, not crashes.
+`fetchJSON()` returns `unknown`. All handlers use `toArray<T>()` helper (guards with `Array.isArray`) before iterating. Malformed API payloads are handled gracefully: they produce empty-state messages, not crashes.
 
 ## 9router Setup
 
@@ -211,7 +211,7 @@ Interactive commands (`/models`, `/switch`, `/team`, `/rewind`, `/replay`) are i
 | `/keys` | Lists 9router API keys (preview only) |
 | `/router` | Shows a cached 9router configuration summary (models, providers, combos, keys, cache state) |
 | `/refresh` | Clears and reloads cached 9router configuration for slash commands and pickers |
-| `/brief` | Session brief from the ledger — goal, turns, files, commands, tokens |
+| `/brief` | Session brief from the ledger: goal, turns, files, commands, tokens |
 | `/usage` | Per-turn token table; team turns get a per-role breakdown |
 | `/team <task>` | Run a task through the multi-role team pipeline (TEAM lanes in the dashboard) |
 | `/rewind` | Restore the workdir to before a chosen turn (files only, ledger-recorded changes) |

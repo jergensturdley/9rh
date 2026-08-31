@@ -130,7 +130,7 @@ export class Reasoner {
       );
     }
     if (params.corrected) {
-      deviations.push("Correction step triggered — agent deviated from expected plan");
+      deviations.push("Correction step triggered: the agent deviated from the expected plan");
     }
 
     const event: Omit<ReasoningSummaryEvent, "seq" | "ts"> = {

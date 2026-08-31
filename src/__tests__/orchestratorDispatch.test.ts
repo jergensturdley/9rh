@@ -4,7 +4,7 @@ import { shouldSuggestTeam } from "../orchestrator/dispatch.js";
 // shouldSuggestTeam is a SUGGESTION trigger, not a router: a true result
 // means the harness offers "run as a team?"; only the user (or the explicit
 // --orchestrate flag / /team command) actually routes into the pipeline.
-describe("shouldSuggestTeam — team suggestion heuristic", () => {
+describe("shouldSuggestTeam: team suggestion heuristic", () => {
   describe("triggers on design-pattern keywords", () => {
     it("matches 'plan'", () => {
       expect(shouldSuggestTeam("plan the rollout for v2")).toBe(true);

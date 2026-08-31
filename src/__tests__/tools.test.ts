@@ -359,7 +359,7 @@ describe("executeTool install_skill default-deny policy", () => {
 
   it("bypasses the guard when allowSkillInstall is true (proceeds to network)", async () => {
     // We don't actually want the network call to succeed in a unit
-    // test — we just want to confirm the guard does NOT fire and
+    // test; we just want to confirm the guard does NOT fire and
     // execution proceeds to the tool body. Using a deliberately
     // unreachable host means the call will fail with a network
     // error, NOT with "install_skill is disabled by default".

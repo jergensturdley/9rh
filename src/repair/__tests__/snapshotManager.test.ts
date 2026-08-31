@@ -4,7 +4,7 @@ import { readFile, mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 
-// Snapshots live under NINE_RH_HOME (default ~/.9rh) — point the app home at
+// Snapshots live under NINE_RH_HOME (default ~/.9rh); point the app home at
 // a tmpdir so the test never touches the real one (and never the cwd).
 let home: string;
 let prevHome: string | undefined;

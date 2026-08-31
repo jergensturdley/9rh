@@ -56,7 +56,7 @@ async function maybeAutoIndexCodeGraph(workDir: string): Promise<void> {
   }
 }
 
-/** Where run event logs live — read back by /replay. */
+/** Where run event logs live, read back by /replay. */
 const RUNS_DIR = ninerhDir("runs");
 
 const DEFAULTS = {
@@ -155,7 +155,7 @@ if (isInit) {
     Promise.all([import("child_process"), import("url")]).then(([{ execFileSync }, { fileURLToPath }]) => {
       const repoRoot = resolve(fileURLToPath(import.meta.url), "..", "..");
       if (!existsSync(resolve(repoRoot, ".git"))) {
-        log(chalk.red(`  ✗ ${repoRoot} is not a git checkout — update by pulling your clone and running \`npm run build\``));
+        log(chalk.red(`  ✗ ${repoRoot} is not a git checkout; update by pulling your clone and running \`npm run build\``));
         process.exit(1);
       }
       log(chalk.blue(`  Updating 9rh from source (${repoRoot})...`));
@@ -189,7 +189,7 @@ if (isInit) {
       process.exit(0);
     }).catch((err) => { log(chalk.red(`  ✗ ${err.message}`)); process.exit(1); });
   } else if (action === "ready") {
-    log(chalk.blue("  9router is ready — run `9rh --doctor` to verify"));
+    log(chalk.blue("  9router is ready: run `9rh --doctor` to verify"));
     process.exit(0);
   } else {
     log(chalk.red("  Unknown init option"));
@@ -323,7 +323,7 @@ function makeAgent(state: SessionState, onEvent: (e: AgentEvent) => void) {
       interactiveToolApproval(req, state.useColor),
     onAskUser: (req: AskUserRequest): Promise<AskUserResponse> =>
       interactiveAskUser(req, state.useColor),
-    // Flight recorder — every run's event log lands in ~/.9rh/runs so
+    // Flight recorder: every run's event log lands in ~/.9rh/runs so
     // /replay can re-render it later. Events are redacted before write.
     replay: { enabled: true, logDir: RUNS_DIR },
   });
@@ -331,7 +331,7 @@ function makeAgent(state: SessionState, onEvent: (e: AgentEvent) => void) {
 
 
 /**
- * Team pipeline — run a task through `Orchestrator.orchestrate()`, streaming
+ * Team pipeline: run a task through `Orchestrator.orchestrate()`, streaming
  * OrchestratorEvents into the SAME AgentEvent channel the TUI renders
  * (transcript role sections + dashboard TEAM lanes). The turn closes with a
  * receipts digest like any other run; role token counts fold into the
@@ -377,7 +377,7 @@ async function runTeamPipeline(
 }
 
 /**
- * Auto-suggest gate — when a task looks structured (shouldSuggestTeam), ASK
+ * Auto-suggest gate: when a task looks structured (shouldSuggestTeam), ASK
  * instead of silently rerouting: a two-item picker with the pipeline
  * preview. Non-interactive sessions always take the streaming agent.
  */
@@ -389,10 +389,10 @@ async function offerTeamPipeline(
   process.stderr.write("\n");
   const picked = await pickFromList(
     [
-      { id: "agent", label: "streaming agent", hint: "(default — single agent with live tools)", active: true },
+      { id: "agent", label: "streaming agent", hint: "(default: single agent with live tools)", active: true },
       { id: "team", label: "team pipeline", hint: "architect → implementer → security audit → test strategist → reviewer" },
     ],
-    { title: "❓ This looks multi-step — run it as a team?", useColor: state.useColor, onActiveChange },
+    { title: "❓ This looks multi-step. Run it as a team?", useColor: state.useColor, onActiveChange },
   );
   return picked === "team";
 }
@@ -434,7 +434,7 @@ async function runTask(state: SessionState, t: string): Promise<void> {
 }
 
 /**
- * Model picker — thin wrapper over the generic pickFromList (src/tui.ts),
+ * Model picker: a thin wrapper over the generic pickFromList (src/tui.ts),
  * which carries the arrow-key/PgUp/wheel/Enter/Esc machinery shared with
  * ask_user and future sub-pickers.
  */
@@ -464,7 +464,7 @@ async function selectModelFromList(
  * Interactive ask_user handler: renders the model's clarifying question as
  * an arrow-key picker (options first, recommended default on top), with an
  * optional free-text escape hatch. Non-TTY sessions auto-select the first
- * option and mark it as an assumption — the agent loop records it into the
+ * option and mark it as an assumption; the agent loop records it into the
  * turn receipts.
  */
 async function interactiveAskUser(req: AskUserRequest, useColor: boolean): Promise<AskUserResponse> {
@@ -630,13 +630,13 @@ async function runRepl(state: SessionState): Promise<void> {
       // Argument hint from the command's usage string (e.g. "[tail <lines>]")
       // so argful commands are discoverable from the palette itself.
       const argHint = usage.startsWith(`/${name} `) ? usage.slice(name.length + 2).trim() : "";
-      const detail = (argHint ? `${argHint}  —  ${description}` : description).slice(0, 54);
+      const detail = (argHint ? `${argHint}  ·  ${description}` : description).slice(0, 54);
       const desc = opts.color ? chalk.dim(detail) : detail;
       let row = `${marker} /${hi}${pad}${desc}`;
       if (focused && opts.color) row = chalk.inverse(row);
       return row;
     });
-    // Always-visible keybind hint — keeps Tab/Esc/Enter/↑↓ discoverable
+    // Always-visible keybind hint: keeps Tab/Esc/Enter/↑↓ discoverable
     // even on short filtered lists (where the old overflow-only hint never
     // appeared). Adds the count so users know how many commands match.
     const countLabel = matches.length === 1 ? "1 command" : `${matches.length} commands`;
@@ -771,7 +771,7 @@ async function runRepl(state: SessionState): Promise<void> {
         return;
       }
       // Tab completes to the FOCUSED command (not just the top match) when
-      // the palette is open — the universal "complete" keystroke. If you've
+      // the palette is open: the universal "complete" keystroke. If you've
       // moved focus with ↑/↓, Tab honors that choice. Replaces the line
       // with /<cmd><space> and closes the menu so you can type args.
       if (key?.name === "tab" && suggCount > 0 && lastSuggestionMatches.length > 0) {
@@ -869,7 +869,7 @@ async function runRepl(state: SessionState): Promise<void> {
     return true;
   }
 
-  /** /team <task> — run the multi-role pipeline through the session TUI. */
+  /** /team <task>: run the multi-role pipeline through the session TUI. */
   async function runTeamCommand(args: string[]): Promise<void> {
     const teamTask = args.join(" ").trim();
     if (!teamTask) {
@@ -886,11 +886,11 @@ async function runRepl(state: SessionState): Promise<void> {
     }
   }
 
-  /** /rewind — picker over ledger turns, restore workdir to before one. */
+  /** /rewind: picker over ledger turns, restore workdir to before one. */
   async function runRewindPicker(): Promise<void> {
     const view = replLedger?.view();
     if (!view || view.turnCount === 0) {
-      process.stdout.write("\n  (no turns yet — nothing to rewind)\n");
+      process.stdout.write("\n  (no turns yet; nothing to rewind)\n");
       return;
     }
     const candidates = view.turns.filter(
@@ -907,12 +907,12 @@ async function runRepl(state: SessionState): Promise<void> {
         const files = t.digest?.files.length ?? 0;
         return {
           id: String(t.index),
-          label: `before turn ${t.index} — ${t.task.replace(/\s+/g, " ").slice(0, 48)}`,
+          label: `before turn ${t.index}: ${t.task.replace(/\s+/g, " ").slice(0, 48)}`,
           hint: files > 0 ? `${files} file${files === 1 ? "" : "s"}` : undefined,
         };
       });
     const picked = await pickFromList(items, {
-      title: "⏪ rewind — restore the workdir to BEFORE which turn?",
+      title: "⏪ rewind: restore the workdir to BEFORE which turn?",
       useColor: opts.color,
       onActiveChange: (active) => { pickerActive = active; },
     });
@@ -923,21 +923,21 @@ async function runRepl(state: SessionState): Promise<void> {
     const lines: string[] = ["", `  ⏪ rewound to before turn ${target}`];
     for (const p of result.restored) lines.push(`  ✓ restored ${p}`);
     for (const p of result.deleted) lines.push(`  ✓ removed  ${p} (created by a rewound turn)`);
-    for (const s of result.skipped) lines.push(`  ⚠ skipped  ${s.path} — ${s.reason}`);
+    for (const s of result.skipped) lines.push(`  ⚠ skipped  ${s.path}: ${s.reason}`);
     if (result.restored.length + result.deleted.length === 0) {
       lines.push("  (nothing restored)");
     }
-    lines.push("  note: conversation history is unchanged — this rewinds files only", "");
+    lines.push("  note: conversation history is unchanged; this rewinds files only", "");
     process.stdout.write(lines.map((l) => (opts.color && l.startsWith("  ⚠") ? chalk.yellow(l) : l)).join("\n") + "\n");
   }
 
-  /** /replay [speed] — re-render a recorded run through the live renderer. */
+  /** /replay [speed]: re-render a recorded run through the live renderer. */
   async function runReplayPicker(args: string[]): Promise<void> {
     const speedArg = args[0]?.replace(/^x/i, "");
     const speed = speedArg && /^\d+(\.\d+)?$/.test(speedArg) ? parseFloat(speedArg) : 2;
     const logs = await listRunLogs(RUNS_DIR);
     if (logs.length === 0) {
-      process.stdout.write(`\n  (no recorded runs in ${RUNS_DIR} yet — run a task first)\n`);
+      process.stdout.write(`\n  (no recorded runs in ${RUNS_DIR} yet; run a task first)\n`);
       return;
     }
     const items: PickItem[] = logs.slice(0, 30).map((l) => ({
@@ -958,7 +958,7 @@ async function runRepl(state: SessionState): Promise<void> {
     }
     const banner = `\n  ▶ replay · x${speed} · ${events.length} events · press Esc or q to stop\n`;
     process.stdout.write(opts.color ? chalk.bold.cyan(banner) : banner);
-    // Raw abort listener — Esc / q / Ctrl+C stops playback. pickerActive
+    // Raw abort listener: Esc / q / Ctrl+C stops playback. pickerActive
     // mutes the REPL's own keypress handling for the duration.
     let abort = false;
     pickerActive = true;
@@ -1038,8 +1038,8 @@ async function runRepl(state: SessionState): Promise<void> {
         if (state.model !== prevModel) {
           process.stderr.write(
             opts.color
-              ? chalk.dim(`  (model changed — prompt updated)\n`)
-              : `  (model changed — prompt updated)\n`
+              ? chalk.dim(`  (model changed; prompt updated)\n`)
+              : `  (model changed; prompt updated)\n`
           );
         }
       }
@@ -1047,7 +1047,7 @@ async function runRepl(state: SessionState): Promise<void> {
       return;
     }
 
-    // Non-slash, non-multiline — just run immediately (legacy direct mode)
+    // Non-slash, non-multiline: just run immediately (legacy direct mode)
     const compressed = compressUserInput(trimmed);
     if (compressed.notices.length > 0) {
       const noticeText = compressed.notices.map((notice) => `  ⧉ ${notice}`).join("\n");
@@ -1150,7 +1150,7 @@ async function apiFetch(path: string): Promise<Response> {
   if (keys.length > 0) {
     checks.push({ label: "API keys", status: "ok", msg: `${keys.length} key(s) configured` });
   } else {
-    checks.push({ label: "API keys", status: "fail", msg: "no keys — visit http://127.0.0.1:20128/dashboard to add your key" });
+    checks.push({ label: "API keys", status: "fail", msg: "no keys; visit http://127.0.0.1:20128/dashboard to add your key" });
     allOk = false;
   }
 
@@ -1163,7 +1163,7 @@ async function apiFetch(path: string): Promise<Response> {
     checks.push({ label: "providers", status: active.length > 0 ? "ok" : "warn", msg: `${connections.length} connection(s), ${active.length} active` });
     if (active.length === 0) allOk = false;
   } else {
-    checks.push({ label: "providers", status: "fail", msg: "no providers — visit http://127.0.0.1:20128/dashboard to connect one" });
+    checks.push({ label: "providers", status: "fail", msg: "no providers; visit http://127.0.0.1:20128/dashboard to connect one" });
     allOk = false;
   }
 
@@ -1189,13 +1189,13 @@ async function apiFetch(path: string): Promise<Response> {
   // (or when sandbox-exec is missing) commands run with full user permissions;
   // on darwin the restrictive profile can also be silently downgraded to
   // allow-all if this host's sandbox-exec rejects it (e.g. the macOS 26 subpath
-  // bug). This is a warning, not a failure — the app still runs.
+  // bug). This is a warning, not a failure; the app still runs.
   const sandboxStatus = getSandboxStatus();
   if (sandboxStatus.kind === "unavailable") {
     checks.push({
       label: "sandbox",
       status: "warn",
-      msg: `no OS-level isolation — run_bash runs with full user permissions (${sandboxStatus.reason})`,
+      msg: `no OS-level isolation: run_bash runs with full user permissions (${sandboxStatus.reason})`,
     });
   } else {
     const profile = new Sandbox({ ...getDefaultSandboxConfig(state.workDir), warnOnProfileFallback: false }).getProfile();
@@ -1208,7 +1208,7 @@ async function apiFetch(path: string): Promise<Response> {
     }
   }
 
-  process.stderr.write("\n  9rh doctor" + (allOk ? " — all checks passed\n\n" : " — issues found\n\n"));
+  process.stderr.write("\n  9rh doctor" + (allOk ? ": all checks passed\n\n" : ": issues found\n\n"));
   for (const check of checks) {
     const icon = check.status === "ok" ? (opts.color ? chalk.green("  ok") : "  ok")
       : check.status === "warn" ? (opts.color ? chalk.yellow("  warn") : "  warn")

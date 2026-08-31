@@ -158,7 +158,7 @@ describe("skills: discovery", () => {
     // empty. The function still scans user-level roots in $HOME
     // (which is the test sandbox here, also empty) so the manifest
     // is empty, but if the user has real skills installed those
-    // will appear too. That's the intended behavior — the workdir
+    // will appear too. That's the intended behavior: the workdir
     // is a PRIORITY layer, not a filter.
     const { discoverSkills } = await import("../skills.js");
     const manifest = await discoverSkills(sandbox);

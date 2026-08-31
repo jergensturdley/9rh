@@ -1,20 +1,20 @@
 # 9rh
 
-9rh is a lightweight local coding-agent harness. It runs one-shot tasks, opens an interactive REPL, and provides sandbox-aware local repository tools. It talks to **9router** when you want combo chains and a dashboard, or **directly** to any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, LM Studio) when you want zero moving parts.
+9rh is a lightweight local coding-agent harness. It runs one-shot tasks, opens an interactive REPL, and provides sandbox-aware local repository tools. It talks to **9router** when you want combo chains and a dashboard, or **directly** to any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, LM Studio) when you want no local proxy.
 
 ## Highlights
 
-- **Receipts, not vibes** — every turn ends with a harness-computed digest: files changed with net +/− counts, commands with pass/fail, duration, tokens. Built from observed tool results, never the model's self-report.
-- **Session ledger** — a cross-turn record behind the dashboard panels, `/brief`, and `/usage` (token counts only, no dollar estimates).
-- **Team pipeline** — run a task as architect → implementer → security audit → test strategist → reviewer, with live TEAM lanes and per-role token counts. Entry is always explicit: `/team <task>`, `--orchestrate`, or a visible "run as a team?" prompt.
-- **`/rewind` and `/replay`** — turn-level workdir undo, and a flight recorder that replays any recorded run through the live TUI.
-- **Clarifying questions** — `ask_user` pauses the run with an arrow-key picker; non-interactive runs auto-pick the default and surface it as an assumption in the receipts.
-- **Pluggable backends** — 9router for combo chains and a dashboard, or direct to OpenAI / OpenRouter / Ollama / LM Studio. Auto-detected, overridable per-invocation.
-- **Interactive REPL** — fuzzy command palette, arrow-key pickers, and slash commands for models, router, sandbox, and diagnostics.
-- **Run reports** — each turn writes a self-contained HTML report (changes, reasoning, tools, tokens); open it with `/report`.
-- **Sandbox-aware tools** — path-checked file operations, symlink blocking, and macOS `sandbox-exec` command isolation with visible `/sandbox` status.
-- **Spec, replay, and repair systems** — optional spec-driven task framing, live run visualization, replay logs, checkpoints, error taxonomy, and repair hooks.
-- **Programmatic API** — import the core agent, tools, visualization, spec, replay, and sandbox primitives from the package.
+- **Receipts every turn**: a harness-computed digest closes each turn: files changed with net +/− counts, commands with pass/fail, duration, tokens. Built from observed tool results, never the model's self-report.
+- **Session ledger**: a cross-turn record behind the dashboard panels, `/brief`, and `/usage` (token counts only; no dollar estimates).
+- **Team pipeline**: run a task as architect → implementer → security audit → test strategist → reviewer, with live TEAM lanes and per-role token counts. Entry is always explicit: `/team <task>`, `--orchestrate`, or a visible "run as a team?" prompt.
+- **`/rewind` and `/replay`**: turn-level workdir undo, and a flight recorder that replays any recorded run through the live TUI.
+- **Clarifying questions**: `ask_user` pauses the run with an arrow-key picker; non-interactive runs auto-pick the default and surface it as an assumption in the receipts.
+- **Pluggable backends**: 9router for combo chains and a dashboard, or direct to OpenAI / OpenRouter / Ollama / LM Studio. Auto-detected, overridable per-invocation.
+- **Interactive REPL**: fuzzy command palette, arrow-key pickers, and slash commands for models, router, sandbox, and diagnostics.
+- **Run reports**: each turn writes a self-contained HTML report (changes, reasoning, tools, tokens); open it with `/report`.
+- **Sandbox-aware tools**: path-checked file operations, symlink blocking, and macOS `sandbox-exec` command isolation with visible `/sandbox` status.
+- **Spec, replay, and repair systems**: optional spec-driven task framing, live run visualization, replay logs, checkpoints, error taxonomy, and repair hooks.
+- **Programmatic API**: import the core agent, tools, visualization, spec, replay, and sandbox primitives from the package.
 
 ## Quick start
 
@@ -95,7 +95,7 @@ For direct mode, `--provider=<name>` is a shortcut for the common cases:
 
 For custom endpoints, pass `--direct-url` and `--direct-key` directly. The provider flag never overrides an explicit `--direct-url`.
 
-Slash commands that depend on 9router's native `/api/*` endpoints (`/providers`, `/combos`, `/keys`, `/router`) are automatically disabled in direct mode with a friendly "requires 9router mode" message. `/models`, `/switch`, `/status`, `/doctor`, `/sandbox`, `/dir`, and `/help` all work in both modes.
+Slash commands that depend on 9router's native `/api/*` endpoints (`/providers`, `/combos`, `/keys`, `/router`) are automatically disabled in direct mode with a "requires 9router mode" message. `/models`, `/switch`, `/status`, `/doctor`, `/sandbox`, `/dir`, and `/help` all work in both modes.
 
 ## Common slash commands
 
@@ -105,7 +105,7 @@ Type `/` in the REPL to open the fuzzy command palette (↑↓ focus, Enter runs
 |---------|------|-------------|
 | `/models [filter]` | both | List available models |
 | `/switch <model>` | both | Change the active model |
-| `/brief` | both | Session brief — goal, turns, files touched, commands, tokens |
+| `/brief` | both | Session brief: goal, turns, files touched, commands, tokens |
 | `/usage` | both | Token usage per turn (with a per-role breakdown for team runs) |
 | `/team <task>` | both | Run a task through the multi-role team pipeline |
 | `/rewind` | both | Restore the workdir to before a chosen turn (files only) |
