@@ -8,19 +8,19 @@
  *   - (optionally) how to expose 9router-native data: providers, combos, keys
  *
  * Two concrete backends ship with 9rh:
- *   - `RouterBackend`   — talks to a running 9router on :20128 (default)
- *   - `DirectBackend`   — talks straight to any OpenAI-compatible endpoint
+ *   - `RouterBackend`   talks to a running 9router on :20128 (default)
+ *   - `DirectBackend`   talks straight to any OpenAI-compatible endpoint
  *                         (OpenAI, Anthropic-via-OpenRouter, LiteLLM, etc.)
  *
  * Note: `EmbeddedBackend` was a planned third mode where 9rh would spawn
- * and supervise its own 9router. It was deprioritized — see
+ * and supervise its own 9router. It was deprioritized; see
  * `docs/orchestrator-wiring-spec.md` for the related architecture decision
  * (Path B: keep `Orchestrator` as a library-only surface; the CLI continues
  * to dispatch through the streaming Agent loop).
  *
  * Choosing a backend is the first step in main(); everything else (Agent,
  * REPL slash commands, doctor) reads from it. Adding a new provider family
- * means adding a new Backend impl — no other module needs to change.
+ * means adding a new Backend impl; no other module needs to change.
  */
 
 export type BackendName = "router" | "direct" | "embedded";
@@ -65,7 +65,7 @@ export interface HealthSnapshot {
  *
  * `baseURL` and `apiKey` are what the OpenAI client (in `Agent`) needs to
  * issue a `/v1/chat/completions` request. The Backend is the authoritative
- * source for these — never read them from env vars after `detectBackend()`
+ * source for these; never read them from env vars after `detectBackend()`
  * has returned.
  */
 export interface Backend {
@@ -82,7 +82,7 @@ export interface Backend {
   readonly hasNativeRouter: boolean;
   /** Human-readable origin, used in startup banners and `/doctor`. */
   describe(): string;
-  /** List available models. Returns an empty array on any error — never throws. */
+  /** List available models. Returns an empty array on any error; never throws. */
   listModels(): Promise<ModelInfo[]>;
   /** Cheap health probe. Returns reachable=false on any error. */
   health(): Promise<HealthSnapshot>;

@@ -20,7 +20,7 @@ describe("buildDarwinProfile (strict)", () => {
   });
 });
 
-describe("buildDarwinProfile (blanketReads — macOS 26 workaround)", () => {
+describe("buildDarwinProfile (blanketReads: macOS 26 workaround)", () => {
   const p = buildDarwinProfile({ workDir: "/work", blanketReads: true });
 
   it("allows reads with NO subpath (the construct that SIGABRTs on macOS 26 is gone)", () => {

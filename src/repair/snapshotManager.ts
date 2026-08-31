@@ -16,7 +16,7 @@ export interface Snapshot {
   state: AgentState;
 }
 
-// Snapshots live under ~/.9rh (NINE_RH_HOME-overridable) — never the user cwd.
+// Snapshots live under ~/.9rh (NINE_RH_HOME-overridable), never the user cwd.
 const snapshotDir = (): string => ninerhDir("snapshots");
 
 async function ensureDir(dir: string): Promise<void> {

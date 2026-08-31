@@ -3,7 +3,7 @@ import { applyTeamEvent, renderTeamLanes, renderDashboardLines, type TeamLane, t
 import { createRunVisualization } from "../visualization.js";
 import { SessionLedger } from "../ledger.js";
 
-describe("applyTeamEvent — TEAM lane folding", () => {
+describe("applyTeamEvent: TEAM lane folding", () => {
   it("tracks role lifecycle in first-seen order", () => {
     const lanes: TeamLane[] = [];
     applyTeamEvent(lanes, { type: "role_start", role: "architect" }, 1000);
@@ -76,7 +76,7 @@ describe("dashboard TEAM panel", () => {
   });
 });
 
-describe("SessionLedger — team turns", () => {
+describe("SessionLedger: team turns", () => {
   it("accumulates per-role tokens into the turn and the /usage breakdown", () => {
     const ledger = new SessionLedger(0);
     ledger.beginTurn("design the api", 0);
@@ -102,7 +102,7 @@ describe("SessionLedger — team turns", () => {
 
   it("ignores team events with no usage and no open turn", () => {
     const ledger = new SessionLedger(0);
-    // No open turn — must not throw.
+    // No open turn: must not throw.
     ledger.onAgentEvent({ type: "team", event: { type: "role_complete", role: "architect", usage: { prompt: 1, completion: 1, total: 2 } } });
     ledger.beginTurn("t", 0);
     ledger.onAgentEvent({ type: "team", event: { type: "role_start", role: "architect" } });

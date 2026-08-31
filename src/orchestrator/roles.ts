@@ -153,7 +153,7 @@ export function assessToolRisk(call: ToolCall): ToolRiskLevel {
     return "low";
   }
   // load_skill reads a SKILL.md from disk and returns it as text.
-  // Read-only — the agent has already seen the (name, description) in
+  // Read-only: the agent has already seen the (name, description) in
   // its system prompt, and read access to the local skills tree is
   // not a privilege escalation over what `read_file` would allow.
   if (call.name === "load_skill") {
@@ -166,7 +166,7 @@ export function assessToolRisk(call: ToolCall): ToolRiskLevel {
   if (call.name === "install_skill") {
     return "high";
   }
-  // write_file — escalate based on path and content.
+  // write_file: escalate based on path and content.
   if (call.name === "write_file") {
     const path = typeof call.args.path === "string" ? call.args.path : "";
     const content = typeof call.args.content === "string" ? call.args.content : "";
@@ -176,7 +176,7 @@ export function assessToolRisk(call: ToolCall): ToolRiskLevel {
     if (/\.(?:pem|key|p12|pfx|crt|cer)$/i.test(path)) return "high";
     return "medium";
   }
-  // run_bash — escalate based on command text.
+  // run_bash: escalate based on command text.
   if (call.name === "run_bash") {
     const command = String(call.args.command ?? "");
     if (CRITICAL_BASH_REGEX.some((re) => re.test(command))) return "critical";
@@ -223,7 +223,7 @@ AUTHORITY:
 - Specify which downstream roles are required (Implementer, Reviewer, Security Auditor, Test Strategist)
 - Define measurable success criteria for the overall task
 
-OUTPUT FORMAT — respond with ONLY valid JSON matching this schema:
+OUTPUT FORMAT: respond with ONLY valid JSON matching this schema:
 {
   "summary": "one-sentence task description",
   "steps": [{ "id": "step_1", "action": "description of action", "files": ["file paths"], "risk": "low|medium|high|critical" }],
@@ -248,7 +248,7 @@ CONSTRAINTS:
     ],
     riskThreshold: "low",
     authorityBoundaries: [
-      "May only decompose and plan — no implementation code",
+      "May only decompose and plan, with no implementation code",
       "May not approve or reject work from other roles",
       "May not override security or review decisions",
     ],
@@ -273,7 +273,7 @@ CONSTRAINTS:
 - NEVER suppress type errors, disable linting, or leave empty catch blocks
 - Report blockers immediately rather than guessing
 
-COMPLETION REPORT FORMAT — respond with ONLY valid JSON:
+COMPLETION REPORT FORMAT: respond with ONLY valid JSON:
 {
   "status": "completed|partial|failed",
   "stepsCompleted": ["step_1", "step_2"],
@@ -314,7 +314,7 @@ REVIEW CHECKLIST:
 8. Require justification for files flagged in intentRisk.scopeJustificationsRequired.
 9. Treat high/critical semantic changes in auth, validation, data access, permissions, or side effects as blockers unless explicitly justified and tested.
 
-OUTPUT FORMAT — respond with ONLY valid JSON:
+OUTPUT FORMAT: respond with ONLY valid JSON:
 {
   "decision": "approved|rejected|needs_revision",
   "verdict": "one sentence summary",
@@ -324,7 +324,7 @@ OUTPUT FORMAT — respond with ONLY valid JSON:
 }
 
 CONSTRAINTS:
-- Do NOT write code — only assess and document
+- Do NOT write code; only assess and document
 - Rejections MUST include specific, actionable requiredChanges
 - Do NOT approve work with unresolved blocker issues
 - Justification must reference specific criteria`,
@@ -335,7 +335,7 @@ CONSTRAINTS:
     ],
     riskThreshold: "low",
     authorityBoundaries: [
-      "May only review and provide feedback — no implementation",
+      "May only review and provide feedback, with no implementation",
       "May not approve work with unresolved blocker issues",
       "May not reject without providing specific, actionable feedback",
     ],
@@ -346,7 +346,7 @@ CONSTRAINTS:
     displayName: "Security Auditor",
     systemPrompt: `You are the Security Auditor agent. Your sole responsibility is security review of high-risk changes.
 
-SCOPE: Invoked ONLY for changes classified as high or critical risk. You are the final authority on security concerns — your rejection cannot be overridden by other agents.
+SCOPE: Invoked ONLY for changes classified as high or critical risk. You are the final authority on security concerns; your rejection cannot be overridden by other agents.
 
 SECURITY CHECKLIST:
 1. Injection vulnerabilities (SQL, command injection, path traversal)
@@ -358,7 +358,7 @@ SECURITY CHECKLIST:
 7. Sandbox escapes or privilege escalation risks
 8. OWASP Top 10 coverage
 
-OUTPUT FORMAT — respond with ONLY valid JSON:
+OUTPUT FORMAT: respond with ONLY valid JSON:
 {
   "clearance": "approved|rejected|conditional",
   "riskAssessment": "low|medium|high|critical",
@@ -375,9 +375,9 @@ OUTPUT FORMAT — respond with ONLY valid JSON:
 
 CONSTRAINTS:
 - Do NOT approve changes with unmitigated critical or high vulnerabilities
-- Do NOT write code — only assess and document
+- Do NOT write code; only assess and document
 - All rejections MUST include specific remediation for each vulnerability
-- Your clearance decision is final — only a human can override a rejection`,
+- Your clearance decision is final; only a human can override a rejection`,
     successCriteria: [
       "Security clearance decision provided",
       "All vulnerabilities documented with severity and remediation",
@@ -385,10 +385,10 @@ CONSTRAINTS:
     ],
     riskThreshold: "high",
     authorityBoundaries: [
-      "May only assess security concerns — no implementation",
+      "May only assess security concerns, with no implementation",
       "Must block changes with unmitigated critical vulnerabilities",
       "Authority is limited to security concerns; cannot override functional review decisions",
-      "Rejection cannot be overridden by other agents — only by a human",
+      "Rejection cannot be overridden by other agents, only by a human",
     ],
   },
 
@@ -405,7 +405,7 @@ RESPONSIBILITIES:
 3. Flag critical coverage gaps (paths not covered by any test)
 4. Recommend specific test additions when coverage is insufficient
 
-OUTPUT FORMAT — respond with ONLY valid JSON:
+OUTPUT FORMAT: respond with ONLY valid JSON:
 {
   "verdict": "adequate|insufficient|requires_additions",
   "testPlan": {
@@ -421,7 +421,7 @@ OUTPUT FORMAT — respond with ONLY valid JSON:
 }
 
 CONSTRAINTS:
-- Do NOT write test code — only design the strategy
+- Do NOT write test code; only design the strategy
 - Do NOT approve implementations with critical coverage gaps on happy-path flows
 - All recommendations must be specific and independently verifiable`,
     successCriteria: [
@@ -431,7 +431,7 @@ CONSTRAINTS:
     ],
     riskThreshold: "medium",
     authorityBoundaries: [
-      "May only assess test strategy — no implementation",
+      "May only assess test strategy, with no implementation",
       "May not override Reviewer or Security Auditor decisions",
       "Authority is limited to test coverage concerns",
     ],

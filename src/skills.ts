@@ -1,6 +1,6 @@
 // Skills: filesystem-based bundles of instructions an agent can load
 // on demand. Inspired by Anthropic's "Agent Skills" progressive
-// disclosure design — only (name, description) lives in the system
+// disclosure design: only (name, description) lives in the system
 // prompt, and the agent pulls the full body via the load_skill tool
 // when (and if) it decides a skill is relevant.
 //
@@ -25,7 +25,7 @@
 //   name: short-identifier
 //   description: one-paragraph "what + when to use"
 //   ---
-//   <markdown body — full instructions, ~5K tokens typical>
+//   <markdown body: full instructions, ~5K tokens typical>
 
 import { readFile, readdir, lstat } from "fs/promises";
 import { existsSync } from "fs";
@@ -33,7 +33,7 @@ import { homedir } from "os";
 import { join } from "path";
 
 export interface SkillManifestEntry {
-  /** Skill identifier — kebab/snake case, ≤64 chars. */
+  /** Skill identifier: kebab/snake case, ≤64 chars. */
   name: string;
   /** One-paragraph "what + when to use" from the YAML frontmatter. */
   description: string;
@@ -60,7 +60,7 @@ interface ParsedFrontmatter {
 /**
  * Pull a YAML-ish frontmatter block out of markdown. We don't pull
  * in a YAML library because the only fields we need (name,
- * description) are simple scalar strings — handling the common case
+ * description) are simple scalar strings, so handling the common case
  * (single-line `key: value`) covers 99% of real-world SKILL.md
  * files. Multi-line folded scalars (`>` / `|`) and lists are not
  * supported; if the description is one of those, the user should
@@ -106,7 +106,7 @@ async function* walkSkillFiles(root: string): AsyncGenerator<string> {
       const full = join(dir, entry);
       const st = await lstat(full).catch(() => null);
       if (!st) continue;
-      if (st.isSymbolicLink()) continue; // skip — keep the loader deterministic
+      if (st.isSymbolicLink()) continue; // skip: keeps the loader deterministic
       if (st.isDirectory()) {
         yield* recurse(full, depth + 1);
       } else if (entry === "SKILL.md" && st.isFile()) {
@@ -120,7 +120,7 @@ async function* walkSkillFiles(root: string): AsyncGenerator<string> {
 /**
  * Best-effort name inference when the SKILL.md frontmatter is
  * missing or has no name. Path-based fallback so we never silently
- * drop a skill because of bad frontmatter — the LLM will just see
+ * drop a skill because of bad frontmatter; the LLM will just see
  * a placeholder description and skip it.
  */
 function inferName(skillFilePath: string, root: string): string {
@@ -140,7 +140,7 @@ export function defaultSkillRoots(workdir?: string): Array<{ root: string; sourc
   const user9rh = join(homedir(), ".9rh", "skills");
   const userHermes = join(homedir(), ".hermes", "skills");
   if (workdir) {
-    // Per-project roots first — they should win over user-level when
+    // Per-project roots first: they should win over user-level when
     // both define a skill with the same name.
     roots.push({ root: join(workdir, "skills"), source: "workdir-root" });
     roots.push({ root: join(workdir, ".9rh", "skills"), source: "workdir-9rh" });
@@ -169,7 +169,7 @@ export async function discoverSkills(workdir?: string): Promise<SkillManifestEnt
         ? fm.name.toLowerCase()
         : inferName(file, root).toLowerCase();
       if (seen.has(name)) continue; // first source wins
-      const description = fm.description?.trim() || `(no description — see ${file})`;
+      const description = fm.description?.trim() || `(no description; see ${file})`;
       seen.set(name, { name, description, path: file, source });
     }
   }
@@ -205,21 +205,21 @@ export async function readSkill(name: string, workdir?: string): Promise<{ entry
  * decide which (if any) skill to load. Capped at 15K characters so
  * a wild install (1000+ skills) doesn't blow the context window.
  * If we have to truncate, the tail of the list is dropped and a
- * "(see load_skill to enumerate the rest)" hint is added — the
+ * "(see load_skill to enumerate the rest)" hint is added; the
  * load_skill tool is the safe path for the full set.
  */
 export function buildSkillsSection(manifest: SkillManifestEntry[]): string {
   if (manifest.length === 0) {
-    return "## Available skills\n\n(none installed — use install_skill to add some)";
+    return "## Available skills\n\n(none installed; use install_skill to add some)";
   }
   const lines: string[] = [
     "## Available skills",
     "",
-    "Each entry below is a skill installed on this system. The LLM can call `load_skill` to pull the full instructions for any one of them. Pick the skill whose description best matches the user's current task, then load it. Do not load a skill whose description does not match — its instructions will mislead you.",
+    "Each entry below is a skill installed on this system. The LLM can call `load_skill` to pull the full instructions for any one of them. Pick the skill whose description best matches the user's current task, then load it. Do not load a skill whose description does not match; its instructions will mislead you.",
     "",
   ];
   const body = manifest
-    .map((s) => `- **${s.name}** — ${s.description}`)
+    .map((s) => `- **${s.name}**: ${s.description}`)
     .join("\n");
   const head = `${lines.join("\n")}${body}\n`;
   const cap = 15_000;
@@ -228,7 +228,7 @@ export function buildSkillsSection(manifest: SkillManifestEntry[]): string {
   const truncatedLines: string[] = [];
   let used = head.length - body.length;
   for (const s of manifest) {
-    const line = `- **${s.name}** — ${s.description}\n`;
+    const line = `- **${s.name}**: ${s.description}\n`;
     if (used + line.length > cap) break;
     truncatedLines.push(line);
     used += line.length;

@@ -15,28 +15,28 @@ export interface ErrorClassMetadata {
 export const ERROR_TAXONOMY: Record<ErrorClass, ErrorClassMetadata> = {
   [ErrorClass.RECOVERABLE]: {
     description:
-      "Transient network or resource issues — API timeouts, rate limits, socket resets, premature closes.",
+      "Transient network or resource issues: API timeouts, rate limits, socket resets, premature closes.",
     retryable: true,
     maxRetries: 3,
     triggersRepair: true,
   },
   [ErrorClass.AGENT_ERROR]: {
     description:
-      "Internal agent logic failures — malformed JSON from LLM, unknown tool name, type errors in tool args.",
+      "Internal agent logic failures: malformed JSON from LLM, unknown tool name, type errors in tool args.",
     retryable: false,
     maxRetries: 1,
     triggersRepair: true,
   },
   [ErrorClass.ENVIRONMENT_ERROR]: {
     description:
-      "External environment failures — disk full, missing env var, sandbox process crash, permission denied.",
+      "External environment failures: disk full, missing env var, sandbox process crash, permission denied.",
     retryable: false,
     maxRetries: 1,
     triggersRepair: true,
   },
   [ErrorClass.FATAL]: {
     description:
-      "Unrecoverable fatal errors — invariants violated, internal assertion failures, unknown error states.",
+      "Unrecoverable fatal errors: invariants violated, internal assertion failures, unknown error states.",
     retryable: false,
     maxRetries: 0,
     triggersRepair: false,
@@ -62,7 +62,7 @@ export interface TaggedError {
  * or "rate limit" triggering RECOVERABLE and burning retry budget).
  *
  * New rules:
- *   1. The SourceLayer gives a baseline — sandbox errors are
+ *   1. The SourceLayer gives a baseline: sandbox errors are
  *      ENVIRONMENT, LLM errors are RECOVERABLE/AGENT depending on
  *      type, tool errors are AGENT.
  *   2. The exception's `name` and `code` (for NodeJS.ErrnoException)
@@ -152,7 +152,7 @@ export function classifyError(
   }
 
   // 4. Default to the source-layer baseline. We no longer promote
-  //    unknown text to FATAL — FATAL is reserved for explicit
+  //    unknown text to FATAL; FATAL is reserved for explicit
   //    AssertionError / RangeError or `tagError(..., fatal: true)`.
   return { errorClass: baseline, reason: `${sourceLayer} baseline` };
 }

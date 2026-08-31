@@ -323,7 +323,7 @@ describe("createTuiRenderer", () => {
         getWorkDir: () => "/tmp",
         useColor: false,
       });
-      // 3000 chars — well past the 2000-char preview cap.
+      // 3000 chars, well past the 2000-char preview cap.
       render({ type: "done", text: "x".repeat(3000), reportPath: "/tmp/r.html" });
       const out = writes.join("");
       // Truncation marker present.
@@ -364,7 +364,7 @@ describe("createTuiRenderer", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// TUI column-wrap spec — geometry / padding / per-line wrap helpers
+// TUI column-wrap spec: geometry / padding / per-line wrap helpers
 // ────────────────────────────────────────────────────────────────────
 describe("computeGeometry", () => {
   it("computes two-column geometry for 80x24 (typical)", () => {
@@ -418,7 +418,7 @@ describe("computeGeometry", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Receipts — the harness-computed end-of-turn digest
+// Receipts: the harness-computed end-of-turn digest
 // ────────────────────────────────────────────────────────────────────
 describe("renderDigestLines (receipts)", () => {
   function digest(overrides: Partial<TurnDigest> = {}): TurnDigest {
@@ -805,7 +805,7 @@ describe("partial_output line flush", () => {
       return true;
     }) as typeof process.stdout.write;
     // Pretend to be a TTY so the renderer's dashboard / spinner paths
-    // don't bail out early — we only care about the streamed body writes.
+    // don't bail out early; we only care about the streamed body writes.
     Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
     renderer = createTuiRenderer({
       getModel: () => "m",
@@ -841,7 +841,7 @@ describe("partial_output line flush", () => {
     // No trailing newline from the partial itself.
     expect(partialText.endsWith("streaming text")).toBe(true);
 
-    // Next event is a tool_call — should close the streamed line first.
+    // Next event is a tool_call, so it should close the streamed line first.
     emit({
       type: "tool_call",
       name: "edit",
@@ -916,9 +916,9 @@ describe("createTuiRenderer dispose", () => {
 // ────────────────────────────────────────────────────────────────────
 // Driving the full async splash under jest is brittle (real setTimeout
 // sleeps, TTY detection, jest's own SIGINT handling leave outstanding
-// handles that hang the suite). The fix is structurally a one-liner —
+// handles that hang the suite). The fix is structurally a one-liner:
 // the SIGINT handler now sets a skip flag instead of calling
-// process.exit — so we rely on the partial/dispose tests below for the
+// process.exit, so we rely on the partial/dispose tests below for the
 // renderer and leave splash's SIGINT path as a source-level review item.
 
 // ────────────────────────────────────────────────────────────────────
@@ -969,7 +969,7 @@ describe("createTuiRenderer remaining event cases", () => {
 
     const out = writes.join("");
     expect(out).toContain("iter 1/3");
-    expect(out).toContain("compacting context — trimmed 12 messages");
+    expect(out).toContain("compacting context: trimmed 12 messages");
     expect(out).toContain("continuing 1/4");
     expect(out).toContain("switching model kr/a → kr/b");
     expect(out).toContain("generated test plan");
@@ -982,7 +982,7 @@ describe("createTuiRenderer remaining event cases", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// done summary preserves structure (B.6) — newlines in the model's
+// done summary preserves structure (B.6): newlines in the model's
 // final answer must survive into the rendered output instead of being
 // collapsed into a single run-on line.
 // ────────────────────────────────────────────────────────────────────
@@ -1022,7 +1022,7 @@ describe("done summary preserves newlines", () => {
       (render as unknown as { dispose?: () => void }).dispose?.();
     }
     const out = writes.join("");
-    // Paragraphs and bullets survive — the structure is not flattened.
+    // Paragraphs and bullets survive; the structure is not flattened.
     expect(out).toContain("First paragraph.");
     expect(out).toContain("Second paragraph.");
     expect(out).toContain("- bullet one");
@@ -1034,7 +1034,7 @@ describe("done summary preserves newlines", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// drawBox consistent inner width (B.7) — every body line must share
+// drawBox consistent inner width (B.7): every body line must share
 // the same visible width so the right border aligns, including the
 // truncation-with-ellipsis case.
 // ────────────────────────────────────────────────────────────────────
@@ -1074,7 +1074,7 @@ describe("drawBox consistent inner width", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// partial_output weight (B.5) — the streamed assistant answer must NOT
+// partial_output weight (B.5): the streamed assistant answer must NOT
 // be dimmed. In no-color mode there's no ANSI at all; the guard is that
 // the raw text is written verbatim with no surrounding styling.
 // ────────────────────────────────────────────────────────────────────

@@ -16,7 +16,7 @@ import type {
  *
  * The endpoint must speak the OpenAI `/v1/models` and `/v1/chat/completions`
  * shape. If it doesn't, listModels returns [] and the chat call will fail
- * with whatever the upstream returns — the Backend stays hands-off.
+ * with whatever the upstream returns; the Backend stays hands-off.
  */
 export class DirectBackend implements Backend {
   readonly name = "direct" as const;
@@ -67,7 +67,7 @@ export class DirectBackend implements Backend {
     }
   }
 
-  // Direct backends don't have providers / combos / keys views — the methods
+  // Direct backends don't have providers / combos / keys views, so the methods
   // are intentionally absent from the returned object so callers can check
   // `backend.listProviders?.()` and get a clean "not supported" path.
 }
@@ -81,5 +81,5 @@ function isModelInfo(value: unknown): value is ModelInfo {
 }
 
 // ProviderInfo/KeyInfo types are re-exported here so consumers can import
-// from a single path; the direct backend simply doesn't implement them.
+// from a single path; the direct backend does not implement them.
 export type { ProviderInfo, KeyInfo, ModelInfo, HealthSnapshot };

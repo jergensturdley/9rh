@@ -81,7 +81,7 @@ function warnFallbackOnce(warn: boolean, message: string): void {
 
 // Probe a candidate profile against the host's sandbox-exec. Returns true if
 // the host accepts it. macOS 26 SIGABRTs (does not merely reject) on some
-// constructs — notably `(allow file-read* (subpath ...))` — so we must
+// constructs, notably `(allow file-read* (subpath ...))`, so we must
 // actually run it rather than trust the profile is well-formed.
 function probeProfile(profile: string): boolean {
   const probePath = `/tmp/9rh-sb-probe-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.sb`;
@@ -122,7 +122,7 @@ class DarwinSandboxProfile {
    * subpath-restricted reads. macOS 26's sandbox-exec SIGABRTs on
    * `(allow file-read* (subpath ...))`, so the Sandbox constructor retries
    * with this variant before giving up on isolation entirely. Writes stay
-   * confined to the allowlist and network stays denied either way — the
+   * confined to the allowlist and network stays denied either way; the
    * containment that actually matters is preserved.
    */
   create(workDir: string, allowedPaths: string[], networkEnabled: boolean, legacy: boolean, blanketReads: boolean): string {
@@ -211,10 +211,10 @@ export class Sandbox {
 
   /**
    * Pick the strongest profile the host actually accepts, degrading in steps:
-   *   1. strict     — subpath-restricted reads AND writes, network denied
-   *   2. blanketRead — unrestricted reads, subpath writes, network denied
+   *   1. strict     : subpath-restricted reads AND writes, network denied
+   *   2. blanketRead: unrestricted reads, subpath writes, network denied
    *                    (macOS 26 SIGABRTs on file-read* subpath rules)
-   *   3. allow-all   — no isolation (only if even blanket reads are rejected)
+   *   3. allow-all   : no isolation (only if even blanket reads are rejected)
    * Non-darwin and legacy/allow-default profiles skip probing.
    */
   private _resolveProfile(): string {
@@ -232,7 +232,7 @@ export class Sandbox {
         warnOnProfileFallback,
         "\n[9rh] NOTICE: this host rejects file-read* subpath rules (e.g. macOS 26); " +
         "using a profile with unrestricted reads. Writes stay confined to the workDir " +
-        "and network is denied — the containment that matters is preserved.\n\n",
+        "and network is denied; the containment that matters is preserved.\n\n",
       );
       return blanketRead;
     }

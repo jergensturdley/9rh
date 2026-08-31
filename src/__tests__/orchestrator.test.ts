@@ -355,7 +355,7 @@ const implementationOk = JSON.stringify({
   diff: "minor change",
 });
 
-describe("Orchestrator — happy path (low risk, no security, reviewer approves)", () => {
+describe("Orchestrator: happy path (low risk, no security, reviewer approves)", () => {
   it("emits task_complete and returns completed status", async () => {
     const events: OrchestratorEvent[] = [];
     const invoker = jest.fn(async (role: RoleName) => {
@@ -382,7 +382,7 @@ describe("Orchestrator — happy path (low risk, no security, reviewer approves)
   });
 });
 
-describe("Orchestrator — security rejection escalates to human", () => {
+describe("Orchestrator: security rejection escalates to human", () => {
   it("returns escalated status when security auditor rejects", async () => {
     const highRiskPlan = JSON.stringify({
       summary: "Update auth tokens",
@@ -428,7 +428,7 @@ describe("Orchestrator — security rejection escalates to human", () => {
   });
 });
 
-describe("Orchestrator — reviewer/implementer revision loop", () => {
+describe("Orchestrator: reviewer/implementer revision loop", () => {
   it("iterates up to maxRevisions then escalates", async () => {
     const needsRevision = JSON.stringify({
       decision: "needs_revision",
@@ -489,7 +489,7 @@ describe("Orchestrator — reviewer/implementer revision loop", () => {
   });
 });
 
-describe("Orchestrator — trivial edit skips reviews", () => {
+describe("Orchestrator: trivial edit skips reviews", () => {
   it("skips reviewer, security_auditor, test_strategist for trivial edits", async () => {
     const invoker = jest.fn(async () => implementationOk);
     const events: OrchestratorEvent[] = [];
@@ -510,7 +510,7 @@ describe("Orchestrator — trivial edit skips reviews", () => {
   });
 });
 
-describe("Orchestrator — cache_hit events", () => {
+describe("Orchestrator: cache_hit events", () => {
   it("emits cache_hit on second call with same task", async () => {
     const invoker = jest.fn(async (role: RoleName) => {
       if (role === "architect") return lowRiskPlan;
@@ -530,7 +530,7 @@ describe("Orchestrator — cache_hit events", () => {
   });
 });
 
-describe("Orchestrator — cacheStats", () => {
+describe("Orchestrator: cacheStats", () => {
   it("returns stats object", async () => {
     const invoker = jest.fn(async (role: RoleName) => {
       if (role === "architect") return lowRiskPlan;

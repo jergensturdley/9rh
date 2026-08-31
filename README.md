@@ -1,21 +1,21 @@
 # 9rh
 
-9rh is a lightweight local coding-agent harness. It runs one-shot tasks, opens an interactive REPL, and provides sandbox-aware local repository tools. It talks to **9router** when you want combo chains and a dashboard, or **directly** to any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, LM Studio) when you want zero moving parts.
+9rh is a lightweight local coding-agent harness. It runs one-shot tasks, opens an interactive REPL, and provides sandbox-aware local repository tools. It talks to **9router** when you want combo chains and a dashboard, or **directly** to any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, LM Studio) when you want no local proxy.
 
 ## Highlights
 
-- **Local repo agent** — run coding tasks against a selected working directory.
-- **Receipts, not vibes** — every turn ends with a harness-computed digest: files changed with net +/− line counts, commands run with pass/fail, steps, duration, tokens. Sourced from tool results the harness observed, never from the model's self-report.
-- **Session ledger** — a persistent cross-turn record behind the dashboard panels and the `/brief` and `/usage` commands (token counts only — no dollar estimates).
-- **Team pipeline** — route a task through a multi-role pipeline (architect → implementer → security audit → test strategist → reviewer) with live TEAM lanes in the dashboard and per-role token counts. Explicit entry points only: `/team <task>`, `--orchestrate`, or a visible "run as a team?" prompt on structured-looking tasks.
-- **`/rewind` and `/replay`** — turn-level workdir undo (restore files to before any turn) and a flight recorder that re-renders any recorded run through the live TUI.
-- **Clarifying questions** — the agent can pause and ask via an arrow-key picker (`ask_user`); in non-interactive runs the default is auto-picked and surfaced as an assumption in the receipts.
-- **Pluggable backends** — use 9router for combo chains, or talk straight to OpenAI / OpenRouter / Ollama / LM Studio. Auto-detected from your environment, overridable per-invocation.
-- **Interactive REPL** — a fuzzy command palette, arrow-key pickers, and slash commands for models, providers, router status, sandbox status, working directory, setup, and diagnostics.
-- **Run reports** — every agent turn writes a self-contained HTML summary of changes made, reasoning, tools used, and tokens used. Linked in the chat, openable via `/report`.
-- **Sandbox-aware tools** — file operations are path-checked, symlinks are blocked for file reads/writes, and shell commands use macOS `sandbox-exec` when available with visible `/sandbox` status.
-- **Spec, replay, and repair systems** — optional spec-driven task framing, live run visualization, replay logs, checkpoints, error taxonomy, and repair hooks.
-- **Programmatic API** — import the core agent, tools, visualization, spec, replay, and sandbox primitives from the package.
+- **Local repo agent**: run coding tasks against a selected working directory.
+- **Receipts every turn**: each turn ends with a harness-computed digest of files changed with net +/− line counts, commands run with pass/fail, steps, duration, tokens. Sourced from tool results the harness observed, never from the model's self-report.
+- **Session ledger**: a persistent cross-turn record behind the dashboard panels and the `/brief` and `/usage` commands (token counts only; no dollar estimates).
+- **Team pipeline**: route a task through a multi-role pipeline (architect → implementer → security audit → test strategist → reviewer) with live TEAM lanes in the dashboard and per-role token counts. Explicit entry points only: `/team <task>`, `--orchestrate`, or a visible "run as a team?" prompt on structured-looking tasks.
+- **`/rewind` and `/replay`**: turn-level workdir undo (restore files to before any turn) and a flight recorder that re-renders any recorded run through the live TUI.
+- **Clarifying questions**: the agent can pause and ask via an arrow-key picker (`ask_user`); in non-interactive runs the default is auto-picked and surfaced as an assumption in the receipts.
+- **Pluggable backends**: use 9router for combo chains, or talk straight to OpenAI / OpenRouter / Ollama / LM Studio. Auto-detected from your environment, overridable per-invocation.
+- **Interactive REPL**: a fuzzy command palette, arrow-key pickers, and slash commands for models, providers, router status, sandbox status, working directory, setup, and diagnostics.
+- **Run reports**: every agent turn writes a self-contained HTML summary of changes made, reasoning, tools used, and tokens used. Linked in the chat, openable via `/report`.
+- **Sandbox-aware tools**: file operations are path-checked, symlinks are blocked for file reads/writes, and shell commands use macOS `sandbox-exec` when available with visible `/sandbox` status.
+- **Spec, replay, and repair systems**: optional spec-driven task framing, live run visualization, replay logs, checkpoints, error taxonomy, and repair hooks.
+- **Programmatic API**: import the core agent, tools, visualization, spec, replay, and sandbox primitives from the package.
 
 ## Quick start
 
@@ -94,7 +94,7 @@ For direct mode, `--provider=<name>` is a shortcut for the common cases:
 
 For custom endpoints, pass `--direct-url` and `--direct-key` directly. The provider flag never overrides an explicit `--direct-url`.
 
-Slash commands that depend on 9router's native `/api/*` endpoints (`/providers`, `/combos`, `/keys`, `/router`) are automatically disabled in direct mode with a friendly "requires 9router mode" message. `/models`, `/switch`, `/status`, `/doctor`, `/sandbox`, `/dir`, and `/help` all work in both modes.
+Slash commands that depend on 9router's native `/api/*` endpoints (`/providers`, `/combos`, `/keys`, `/router`) are automatically disabled in direct mode with a "requires 9router mode" message. `/models`, `/switch`, `/status`, `/doctor`, `/sandbox`, `/dir`, and `/help` all work in both modes.
 
 ## Common slash commands
 
@@ -102,7 +102,7 @@ Slash commands that depend on 9router's native `/api/*` endpoints (`/providers`,
 |---------|------|-------------|
 | `/models [filter]` | both | List available models |
 | `/switch <model>` | both | Change the active model |
-| `/brief` | both | Session brief — goal, turns, files touched, commands, tokens |
+| `/brief` | both | Session brief: goal, turns, files touched, commands, tokens |
 | `/usage` | both | Token usage per turn (with a per-role breakdown for team runs) |
 | `/team <task>` | both | Run a task through the multi-role team pipeline |
 | `/rewind` | both | Restore the workdir to before a chosen turn (files only) |

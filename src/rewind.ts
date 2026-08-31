@@ -1,18 +1,18 @@
 /**
- * /rewind — turn-level workdir time travel (v1: file restore only).
+ * /rewind: turn-level workdir time travel (v1: file restore only).
  *
  * The ledger retains each turn's raw before/after file-change records
  * (harness-observed, capped at 32KB per side). Rewinding to "before turn N"
  * walks turns newest→N and, within each turn, records newest→oldest,
  * restoring every file to its recorded `before` content (or deleting files
- * the turn created). Conversation state is untouched — this is a workdir
+ * the turn created). Conversation state is untouched; this is a workdir
  * undo, not a fork.
  *
  * Safety rules:
  *   - truncated records are skipped (writing a truncated `before` would
  *     corrupt the file);
  *   - records whose current on-disk content no longer matches the recorded
- *     `after` are skipped (the user — or a later, unrecorded actor — edited
+ *     `after` are skipped (the user, or a later unrecorded actor, edited
  *     the file since; rewind never clobbers work it didn't see);
  *   - paths outside the workDir are skipped.
  */
@@ -29,7 +29,7 @@ export interface RewindAction {
   kind: RewindActionKind;
   /** Content to write (undefined for delete). */
   content?: string;
-  /** Recorded post-turn content — verified against disk before restoring. */
+  /** Recorded post-turn content, verified against disk before restoring. */
   expected: string;
   turnIndex: number;
 }
@@ -48,10 +48,10 @@ export interface RewindPlan {
 
 /**
  * Build the ordered restore plan for rewinding to the state BEFORE
- * `targetTurnIndex` (1-based ledger turn index). Pure — no filesystem.
+ * `targetTurnIndex` (1-based ledger turn index). Pure: no filesystem.
  * Later duplicate records for the same path are superseded by the oldest
  * one's `before` (we walk newest→oldest and let the last write win, which
- * is the oldest record — exactly the pre-turn content).
+ * is the oldest record, exactly the pre-turn content).
  */
 export function planRewind(turns: readonly LedgerTurn[], targetTurnIndex: number): RewindPlan {
   const actions: RewindAction[] = [];

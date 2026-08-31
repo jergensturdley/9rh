@@ -1,7 +1,7 @@
 /**
  * Data shape for the run report.
  *
- * The renderer (`renderRunReport` in runReport.ts) consumes this — it is
+ * The renderer (`renderRunReport` in runReport.ts) consumes this; it is
  * deliberately framework-free so it can be tested in isolation and used
  * programmatically (e.g. by `Agent` after a run completes, or by a future
  * "render past replay log" utility).

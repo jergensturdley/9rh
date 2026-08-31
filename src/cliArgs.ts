@@ -1,7 +1,7 @@
 // Pure CLI argument mapping/validation, split out of index.ts so it can be
 // unit-tested without executing the top-level program (index.ts runs
 // program.parse() at import). Nothing here touches process.exit or module
-// state — callers translate a `{ ok: false }` result into their own
+// state; callers translate a `{ ok: false }` result into their own
 // exit/stderr behavior.
 import type { ContinuationPolicy } from "./agent.js";
 

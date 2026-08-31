@@ -1,7 +1,7 @@
 /**
- * /replay — flight recorder. Re-renders a past run's event log through the
+ * /replay: the flight recorder. Re-renders a past run's event log through the
  * live TUI renderer at adjustable speed. Pure re-render: no tools are
- * executed, no LLM is called — the recorded events are mapped back onto the
+ * executed, no LLM is called; the recorded events are mapped back onto the
  * AgentEvent vocabulary the renderer already understands.
  */
 

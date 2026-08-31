@@ -33,7 +33,7 @@ export interface SessionState {
    * When true, tasks are routed through `Orchestrator.orchestrate()`
    * regardless of the complexity heuristic. Set via the `--orchestrate`
    * CLI flag. When false/undefined, `shouldUseOrchestrator()` consults
-   * the heuristic — see src/orchestrator/dispatch.ts.
+   * the heuristic (see src/orchestrator/dispatch.ts).
    */
   useOrchestrate?: boolean;
   // Queue / interrupt state
@@ -42,14 +42,14 @@ export interface SessionState {
   _runStartMs: number | undefined;
   _toolCallCount: Record<string, number>;
   /**
-   * Session ledger — cross-turn record of goals, outcomes, files touched,
+   * Session ledger: cross-turn record of goals, outcomes, files touched,
    * commands run, and token usage. Read by /brief, /usage, and the TUI
    * dashboard panels. Optional so programmatic construction (and tests)
    * without a ledger keeps working.
    */
   ledger?: SessionLedger;
   /** Quiet mode (/quiet): suppress live thinking narration in the
-   *  transcript. Render-side and instant — the dashboard, receipts, and
+   *  transcript. Render-side and instant: the dashboard, receipts, and
    *  final summary are unaffected. */
   quiet?: boolean;
 }
@@ -408,7 +408,7 @@ const COMMANDS: Record<string, CommandDef> = {
         }
       }
       if (args[0] === "reload") {
-        return "\n  (reload not yet implemented — would clear skill index cache)\n";
+        return "\n  (reload not yet implemented; it would clear the skill index cache)\n";
       }
       return "\n  Usage: /skills [list|reload]\n";
     },
@@ -416,9 +416,9 @@ const COMMANDS: Record<string, CommandDef> = {
 
   brief: {
     usage: "/brief",
-    description: "Session brief — goal, turns, files touched, commands, tokens",
+    description: "Session brief: goal, turns, files touched, commands, tokens",
     handler: async (_args, state) => {
-      if (!state.ledger) return "\n  (no session ledger — run a task first)\n";
+      if (!state.ledger) return "\n  (no session ledger; run a task first)\n";
       return renderBrief(state.ledger.view(), state.useColor);
     },
   },
@@ -427,7 +427,7 @@ const COMMANDS: Record<string, CommandDef> = {
     usage: "/usage",
     description: "Token usage per turn and session total (tokens only, no cost)",
     handler: async (_args, state) => {
-      if (!state.ledger) return "\n  (no session ledger — run a task first)\n";
+      if (!state.ledger) return "\n  (no session ledger; run a task first)\n";
       return renderUsage(state.ledger.view(), state.useColor);
     },
   },
@@ -450,7 +450,7 @@ const COMMANDS: Record<string, CommandDef> = {
       const tag = c
         ? (state.quiet ? chalk.yellow("ON") : chalk.green("OFF"))
         : (state.quiet ? "ON" : "OFF");
-      return `\n  quiet mode is ${tag} — live thinking narration ${state.quiet ? "hidden (dashboard still shows it)" : "shown in the transcript"}.\n`;
+      return `\n  quiet mode is ${tag}: live thinking narration ${state.quiet ? "hidden (dashboard still shows it)" : "shown in the transcript"}.\n`;
     },
   },
 
@@ -458,7 +458,7 @@ const COMMANDS: Record<string, CommandDef> = {
     usage: "/last [n]",
     description: "Reprint the full output of a recent tool result (1 = most recent)",
     handler: async (args, state) => {
-      if (!state.ledger) return "\n  (no session ledger — run a task first)\n";
+      if (!state.ledger) return "\n  (no session ledger; run a task first)\n";
       const results = state.ledger.recentToolResults();
       if (results.length === 0) return "\n  (no tool results recorded yet)\n";
       const n = args[0] ? parseInt(args[0], 10) : 1;
@@ -467,7 +467,7 @@ const COMMANDS: Record<string, CommandDef> = {
       }
       const r = results[n - 1];
       const c = state.useColor;
-      const header = `  tool result ${n}/${results.length} — ${r.name}${r.error ? " (errored)" : ""}`;
+      const header = `  tool result ${n}/${results.length}: ${r.name}${r.error ? " (errored)" : ""}`;
       const lines: string[] = ["", c ? chalk.bold.cyan(header) : header];
       if (r.error) lines.push(c ? chalk.red(`  error: ${r.error}`) : `  error: ${r.error}`);
       const body = r.output.length > 0 ? r.output : "(empty output)";
@@ -475,7 +475,7 @@ const COMMANDS: Record<string, CommandDef> = {
       const MAX_LINES = 400;
       for (const line of bodyLines.slice(0, MAX_LINES)) lines.push(`  ${line}`);
       if (bodyLines.length > MAX_LINES) {
-        lines.push(`  (…${bodyLines.length - MAX_LINES} more lines — full output in the run report)`);
+        lines.push(`  (…${bodyLines.length - MAX_LINES} more lines; full output in the run report)`);
       }
       if (r.truncated) lines.push("  (output was truncated at capture time)");
       lines.push("");
@@ -485,27 +485,27 @@ const COMMANDS: Record<string, CommandDef> = {
 
   // team / rewind / replay run interactively (pickers, live TUI stream) and
   // are intercepted by the REPL loop in index.ts before this registry is
-  // consulted — these entries exist for the palette, /help, and fuzzy
+  // consulted; these entries exist for the palette, /help, and fuzzy
   // completion. The handlers are the non-interactive fallback.
   team: {
     usage: "/team <task>",
     description: "Run a task through the multi-role team pipeline (architect → implementer → auditors → reviewer)",
     handler: async () =>
-      "\n  /team runs the multi-role pipeline with live team lanes — available in the interactive REPL.\n  Usage: /team <task>   (or start 9rh with --orchestrate)\n",
+      "\n  /team runs the multi-role pipeline with live team lanes, available in the interactive REPL.\n  Usage: /team <task>   (or start 9rh with --orchestrate)\n",
   },
 
   rewind: {
     usage: "/rewind",
-    description: "Restore the workdir to before a chosen turn (files only — conversation unchanged)",
+    description: "Restore the workdir to before a chosen turn (files only; conversation unchanged)",
     handler: async () =>
-      "\n  /rewind opens a turn picker — available in the interactive REPL.\n",
+      "\n  /rewind opens a turn picker, available in the interactive REPL.\n",
   },
 
   replay: {
     usage: "/replay [speed]",
-    description: "Flight recorder — re-render a recorded run through the TUI at x-speed",
+    description: "Flight recorder: re-render a recorded run through the TUI at x-speed",
     handler: async () =>
-      "\n  /replay opens a run picker — available in the interactive REPL.\n",
+      "\n  /replay opens a run picker, available in the interactive REPL.\n",
   },
 
   logs: {
@@ -967,7 +967,7 @@ const COMMANDS: Record<string, CommandDef> = {
     handler: async () => {
       return [
         "",
-        "  Lines you type run immediately — there's no manual queue.",
+        "  Lines you type run immediately; there is no manual queue.",
         "  A multi-line paste is auto-coalesced into one task and runs as",
         "  soon as the paste settles, so you don't need /run.",
         "",
@@ -976,11 +976,11 @@ const COMMANDS: Record<string, CommandDef> = {
   },
   run: {
     usage: "/run",
-    description: "(kept for familiarity) — input runs immediately on Enter",
+    description: "No-op: input runs immediately on Enter",
     handler: async () => {
       return [
         "",
-        "  Nothing to run — every line you type is sent on Enter, and a",
+        "  Nothing to run: every line you type is sent on Enter, and a",
         "  multi-line paste is auto-coalesced into one task. Just type.",
         "",
       ].join("\n");
@@ -1108,7 +1108,7 @@ const COMMANDS: Record<string, CommandDef> = {
       if (keys.length > 0) {
         checks.push({ label: "API keys", status: "ok", msg: `${keys.length} key(s) configured` });
       } else {
-        checks.push({ label: "API keys", status: "fail", msg: "no keys found — visit dashboard to get one" });
+        checks.push({ label: "API keys", status: "fail", msg: "no keys found; visit the dashboard to get one" });
         allOk = false;
       }
 
@@ -1127,7 +1127,7 @@ const COMMANDS: Record<string, CommandDef> = {
         checks.push({
           label: "providers",
           status: "fail",
-          msg: "no providers — visit http://127.0.0.1:20128/dashboard to connect one",
+          msg: "no providers; visit http://127.0.0.1:20128/dashboard to connect one",
         });
         allOk = false;
       }
@@ -1152,7 +1152,7 @@ const COMMANDS: Record<string, CommandDef> = {
       }
 
       const lines: string[] = [""];
-      lines.push("  9rh doctor" + (allOk ? " — all checks passed" : " — issues found"));
+      lines.push("  9rh doctor" + (allOk ? ": all checks passed" : ": issues found"));
       lines.push("");
       for (const check of checks) {
         const icon =
