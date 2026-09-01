@@ -46,7 +46,7 @@ temp/
 .DS_Store
 dist/
 
-# Generated knowledge-graph output — regenerable via `graphify extract`.
+# Generated knowledge-graph output, regenerable via `graphify extract`.
 # The CLI itself treats graphify-out/ as a cache (its `uninstall --purge`
 # flag deletes it). Keep it local; do not commit the 6.8MB of prebuilt
 # graph chunks / HTML render / etc.
@@ -67,7 +67,7 @@ _*.md
 _*.html
 _*.txt
 
-# Generated test artifacts (snapshots, fixtures, output — not source test files)
+# Generated test artifacts (snapshots, fixtures, output, not source test files)
 test-bed/
 test-snapshots/
 snapshots/
@@ -81,6 +81,6 @@ snapshots/
 SANDBOX_SECURITY_ROADMAP.md
 skills/writing-skills/examples/CLAUDE_MD_TESTING.md
 
-# Internal security docs — keep local, never publish (see SANDBOX_SECURITY_ROADMAP.md precedent)
+# Internal security docs: keep local, never publish (see SANDBOX_SECURITY_ROADMAP.md precedent)
 security-review.md
 docs/audit-fix-spec.md

@@ -8,7 +8,7 @@ npm run build   # tsc → dist/
 
 `npm run dev` uses `ts-node` directly (no build needed for development).
 
-## 9router Dependency (now optional)
+## 9router dependency (now optional)
 
 9rh supports a **Backend** abstraction (see `src/backends/`). The default backend is still 9router, but the harness now also works in **direct mode** against any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, LM Studio) without 9router at all.
 
@@ -28,7 +28,7 @@ When the chosen backend is 9router (default), 9router must be running for the ag
 9router   # starts server at http://localhost:20128
 ```
 
-9router's API has two surfaces:
+9router exposes two APIs:
 - **OpenAI-compatible** at `/v1/*`: used by the agent for completions and model catalog reads
 - **Native REST** at `/api/*`: used by slash commands (`/status`, `/providers`, `/combos`, `/keys`, `/router`). These commands are disabled in direct mode.
 
@@ -42,7 +42,7 @@ Slash-command reads of 9router configuration are cached briefly on `SessionState
 - `moduleResolution: NodeNext`: imports map to `dist/*.js`
 - Strict mode enabled; no `as any` suppression
 
-## Project Structure
+## Project structure
 
 ```
 src/
@@ -63,7 +63,7 @@ src/
   repair/       error taxonomy, circuit breaker, snapshots, incident logging
 ```
 
-## Tool Sandbox
+## Tool sandbox
 
 Tools may **not** escape `workDir`. The `sandboxPath()` function resolves relative paths against `workDir` and throws if the normalized result leaves the sandbox. Do not disable or bypass this.
 
@@ -174,23 +174,23 @@ skills/<skill-name>/SKILL.md
 If this AGENTS.md says "don't use TDD" and a skill says "always use TDD," follow the user's instructions. The user is in control.
 <!-- SUPERPOWERS_END -->
 
-## Slash Commands
+## Slash commands
 
 REPL intercepts lines starting with `/` **before** sending to the agent. `executeSlashCommand(line, state)` returns `null` for non-slash input, or a string to print.
 
-Interactive commands (`/models`, `/switch`, `/team`, `/rewind`, `/replay`) are intercepted by the REPL loop in `index.ts` **before** `executeSlashCommand` is consulted; they need the live TUI renderer, ledger, and raw-mode pickers that the command registry's plain string handlers can't reach. Their registry entries exist for the palette, `/help`, and fuzzy completion; the handlers are the non-interactive fallback.
+The REPL loop in `index.ts` intercepts the interactive commands (`/models`, `/switch`, `/team`, `/rewind`, `/replay`) **before** it consults `executeSlashCommand`; they need the live TUI renderer, ledger, and raw-mode pickers that the command registry's plain string handlers can't reach. Their registry entries exist for the palette, `/help`, and fuzzy completion; the handlers are the non-interactive fallback.
 
 `SessionState` is passed by **reference**: mutations from `/switch <model>` and `/dir <path>` persist for all subsequent agent runs and slash commands in the same REPL session. `SessionState.routerCache` is also session-scoped and can be reset with `clearRouterConfigCache(state)` or the `/refresh` command.
 
-## API Response Safety
+## API response safety
 
-`fetchJSON()` returns `unknown`. All handlers use `toArray<T>()` helper (guards with `Array.isArray`) before iterating. Malformed API payloads are handled gracefully: they produce empty-state messages, not crashes.
+`fetchJSON()` returns `unknown`. Every handler runs the result through `toArray<T>()` (which guards with `Array.isArray`) before iterating, so a malformed API payload produces an empty-state message instead of a crash.
 
-## 9router Setup
+## 9router setup
 
 9rh is 9router-native: it expects 9router to be installed, running, and configured with at least one provider/API key. Prefer documenting the explicit setup flow (`npm install -g 9router`, then `9router`, then configure the dashboard). `/setup` may attempt a best-effort setup, but docs should not imply fully headless configuration because most first-time users complete provider setup in the browser.
 
-## Key Commands
+## Key commands
 
 | Command | Effect |
 |---------|--------|

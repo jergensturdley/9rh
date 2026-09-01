@@ -2,7 +2,7 @@
 
 Auto-index every repo 9rh touches, zero manual steps. Self-contained, compressed DB, no external deps.
 
-## Phase 1: Sync Indexer (now)
+## Phase 1: sync indexer (now)
 
 **Module:** `src/indexer.ts`  
 **DB:** `.9rh/repo-index.db` (SQLite, WAL mode, <1 KB typical)  
@@ -41,7 +41,7 @@ CREATE INDEX idx_stale ON repos(stale);
 
 ---
 
-## Phase 2: Background Sub-Agent (when needed)
+## Phase 2: background sub-agent (when needed)
 
 When indexing overhead matters (>1s rebuilds, multi-repo workflows):
 
@@ -61,7 +61,7 @@ When indexing overhead matters (>1s rebuilds, multi-repo workflows):
 
 ---
 
-## Phase 3: Cross-Session Persistence (future)
+## Phase 3: cross-session persistence (future)
 
 - Store index in `~/.9rh/repo-index.db` instead of per-project.
 - Merges entries from all workspaces visited across sessions.
@@ -70,7 +70,7 @@ When indexing overhead matters (>1s rebuilds, multi-repo workflows):
 
 ---
 
-## Future Ideas
+## Future ideas
 
 - **Compressed content-addressed cache**: store function signatures and file-level hashes for faster re-hash.
 - **Git-aware diff scan**: only re-hash files changed since the last commit.
@@ -78,7 +78,7 @@ When indexing overhead matters (>1s rebuilds, multi-repo workflows):
 
 ---
 
-## Current Status
+## Current status
 
 | Phase | Status | Notes |
 |-------|--------|-------|

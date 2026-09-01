@@ -6,7 +6,7 @@
 
 ## The one-line thesis
 
-9rh already owns almost every subsystem a modern agent UX needs: an event log (`src/replay/eventLogger.ts`), checkpoints and branches (`src/replay/checkpointManager.ts`, `branchManager.ts`), workdir snapshots (`src/repair/snapshotManager.ts`, `src/reports/workdirSnapshot.ts`), per-turn token capture (`src/agent.ts` `stream_options: { include_usage: true }`), a multi-role orchestrator (`src/orchestrator/`), semantic diffs (`src/semanticDiff.ts`), and a per-turn HTML run report with changes/reasoning/tools/tokens (`src/reports/runReport.ts`). **Almost none of it is surfaced live, in-terminal, across the session.** This plan is mostly wiring and UI, not new engines, so it is cheap relative to how much it changes.
+9rh already owns almost every subsystem a modern agent UX needs: an event log (`src/replay/eventLogger.ts`), checkpoints and branches (`src/replay/checkpointManager.ts`, `branchManager.ts`), workdir snapshots (`src/repair/snapshotManager.ts`, `src/reports/workdirSnapshot.ts`), per-turn token capture (`src/agent.ts` `stream_options: { include_usage: true }`), a multi-role orchestrator (`src/orchestrator/`), semantic diffs (`src/semanticDiff.ts`), and a per-turn HTML run report with changes/reasoning/tools/tokens (`src/reports/runReport.ts`). **Almost none of it reaches the terminal live, across the session.** This plan is mostly wiring and UI, not new engines, so it is cheap relative to how much it changes.
 
 ## Problem inventory (brain dump → root cause)
 
@@ -22,16 +22,16 @@
 ## Design pillars (this is the identity)
 
 1. **Mission control, not scrollback archaeology.** The HUD answers four questions at all times: *Goal* (what was asked), *Now* (what's happening), *So far* (what has been done this session), *Cost* (tokens/time). Scrolling text becomes commentary, not the record.
-2. **Receipts, not self-report.** A turn ends with a harness-computed digest (files changed with +/- counts, commands run with exit codes, tests detected, tokens spent) sourced from tool results and snapshots, *not* from the model's self-report. The model's prose renders below the receipts. This is the direct fix for "what's done?": most agents summarize themselves, while 9rh shows what the harness observed.
+2. **Receipts, not self-report.** A turn ends with a harness-computed digest (files changed with +/- counts, commands run with exit codes, tests detected, tokens spent) sourced from tool results and snapshots, *not* from the model's self-report. The model's prose renders below the receipts. This is the direct fix for "what's done?". Most agents summarize themselves; 9rh shows what the harness observed.
 3. **Ask early, ask cheap.** Clarifying questions are a first-class tool with a first-class picker, used before burning ten iterations on the wrong interpretation.
 4. **Progressive disclosure.** Quiet transcript by default (previews stay capped), full detail one keypress or command away.
 5. **The terminal is the product.** Keep the zero-dependency ANSI approach (chalk + commander + openai only), the playful spinner labels, the splash. No ink/blessed rewrite; the raw-ANSI craft *is* part of the identity.
 
 ## Workstreams
 
-Effort scale: **S** ≈ a PR-sized day, **M** ≈ 2–4 days, **L** ≈ a week+. Every workstream lands with tests (repo convention: `tui.test.ts` alone is 43K).
+Effort scale: **S** ≈ a PR-sized day, **M** ≈ 2-4 days, **L** ≈ a week+. Every workstream lands with tests (repo convention: `tui.test.ts` alone is 43K).
 
-### WS1: Session Ledger (the foundation), S
+### WS1: Session ledger (the foundation), S
 
 One append-only per-session record that everything else reads.
 
@@ -40,7 +40,7 @@ One append-only per-session record that everything else reads.
 - Reducer → `LedgerSummary`: turns run (goal text + outcome), files touched (dedup, with change counts), commands executed (+ exit codes), tokens in/out per turn and total, checkpoints taken, elapsed time.
 - New `/brief` command prints the summary in the transcript.
 
-Everything in WS2–WS4 and WS7 is a view over this one structure. This is deliberately the laziest possible substrate: one array plus one reducer.
+Everything in WS2 through WS4 and WS7 is a view over this one structure. It is deliberately the laziest possible base: one array plus one reducer.
 
 ### WS2: The done digest ("what's done"), M
 
@@ -53,7 +53,7 @@ Replace the bare `✓ done` box with receipts:
 ║ Files  src/backends/router.ts  +18 −4        ║
 ║        src/__tests__/router.test.ts  +22 −1  ║
 ║ Ran    npm test → ✓ 214 passed               ║
-║ Report ~/.9rh/reports/2026-08-15-…​.html      ║
+║ Report ~/.9rh/reports/2026-08-15-....html    ║
 ╚══════════════════════════════════════════════╝
 ```
 
@@ -78,7 +78,7 @@ Replace the bare `✓ done` box with receipts:
 
 The existing throttled thinking snapshots and 6-line tool previews are the right shape. Additions:
 
-- **Verbosity budget** in the agent system prompt (decided): short paragraphs between actions are welcome (2–3 sentences, never longer), with long prose reserved for the final message. The flood is a prompt problem before it's a rendering problem.
+- **Verbosity budget** in the agent system prompt (decided): short paragraphs between actions are welcome (2-3 sentences, never longer), with long prose reserved for the final message. The flood is a prompt problem before it's a rendering problem.
 - **`/quiet` toggle** (decided): render-side, instant, flippable mid-session. Collapses live narration to its dimmed first line; tool previews, digests, and the final message are unaffected. Default off, so paragraphs stay visible.
 - Elapsed time on the spinner line (`⚙ npm test · 41s`); the dashboard has `startedAt` already.
 - `/last [n]` to reprint the full output of a recent tool result (from the ledger), which makes the 6-line cap safe instead of lossy.
@@ -131,7 +131,7 @@ Phase 1 is deliberately front-loaded with S/M work: it changes the *felt* experi
 ## Non-goals
 
 - No TUI framework adoption (ink/blessed/etc.); the raw-ANSI renderer works, is tested, and is part of the identity.
-- No web UI; 9router's dashboard owns that surface.
+- No web UI; 9router's dashboard already does that job.
 - No new runtime dependencies unless something is truly unbuildable without one.
 - No orchestrator engine redesign: role logic and conflict resolution stay as-is, and only their visibility and entry points change.
 
@@ -140,5 +140,5 @@ Phase 1 is deliberately front-loaded with S/M work: it changes the *felt* experi
 1. **Cost display**: tokens only, everywhere. No price map, no dollars. Revisit only if demand appears.
 2. **Rewind v1**: workdir snapshot restore only. Conversation fork = backlog.
 3. **Team escalation**: auto-suggest via `ask_user` with pipeline preview; `/team` and `--orchestrate` for manual.
-4. **Live narration**: short paragraphs allowed (2–3 sentences, capped in prompt); `/quiet` render toggle collapses them to a dimmed first line for users who want silence.
+4. **Live narration**: short paragraphs allowed (2-3 sentences, capped in prompt); `/quiet` render toggle collapses them to a dimmed first line for users who want silence.
 5. **Narrow terminals**: condensed one-line HUD on the spinner line while it can show something useful (activity · elapsed · iter · tokens · files · sandbox); below ~50 cols, no HUD at all.

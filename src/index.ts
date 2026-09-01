@@ -50,7 +50,7 @@ async function maybeAutoIndexCodeGraph(workDir: string): Promise<void> {
       // Optionally inform user
       // process.stderr.write(`  CodeGraph initialized and indexed.\n`);
     } catch (err) {
-      // Silently fail – don't block REPL on indexing errors
+      // Silently fail; don't block the REPL on indexing errors.
       // process.stderr.write(`  CodeGraph auto-index skipped: ${err.message}\n`);
     }
   }

@@ -30,7 +30,7 @@ pipeline (architect → implementer → security audit → test strategist
 → reviewer loop, with caching and project-memory writes), but it has
 **no production caller**. The runtime CLI dispatches the streaming
 `Agent` ReAct loop in `src/agent.ts`; the `Orchestrator` class is
-exposed only as a library surface.
+exposed only as a library export.
 
 Consequences:
 
@@ -41,7 +41,7 @@ Consequences:
    `src/orchestrator/index.ts`. A reader who follows those edges
    reasonably concludes that the orchestrator is load-bearing, but it
    is not.
-2. **Dead public API surface.** External embedders can `import { Orchestrator }`
+2. **Dead public API.** External embedders can `import { Orchestrator }`
    but receive no guidance on whether to use it or how. There is no
    "library-only" marker.
 3. **Missed architectural intent.** The class was clearly designed as
@@ -114,7 +114,7 @@ behavior. The `Orchestrator` class is unchanged.
 
 ### Required changes
 
-1. **Add JSDoc `@internal` to the public surface.** In
+1. **Add JSDoc `@internal` to the public exports.** In
    `src/orchestrator/index.ts`, prepend a header comment to the file
    and `@internal` to each re-export that is not used by production:
    ```ts
@@ -150,10 +150,10 @@ Trivial: revert the docs commit.
 
 ---
 
-## Path C: Delete the unused scaffolding
+## Path C: Delete the unused code
 
-**Effort:** Low–Medium (delete files + tests + barrel).
-**Risk:** Medium (public API surface change).
+**Effort:** Low to Medium (delete files + tests + barrel).
+**Risk:** Medium (breaks the public API).
 
 ### Required changes
 
@@ -199,7 +199,7 @@ Pick **Path A** if any of:
 - Telemetry on role-level decisions is wanted.
 
 Pick **Path B** if:
-- `Orchestrator` is intentionally an embedding surface for external
+- `Orchestrator` is intentionally an embedding API for external
   tools and the CLI will never use it.
 - The cost of wiring + regression risk is too high for the current
   sprint.

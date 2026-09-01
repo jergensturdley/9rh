@@ -1,6 +1,6 @@
 # 9rh
 
-9rh is a lightweight coding agent for local repositories. It supports one-shot tasks and an interactive REPL, and provides a small sandbox-aware toolset.
+9rh is a coding agent for local repositories. It runs one-shot tasks or an interactive REPL, and its tools are sandboxed to the working directory you point it at.
 
 9rh talks to a **backend** for its model traffic. Two backends ship today:
 
@@ -101,11 +101,11 @@ Or skip 9router entirely with direct mode:
 
 ```sh
 # OpenAI
-export OPENAI_API_KEY=sk-…
+export OPENAI_API_KEY=sk-...
 9rh "fix the failing tests"
 
 # OpenRouter via the preset
-export OPENROUTER_API_KEY=sk-or-v1-…
+export OPENROUTER_API_KEY=sk-or-v1-...
 9rh --provider=openrouter --model anthropic/claude-3.5-sonnet "fix the failing tests"
 
 # Local Ollama
@@ -143,7 +143,7 @@ export OPENROUTER_API_KEY=sk-or-v1-…
 
 Persistent defaults are used when `--model` and `NINE_ROUTER_MODEL` are not set. If the saved model does not include a provider prefix and `defaultProvider` is set, 9rh combines them, for example `--set-default-provider kr --set-default-model claude-sonnet-4.5` resolves to `kr/claude-sonnet-4.5`.
 
-When a run reaches `--max-iter`, 9rh automatically compacts into a structured continuation packet instead of a bare free-form summary. The packet preserves the original task, current objective, completed and pending steps, files touched, commands/tests run, known failures, exact important outputs, recent tool history, long-horizon memory, and live repository state from `git status --short`, `git diff --stat`, and `git diff --name-only`. This reduces context loss across long-running work while still keeping the model context bounded. Use `--no-continue` to disable this behavior.
+When a run reaches `--max-iter`, 9rh compacts into a structured continuation packet instead of a bare free-form summary. The packet carries the original task and current objective, completed and pending steps, files touched, commands and tests run, known failures, important outputs verbatim, recent tool history, and long-horizon memory. It also snapshots live repository state from `git status --short`, `git diff --stat`, and `git diff --name-only`. Long-running work loses less context this way, and the model context still stays bounded. Use `--no-continue` to disable it.
 
 ## Backends
 
@@ -236,7 +236,7 @@ Every turn ends with a boxed digest computed entirely from tool results and stre
 ╚══════════════════════════════════════════════╝
 ```
 
-File lines show net +/− line counts (first-seen before vs last-seen after, so a file edited five times shows one honest delta). `assume` lines list defaults the harness picked when nobody answered an `ask_user` call, so silent decisions stay visible.
+File lines show net +/- line counts (first-seen before vs last-seen after, so a file edited five times shows one honest delta). `assume` lines list defaults the harness picked when nobody answered an `ask_user` call, so silent decisions stay visible.
 
 ### Session ledger
 
@@ -382,12 +382,12 @@ await agent.run("Create a fibonacci function in src/math.ts");
 The package exports:
 
 - `Agent`: the ReAct loop and tool execution
-- `TOOL_DEFINITIONS`, `executeTool`: sandboxed tool primitives
+- `TOOL_DEFINITIONS`, `executeTool`: the sandboxed tool set and its dispatcher
 - `ensureRouter`: start 9router and return its baseURL/apiKey (legacy helper, superseded by `detectBackend`)
 - `detectBackend`: auto-detect a `Backend` from env vars, CLI flags, and reachability
 - `DirectBackend`, `RouterBackend`: concrete backend implementations
 - `Backend`, `BackendName`, `ModelInfo`, `ProviderInfo`, `ComboInfo`, `KeyInfo`, `HealthSnapshot`: backend interface and types
-- `parseTaskSpecification`, `synthesizeTestPlan`, `formatSpecDrivenPrompt`, `shouldUseSpecDrivenTesting`: spec-driven testing primitives
+- `parseTaskSpecification`, `synthesizeTestPlan`, `formatSpecDrivenPrompt`, `shouldUseSpecDrivenTesting`: spec-driven testing helpers
 - `createRunVisualization`, `applyAgentEvent`, `applyReplayEvent`, `renderRunVisualization`, `exportRunVisualization`, `visibleSteps`: live run visualization
 
 ## Spec-driven testing mode
@@ -398,15 +398,15 @@ The harness emits a `spec_plan` event before major code changes. That event is s
 
 ## Live run visualization
 
-The terminal renderer maintains a live run map during each agent run. It projects streamed `AgentEvent` and `ReplayEvent` data into a timeline plus dependency graph, showing planning, execution, review, repair, and completion stages with statuses such as running, failed, repaired, blocked, and done. Tool calls are linked to outputs and file paths when available; checkpoints, circuit-breaker events, repair attempts, and sandbox health are surfaced alongside the current step.
+The terminal renderer maintains a live run map during each agent run. It projects streamed `AgentEvent` and `ReplayEvent` data into a timeline and a dependency graph. Every step carries a stage (planning, execution, review, repair, completion) and a status (running, failed, repaired, blocked, done). Tool calls link to their outputs and file paths when available, and checkpoints, circuit-breaker events, repair attempts, and sandbox health render alongside the current step.
 
 Embedders can build exportable audit or handoff views with `createRunVisualization()`, `applyAgentEvent()`, `applyReplayEvent()`, `visibleSteps()`, `renderRunVisualization()`, and `exportRunVisualization()`. These helpers support filtering by stage, status, severity, tool, file, branch, and collapsed-noise views.
 
-The REPL splash uses an original bounded ASCII plasma intro that completes in under one second, briefly collapses into a compact `9RH ▸` mark, then clears itself before the interactive prompt starts. All characters and structure are own-design; the style is inspired by classic ASCII plasma effects (e.g. Joacim Wejdin/Injosoft), but all code and assets are original. The animation runs only in interactive color terminals (TTY + no CI) with a width of at least 72 columns. It is skipped entirely in CI, non-TTY/piped output, `--no-color`/`NO_COLOR` environments, or narrow terminals.
+The REPL splash is a bounded ASCII plasma animation that finishes in under a second, collapses into a compact `9RH ▸` mark, then clears itself before the prompt appears. The style nods to classic ASCII plasma effects (Joacim Wejdin/Injosoft among them); the code and character art are written for this repo. It runs only in an interactive color terminal (TTY, no CI) at least 72 columns wide, and is skipped in CI, piped output, `--no-color`/`NO_COLOR` environments, and narrow terminals.
 
-## Sandbox System
+## Sandbox system
 
-9rh uses an isolation layer to execute tool calls (particularly `run_bash`) in a restricted environment that limits filesystem access, network connectivity, and process privileges.
+9rh runs tool calls through an isolation layer that restricts filesystem access, network access, and process privileges. `run_bash` is the main consumer.
 
 ### Architecture
 
@@ -414,7 +414,7 @@ The REPL splash uses an original bounded ASCII plasma intro that completes in un
 |-----------|------|----------------|
 | **Sandbox** | `src/sandbox/sandboxer.ts` | Core sandbox class that validates workspace paths and executes through macOS `sandbox-exec` when available |
 | **Executor** | `src/sandbox/executor.ts` | `SandboxExecutor` (uses sandbox) vs `DirectExecutor` (no sandbox); both implement the `SandboxProvider` interface |
-| **Index** | `src/sandbox/index.ts` | Re-exports the consumed sandbox surface (executors, `createExecutor()`, status helpers, `SandboxProvider`/`ExecutionResult` types) |
+| **Index** | `src/sandbox/index.ts` | Re-exports what callers actually use: executors, `createExecutor()`, status helpers, and the `SandboxProvider`/`ExecutionResult` types |
 | **Observability** | `src/sandbox/executor.ts` | `ObservabilityCollector` records every execution (stdout, stderr, exitCode, timedOut, durationMs, sandboxUsed) and exposes a summary |
 
 ### How it works
@@ -467,13 +467,13 @@ The agent automatically uses sandboxed execution when available. If `sandbox-exe
 
 All file-based tools (`read_file`, `write_file`, `list_files`, `search_files`) use `sandboxPath()` to resolve and validate that paths stay within `workDir`. Symlinks are explicitly blocked for write operations. `read_file` also blocks reading through symlinks to prevent exfiltration via crafted symlinks inside the workspace.
 
-## Replay System
+## Replay system
 
 The replay system reproduces any agent run step-by-step, detects divergence between recorded and fresh executions, and supports time-travel branching from recorded checkpoints. The CLI records every run by default: events are written as JSON Lines to `~/.9rh/runs/run-<runId>.jsonl` (with a `.meta.json` sidecar on clean finalization), redacted before write. Programmatic embedders choose their own `logDir` via `ReplayConfig`. The REPL's `/replay` command (see [Session UX](#replay-flight-recorder)) is a render-only consumer of these logs; the `ReplayEngine` below is the re-execution facility.
 
 ### Architecture
 
-The system is composed of six modules:
+Six modules make up the system:
 
 | Module | File | Responsibility |
 |--------|------|----------------|
@@ -486,7 +486,7 @@ The system is composed of six modules:
 
 Import replay classes from their concrete modules (there is no barrel `index.ts`).
 
-### Event Types
+### Event types
 
 The event log records these types (each with monotonic `seq` and `ts`):
 
@@ -502,7 +502,7 @@ The event log records these types (each with monotonic `seq` and `ts`):
 | `spec_plan` | Generated specification/test-plan artifact for implementation-like tasks |
 | `run_end` | Final run reason and summary |
 
-### Recording a Run
+### Recording a run
 
 ```ts
 import { EventLogger } from "./replay/eventLogger.js";
@@ -519,7 +519,7 @@ await logger.init();
 agent.on("event", (event) => logger.write(event));
 ```
 
-### Replaying a Run
+### Replaying a run
 
 ```ts
 import { ReplayEngine } from "./replay/replayEngine.js";
@@ -544,7 +544,7 @@ await engine.load();
 const { eventCount, divergenceReport } = await engine.replay();
 ```
 
-### Divergence Detection
+### Divergence detection
 
 During replay, before executing each `tool_call`, the engine looks up the stored output for that `callId` from the matching `tool_result` event. If `freshResult.output !== recordedOutput` and `stopOnDivergence` is true, the engine emits an `onDivergence` callback with the full report:
 
@@ -560,7 +560,7 @@ divergedAt: {
 }
 ```
 
-### Time-Travel Branching
+### Time-travel branching
 
 When divergence is detected, you can branch from the last checkpoint before the diverging step:
 
@@ -592,11 +592,11 @@ Checkpoints serialize the full agent state (messages, tool history, step index, 
 
 On replay with `fromStep > 0`, the engine skips to the nearest checkpoint at or before `fromStep`, restores it, then processes remaining events from that point.
 
-## Repair System
+## Repair system
 
-The repair system automatically detects, classifies, and fixes harness-level errors. It is composed of six modules under `src/repair/`.
+The repair system detects, classifies, and fixes harness-level errors on its own. Six modules under `src/repair/` do the work.
 
-### Error Taxonomy
+### Error taxonomy
 
 All errors are classified into four tiers:
 
@@ -607,15 +607,15 @@ All errors are classified into four tiers:
 | `ENVIRONMENT_ERROR` | No | 1 | Yes |
 | `FATAL` | No | 0 | No; halts immediately |
 
-### Circuit Breaker
+### Circuit breaker
 
 The `CircuitBreaker` guards against cascading failures. It opens after 3 consecutive `ENVIRONMENT_ERROR` or `FATAL` occurrences and halts the agent loop until the timeout elapses (default 60s).
 
-### Snapshot Manager
+### Snapshot manager
 
 Before each major step, the agent serializes its state to `~/.9rh/snapshots/` as JSON. On repair success, execution can resume from the last known good state.
 
-### Repair Playbook
+### Repair playbook
 
 `src/repair/repairPlaybook.json` maps error patterns to suggested fixes. Entries with `autoApply: true` are applied automatically on HIGH confidence. Current patterns:
 
@@ -626,7 +626,7 @@ Before each major step, the agent serializes its state to `~/.9rh/snapshots/` as
 - Sandbox process crash → restart sandbox subprocess
 - Premature close (undici) → retry with fresh connection
 
-### Repair Agent
+### Repair agent
 
 When an error cannot be resolved by the playbook, the repair sub-agent is invoked via the LLM using a structured prompt. It returns a JSON response:
 
@@ -644,7 +644,7 @@ When an error cannot be resolved by the playbook, the repair sub-agent is invoke
 
 After 3 failed attempts, it escalates to the user.
 
-### Incident Logging
+### Incident logging
 
 All repair attempts write structured JSON incident reports to `~/.9rh/logs/incidents/`. Successful repairs auto-generate a new playbook entry appended to `repairPlaybook.json`.
 

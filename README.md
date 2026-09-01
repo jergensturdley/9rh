@@ -1,11 +1,11 @@
 # 9rh
 
-9rh is a lightweight local coding-agent harness. It runs one-shot tasks, opens an interactive REPL, and provides sandbox-aware local repository tools. It talks to **9router** when you want combo chains and a dashboard, or **directly** to any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, LM Studio) when you want no local proxy.
+9rh is a coding agent that runs in your terminal against a local repository. Give it a one-shot task or open the REPL; either way its tools are sandboxed to the working directory you point it at. It talks to **9router** when you want combo chains and a dashboard, or **directly** to any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, LM Studio) when you want no local proxy.
 
 ## Highlights
 
 - **Local repo agent**: run coding tasks against a selected working directory.
-- **Receipts every turn**: each turn ends with a harness-computed digest of files changed with net +/− line counts, commands run with pass/fail, steps, duration, tokens. Sourced from tool results the harness observed, never from the model's self-report.
+- **Receipts every turn**: each turn ends with a harness-computed digest of files changed with net +/- line counts, commands run with pass/fail, steps, duration, tokens. Sourced from tool results the harness observed, never from the model's self-report.
 - **Session ledger**: a persistent cross-turn record behind the dashboard panels and the `/brief` and `/usage` commands (token counts only; no dollar estimates).
 - **Team pipeline**: route a task through a multi-role pipeline (architect → implementer → security audit → test strategist → reviewer) with live TEAM lanes in the dashboard and per-role token counts. Explicit entry points only: `/team <task>`, `--orchestrate`, or a visible "run as a team?" prompt on structured-looking tasks.
 - **`/rewind` and `/replay`**: turn-level workdir undo (restore files to before any turn) and a flight recorder that re-renders any recorded run through the live TUI.
@@ -15,7 +15,7 @@
 - **Run reports**: every agent turn writes a self-contained HTML summary of changes made, reasoning, tools used, and tokens used. Linked in the chat, openable via `/report`.
 - **Sandbox-aware tools**: file operations are path-checked, symlinks are blocked for file reads/writes, and shell commands use macOS `sandbox-exec` when available with visible `/sandbox` status.
 - **Spec, replay, and repair systems**: optional spec-driven task framing, live run visualization, replay logs, checkpoints, error taxonomy, and repair hooks.
-- **Programmatic API**: import the core agent, tools, visualization, spec, replay, and sandbox primitives from the package.
+- **Programmatic API**: import the agent, its tools, and the visualization, spec, replay, and sandbox modules from the package.
 
 ## Quick start
 
@@ -50,11 +50,11 @@ Talk straight to any OpenAI-compatible service. No local proxy needed.
 
 ```sh
 # OpenAI
-export OPENAI_API_KEY=sk-…
+export OPENAI_API_KEY=sk-...
 node dist/index.js "summarize this repository"
 
 # OpenRouter (uses the `--provider=openrouter` preset)
-export OPENROUTER_API_KEY=sk-or-v1-…
+export OPENROUTER_API_KEY=sk-or-v1-...
 node dist/index.js --provider=openrouter \
   --model anthropic/claude-3.5-sonnet \
   "summarize this repository"
