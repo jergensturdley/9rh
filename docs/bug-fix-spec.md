@@ -259,7 +259,7 @@ boolean env-var check was always redundant.
 ### Why this is safe
 - Both pin-tests already pass with the current code (and would continue
   to pass after simplification).
-- The behavioral surface is unchanged: `hasRouterHint` evaluates to the
+- The behavior is unchanged: `hasRouterHint` evaluates to the
   same value in every env-var configuration.
 - No public API change.
 

@@ -15,7 +15,7 @@
  * Note: `EmbeddedBackend` was a planned third mode where 9rh would spawn
  * and supervise its own 9router. It was deprioritized; see
  * `docs/orchestrator-wiring-spec.md` for the related architecture decision
- * (Path B: keep `Orchestrator` as a library-only surface; the CLI continues
+ * (Path B: keep `Orchestrator` as a library-only export; the CLI continues
  * to dispatch through the streaming Agent loop).
  *
  * Choosing a backend is the first step in main(); everything else (Agent,

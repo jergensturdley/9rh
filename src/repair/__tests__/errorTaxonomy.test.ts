@@ -39,7 +39,7 @@ describe("classifyError", () => {
   });
 
   it("classifies RECOVERABLE for rate limit", () => {
-    const result = classifyError(new Error("rate limit exceeded — retry after 1s"));
+    const result = classifyError(new Error("rate limit exceeded, retry after 1s"));
     expect(result.errorClass).toBe(ErrorClass.RECOVERABLE);
   });
 

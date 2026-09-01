@@ -8,7 +8,7 @@ Owner: TBD
 
 Two related defects in the live two-column TUI renderer (`createTuiRenderer` in `src/tui.ts:604`):
 
-1. **Right column does not extend to the bottom of the terminal.** The dashboard (`renderDashboardLines` at `src/tui.ts:514`) emits a fixed number of rows; `drawDashboard()` at `src/tui.ts:641` clears the previous area but does not fill empty rows down to `process.stdout.rows`. On a tall terminal the user sees a short floating panel with the bottom 60–80% of the right column as blank space, which is visually broken and inconsistent with the "two columns" metaphor the layout implies.
+1. **Right column does not extend to the bottom of the terminal.** The dashboard (`renderDashboardLines` at `src/tui.ts:514`) emits a fixed number of rows; `drawDashboard()` at `src/tui.ts:641` clears the previous area but does not fill empty rows down to `process.stdout.rows`. On a tall terminal the user sees a short floating panel with the bottom 60-80% of the right column as blank space, which is visually broken and inconsistent with the "two columns" metaphor the layout implies.
 2. **Streamed output is not word-wrapped to the left column's width.** `partial_output` chunks (`src/tui.ts:1002`) and the final `done` summary (`src/tui.ts:928-944`) print raw, with the only post-processing being `normalizeWhitespace` and a `wrapText` call on the *final* summary. Streamed text (and tool_result previews) can run off the right edge of the terminal, crashing into the dashboard or wrapping the terminal itself, especially when the user has resized.
 
 ## Goals
@@ -66,7 +66,7 @@ geometry = {
 | `padDashboardToHeight(lines: string[], target: number): string[]` | Appends `│${' '.repeat(inner + 2)}│` rows so the panel hits `target` rows. Caps at `target` if `lines.length > target` (truncate from the top is **not** correct; instead, leave the content taller and let `drawDashboard` clear+redraw with the new height). |
 | `wrapStreamChunk(text: string, wrapWidth: number): string` | Wraps each `\n`-delimited line of `text` independently, joins with `\n`. Distinct from `wrapText` (which collapses paragraphs); this preserves newlines so streamed chunks don't get smushed together. |
 
-`wrapStreamChunk` is the key new primitive for streamed output. Current `wrapText` at `src/tui.ts:280` collapses runs of whitespace via `.split(/\s+/)`, which is fine for the final summary, wrong for live deltas where newlines carry meaning. Either:
+`wrapStreamChunk` is the new helper that streamed output needs. Current `wrapText` at `src/tui.ts:280` collapses runs of whitespace via `.split(/\s+/)`, which is fine for the final summary, wrong for live deltas where newlines carry meaning. Either:
 - (a) keep `wrapText` as-is and add `wrapStreamChunk` alongside it, or
 - (b) make `wrapText` accept an option `{ collapseWhitespace?: boolean }` defaulting to `true`.
 
