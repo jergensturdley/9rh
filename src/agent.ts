@@ -27,7 +27,10 @@ import {
   ErrorClass,
 } from "./repair/index.js";
 import { EventLogger, type EventLoggerConfig } from "./replay/eventLogger.js";
-import { snapshotWorkDir, diffSnapshots } from "./reports/workdirSnapshot.js";
+import {
+  snapshotWorkDirForBash,
+  diffBashSnapshots,
+} from "./reports/workdirSnapshot.js";
 import { ninerhDir } from "./paths.js";
 import type {
   RunMetadata,
@@ -689,13 +692,15 @@ export class Agent {
       }
     }
 
-    // For run_bash, snapshot the workdir up front so the file-change
-    // diff catches files the shell creates/edits (sed, cat heredoc, tee,
-    // python scripts, etc.) that the write_file path above never sees.
-    let workdirBefore: Map<string, import("./reports/workdirSnapshot.js").WorkdirFileEntry> | null = null;
+    // For run_bash, take a single fast snapshot up front (git porcelain in
+    // repos, metadata-only parallel walk otherwise) so the file-change diff
+    // catches files the shell creates/edits (sed, cat heredoc, tee, python
+    // scripts, etc.) that the write_file path above never sees. Content is
+    // read lazily at diff time, only for paths that changed.
+    let workdirBefore: import("./reports/workdirSnapshot.js").BashSnapshot | null = null;
     if (name === "run_bash") {
       try {
-        workdirBefore = await snapshotWorkDir(this.config.workDir);
+        workdirBefore = await snapshotWorkDirForBash(this.config.workDir);
       } catch {}
     }
 
@@ -755,8 +760,8 @@ export class Agent {
     // doesn't see. Best-effort; never throw out of the tool call.
     if (name === "run_bash" && workdirBefore && !result.error) {
       try {
-        const workdirAfter = await snapshotWorkDir(this.config.workDir);
-        const diffs = diffSnapshots(workdirBefore, workdirAfter, this.stepIndex);
+        const workdirAfter = await snapshotWorkDirForBash(this.config.workDir);
+        const diffs = await diffBashSnapshots(this.config.workDir, workdirBefore, workdirAfter, this.stepIndex);
         for (const d of diffs) {
           this.recordFileChange({
             step: d.step,
