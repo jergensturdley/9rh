@@ -127,6 +127,7 @@ export OPENROUTER_API_KEY=sk-or-v1-...
 | `-k, --key <key>` | `NINE_ROUTER_KEY` | `9router` | 9router API key (router mode) |
 | `-d, --dir <dir>` | n/a | current working directory | Target directory for agent tools |
 | `-i, --max-iter <n>` | n/a | `100` | Maximum agent iterations |
+| `--parallel-tools <n>` | `NINE_RH_PARALLEL_TOOLS` | `4` | Max tool calls executed concurrently per turn; `1` = sequential (previous behavior). Invalid values fall back to the default |
 | `--no-continue` | n/a | n/a | Disable automatic continuation after max iterations |
 | `--continue-model <model>` | `NINE_ROUTER_CONTINUATION_MODEL` | n/a | Model or 9router combo to switch to after max iterations |
 | `--continue-max <n>` | `NINE_ROUTER_CONTINUATION_MAX` | `20` | Maximum continuation rounds |
@@ -144,6 +145,16 @@ export OPENROUTER_API_KEY=sk-or-v1-...
 Persistent defaults are used when `--model` and `NINE_ROUTER_MODEL` are not set. If the saved model does not include a provider prefix and `defaultProvider` is set, 9rh combines them, for example `--set-default-provider kr --set-default-model claude-sonnet-4.5` resolves to `kr/claude-sonnet-4.5`.
 
 When a run reaches `--max-iter`, 9rh compacts into a structured continuation packet instead of a bare free-form summary. The packet carries the original task and current objective, completed and pending steps, files touched, commands and tests run, known failures, important outputs verbatim, recent tool history, and long-horizon memory. It also snapshots live repository state from `git status --short`, `git diff --stat`, and `git diff --name-only`. Long-running work loses less context this way, and the model context still stays bounded. Use `--no-continue` to disable it.
+
+## Parallelism & performance
+
+Several stages of a run use bounded concurrency:
+
+- **Tool calls within a turn.** With `--parallel-tools <n>` (default `4`), the tool calls requested in a single assistant step execute up to `n` at a time. Only tools classified as read-only run truly concurrently; everything else (including `run_bash`, `write_file`, and anything with side effects) is serialized through a shared mutation lock. Tool results are always appended in the original call order regardless of completion order, so the conversation transcript is identical to sequential execution.
+- **Workdir snapshots.** Before and after `run_bash`, 9rh snapshots the working directory. In git repositories it uses `git status --porcelain -z` to track only the dirty set instead of walking every file. Note: files ignored by git are not tracked by the fast path, so modifications to ignored files are not reported as file changes.
+- **Repo indexer.** Repository discovery, hashing, and sizing run as a single async traversal per repo with concurrent stat'ing, and repos are processed two at a time.
+
+What stays sequential: the model loop itself (one assistant step at a time), mutating tool calls (shared lock), and report/ledger writes. Set `--parallel-tools 1` to restore fully sequential tool execution.
 
 ## Backends
 

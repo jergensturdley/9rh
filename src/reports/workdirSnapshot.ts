@@ -1,12 +1,18 @@
-import { readdir, readFile, lstat } from "fs/promises";
+import { readdir, readFile, lstat, realpath } from "fs/promises";
 import type { Dirent } from "fs";
+import { execFile } from "child_process";
 import { join, relative, sep } from "path";
+import { mapPool } from "../parallel.js";
 import type { FileChangeRecord, FileChangeOperation } from "./runReportData.js";
 
 export interface WorkdirFileEntry {
   mtimeMs: number;
   size: number;
-  content: string;
+  /**
+   * Legacy `snapshotWorkDir` walks read content eagerly ("" when unreadable
+   * or the file is large). Metadata-only walkers store null until hydrated.
+   */
+  content: string | null;
 }
 
 const DEFAULT_EXCLUDES = [
@@ -23,17 +29,170 @@ const DEFAULT_EXCLUDES = [
   "logs",
 ];
 
-export async function snapshotWorkDir(
-  workDir: string,
-  excludes: string[] = DEFAULT_EXCLUDES,
-): Promise<Map<string, WorkdirFileEntry>> {
-  const out = new Map<string, WorkdirFileEntry>();
-  const excludeSet = new Set(excludes);
-  await walk(workDir, workDir, excludeSet, out);
+// ─────────────────────────────────────────────────────────────────────
+// Bash-command change detection (git fast path + parallel lazy walk)
+// ─────────────────────────────────────────────────────────────────────
+
+const GIT_TIMEOUT_MS = 5_000;
+
+function toRel(root: string, abs: string): string {
+  const r = relative(root, abs);
+  return r.split(sep).join("/");
+}
+
+async function execFileText(cmd: string, args: string[], cwd: string, maxBuffer = 64 * 1024 * 1024): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { cwd, maxBuffer, timeout: GIT_TIMEOUT_MS, encoding: "utf-8" }, (err, stdout) => {
+      if (err) reject(err);
+      else resolve(stdout);
+    });
+  });
+}
+
+/** One porcelain status entry, parsed from `git status --porcelain -z`. */
+export interface GitStatusEntry {
+  /** Two-char XY status code, e.g. "??", "M ", " M", "MM". */
+  code: string;
+  /** Slash-normalized repo-toplevel-relative path. */
+  path: string;
+  /** Present for rename/copy entries (R/C). */
+  origPath?: string;
+}
+
+/**
+ * Parse `git status --porcelain -z` output. With `-z`, entries are
+ * NUL-terminated; rename/copy entries are `<to>\0<from>\0`.
+ */
+export function parsePorcelainZ(stdout: string): GitStatusEntry[] {
+  const out: GitStatusEntry[] = [];
+  if (!stdout) return out;
+  const parts = stdout.split("\0");
+  for (let i = 0; i < parts.length; i++) {
+    const raw = parts[i];
+    if (!raw) continue;
+    // Format: XY<space><path>
+    const code = raw.slice(0, 2);
+    const path = raw.slice(3);
+    if (!path) continue;
+    const entry: GitStatusEntry = { code, path: path.split(sep).join("/") };
+    if ((code.includes("R") || code.includes("C")) && i + 1 < parts.length) {
+      entry.origPath = parts[++i];
+    }
+    out.push(entry);
+  }
   return out;
 }
 
-async function walk(
+async function gitStatus(root: string): Promise<{ gitPrefix: string; entries: GitStatusEntry[] }> {
+  // `git status --porcelain` always prints repo-TOPLEVEL-relative paths, even
+  // when cwd is a subdirectory, and reports an untracked directory as a single
+  // entry instead of its files. `-uall` expands those directories into files,
+  // and --show-toplevel lets us re-key every path relative to `root` so the
+  // rest of the snapshot/diff pipeline can keep joining onto workDir.
+  const [toplevel, stdout] = await Promise.all([
+    execFileText("git", ["rev-parse", "--show-toplevel"], root).then((s) => s.trim()),
+    execFileText("git", ["status", "--porcelain", "-z", "--untracked-files=all"], root),
+  ]);
+  // macOS /tmp-style symlinks: workDir may be /var/... while git reports the
+  // resolved /private/var/...; compare both under realpath.
+  let relTo: string;
+  try {
+    relTo = relative(await realpath(toplevel), await realpath(root)).split(sep).join("/");
+  } catch {
+    relTo = relative(toplevel, root).split(sep).join("/");
+  }
+  const prefix = relTo === "" || relTo === "." ? "" : `${relTo}/`;
+  return { gitPrefix: prefix, entries: parsePorcelainZ(stdout) };
+}
+
+/** Read pre-command content from git's index; index paths are toplevel-relative. */
+async function gitIndexContent(root: string, prefix: string, relPath: string): Promise<string | null> {
+  try {
+    return await execFileText("git", ["show", `:${prefix}${relPath}`], root, 8 * 1024 * 1024);
+  } catch {
+    return null;
+  }
+}
+
+function toWorkdirFileEntry(path: string, stat: { mtimeMs: number; size: number }): [string, WorkdirFileEntry] {
+  return [path.split(sep).join("/"), { mtimeMs: stat.mtimeMs, size: stat.size, content: null }];
+}
+
+/**
+ * Snapshot taken before and after a `run_bash` command so its file changes
+ * can be diffed for the run report.
+ *
+ * Unlike the legacy `snapshotWorkDir`, this is metadata-only: content is
+ * never read during the snapshot and is hydrated lazily by
+ * `diffBashSnapshots` for changed paths only.
+ */
+export interface GitDirtyEntry {
+  code: string;
+  /** lstat of the dirty file at snapshot time; 0 when stat failed. */
+  mtimeMs: number;
+  size: number;
+}
+
+export interface BashSnapshot {
+  /** "git": from `git status --porcelain` (repo fast path). "walk": full walk fallback. */
+  kind: "git" | "walk";
+  /** Git mode: dirty path -> status code + stat captured at snapshot time. */
+  status: Map<string, GitDirtyEntry>;
+  /** Walk mode only: path -> mtime/size metadata (content always null). */
+  files: Map<string, WorkdirFileEntry> | null;
+  /** Git mode: toplevel-relative prefix to prepend for `git show :<path>` index reads. */
+  gitPrefix?: string;
+}
+
+/**
+ * Fast per-bash snapshot.
+ *
+ * - Inside a git work tree: a single `git status --porcelain -z` call plus
+ *   one lstat per dirty path (the dirty set is small).
+ * - Otherwise: a parallel walk that records mtime+size only (no content reads).
+ */
+export async function snapshotWorkDirForBash(root: string, excludes: string[] = DEFAULT_EXCLUDES): Promise<BashSnapshot> {
+  try {
+    const { gitPrefix, entries } = await gitStatus(root);
+    const status = new Map<string, GitDirtyEntry>();
+    // Key paths relative to `root` (not the repo toplevel): every consumer
+    // joins these onto workDir. Paths outside `root` (submodule pointers etc.)
+    // would escape via ../; skip them rather than attribute nonsense.
+    const rekey = (p: string): string | null => {
+      if (!gitPrefix) return p;
+      if (!p.startsWith(gitPrefix)) return null;
+      return p.slice(gitPrefix.length);
+    };
+    const record = async (path: string, code: string) => {
+      const rel = rekey(path);
+      if (rel === null || rel === "") return;
+      let mtimeMs = 0;
+      let size = 0;
+      try {
+        const st = await lstat(join(root, rel));
+        mtimeMs = st.mtimeMs;
+        size = st.size;
+      } catch {
+        // File vanished between status and stat; zeros still diff sanely.
+      }
+      status.set(rel, { code, mtimeMs, size });
+    };
+    await mapPool(entries, 16, async (e) => {
+      await record(e.path, e.code);
+      if (e.origPath !== undefined) await record(e.origPath, e.code);
+    });
+    return { kind: "git", status, files: null, gitPrefix };
+  } catch {
+    // Not a git repo (or git unavailable): fall back to a parallel walk.
+  }
+  const excludeSet = new Set(excludes);
+  const files = new Map<string, WorkdirFileEntry>();
+  await walkMeta(root, root, excludeSet, files);
+  return { kind: "walk", status: new Map(), files };
+}
+
+/** Parallel metadata-only walk: same include/exclude rules as `walk`, no content reads. */
+async function walkMeta(
   root: string,
   dir: string,
   excludeSet: Set<string>,
@@ -45,61 +204,160 @@ async function walk(
   } catch {
     return;
   }
+  const subdirs: string[] = [];
   for (const entry of entries) {
-    if (entry.name.startsWith(".") && entry.name !== ".") {
-      if (entry.name !== ".gitignore" && entry.name !== ".env.example") continue;
-    }
     if (excludeSet.has(entry.name)) continue;
+    if (entry.name.startsWith(".") && entry.name !== ".gitignore" && entry.name !== ".env.example") continue;
     const abs = join(dir, entry.name);
+    if (entry.isSymbolicLink()) continue;
+    if (entry.isDirectory()) {
+      subdirs.push(abs);
+      continue;
+    }
+    if (!entry.isFile()) continue;
     let stat;
     try {
       stat = await lstat(abs);
     } catch {
       continue;
     }
-    if (stat.isSymbolicLink()) continue;
-    const rel = toRel(root, abs);
-    if (stat.isDirectory()) {
-      await walk(root, abs, excludeSet, out);
-      continue;
-    }
-    if (!stat.isFile()) continue;
-    let content = "";
-    if (stat.size <= 32_000) {
-      try {
-        content = await readFile(abs, "utf-8");
-      } catch {
-        content = "";
-      }
-    }
-    out.set(rel, { mtimeMs: stat.mtimeMs, size: stat.size, content });
+    out.set(...toWorkdirFileEntry(toRel(root, abs), stat));
+  }
+  if (subdirs.length > 0) {
+    await mapPool(subdirs, 8, (d) => walkMeta(root, d, excludeSet, out));
   }
 }
 
-function toRel(root: string, abs: string): string {
-  const r = relative(root, abs);
-  return r.split(sep).join("/");
+/** Hydrate `content` for the given workdir paths (lazily, bounded pool). */
+export async function hydrateSnapshotContents(
+  root: string,
+  paths: Iterable<string>,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  await mapPool([...paths], 16, async (relPath) => {
+    try {
+      out.set(relPath, await readFile(join(root, relPath), "utf-8"));
+    } catch {
+      // Deleted or unreadable between walk and read: leave absent.
+    }
+  });
+  return out;
 }
 
-export function diffSnapshots(
+/** Convert a porcelain status code into the report's FileChangeOperation. */
+function statusToOperation(code: string): FileChangeOperation {
+  return code === "??" || code.startsWith("A") ? "create" : "edit";
+}
+
+/**
+ * Diff two per-bash snapshots. O(changed paths): git mode diffs the status
+ * maps directly; walk mode compares mtime+size and reads content only for
+ * paths that changed.
+ */
+export async function diffBashSnapshots(
+  root: string,
+  before: BashSnapshot,
+  after: BashSnapshot,
+  step: number,
+): Promise<FileChangeRecord[]> {
+  if (before.kind === "git" && after.kind === "git") {
+    // Index paths for `git show :<path>` are always toplevel-relative; both
+    // snapshots share the same repo, so either prefix works.
+    return diffGitSnapshots(root, before.status, after.status, step, before.gitPrefix ?? "");
+  }
+  if (before.files && after.files) {
+    return diffWalkSnapshots(root, before.files, after.files, step);
+  }
+  // Mixed kinds (e.g. a repo appeared or vanished mid-command): nothing
+  // comparable — report no changes rather than guessing.
+  return [];
+}
+
+async function diffGitSnapshots(
+  root: string,
+  before: Map<string, GitDirtyEntry>,
+  after: Map<string, GitDirtyEntry>,
+  step: number,
+  gitPrefix = "",
+): Promise<FileChangeRecord[]> {
+  const changed: string[] = [];
+  for (const [p, a] of after) {
+    const b = before.get(p);
+    if (!b) {
+      // Newly dirty in this snapshot (new file, or deleted from a clean
+      // state). Snapshot-time rekeying already scoped keys to workDir.
+      changed.push(p);
+      continue;
+    }
+    if (b.code !== a.code) {
+      // Status transition (e.g. " M" -> "MM", "??" added to index).
+      changed.push(p);
+      continue;
+    }
+    // Same status: a command may still have modified the file again.
+    // The mtime+size captured at each snapshot detects this cheaply.
+    if (b.mtimeMs !== a.mtimeMs || b.size !== a.size) {
+      changed.push(p);
+    }
+  }
+  for (const p of before.keys()) {
+    if (!after.has(p)) changed.push(p); // deleted or resolved (commit/checkout)
+  }
+  if (changed.length === 0) return [];
+
+  const hydrated = await hydrateSnapshotContents(root, changed);
+  const out: FileChangeRecord[] = [];
+  for (const p of changed) {
+    const a = after.get(p);
+    if (!a) {
+      // Present before, absent now: deleted by the command (tracked as an
+      // edit with empty after, matching the legacy diff semantics). The
+      // pre-command content is the state in git's index.
+      const b = before.get(p);
+      const beforeContent = b && b.code === "??" ? undefined : await gitIndexContent(root, gitPrefix, p);
+      out.push(mkRecord(step, p, "edit", beforeContent ?? undefined, ""));
+      continue;
+    }
+    const operation = statusToOperation(a.code);
+    const beforeContent = operation === "edit" ? await gitIndexContent(root, gitPrefix, p) : undefined;
+    out.push(mkRecord(step, p, operation, beforeContent ?? undefined, hydrated.get(p) ?? ""));
+  }
+  out.sort((x, y) => x.path.localeCompare(y.path));
+  return out;
+}
+
+async function diffWalkSnapshots(
+  root: string,
   before: Map<string, WorkdirFileEntry>,
   after: Map<string, WorkdirFileEntry>,
   step: number,
-): FileChangeRecord[] {
-  const out: FileChangeRecord[] = [];
-  for (const [path, a] of after) {
-    const b = before.get(path);
+): Promise<FileChangeRecord[]> {
+  const changed: string[] = [];
+  const deletions: string[] = [];
+  for (const [p, a] of after) {
+    const b = before.get(p);
     if (!b) {
-      out.push(mkRecord(step, path, "create", undefined, a.content));
+      changed.push(p);
       continue;
     }
     if (b.mtimeMs === a.mtimeMs && b.size === a.size) continue;
-    out.push(mkRecord(step, path, "edit", b.content, a.content));
+    changed.push(p);
   }
-  for (const [path, b] of before) {
-    if (after.has(path)) continue;
-    out.push(mkRecord(step, path, "edit", b.content, ""));
+  for (const p of before.keys()) {
+    if (!after.has(p)) deletions.push(p);
   }
+  if (changed.length === 0 && deletions.length === 0) return [];
+
+  const hydrated = await hydrateSnapshotContents(root, changed);
+  const out: FileChangeRecord[] = [];
+  for (const p of changed) {
+    const isNew = !before.has(p);
+    out.push(mkRecord(step, p, isNew ? "create" : "edit", undefined, hydrated.get(p) ?? ""));
+  }
+  for (const p of deletions) {
+    out.push(mkRecord(step, p, "edit", undefined, ""));
+  }
+  out.sort((a, b) => a.path.localeCompare(b.path));
   return out;
 }
 

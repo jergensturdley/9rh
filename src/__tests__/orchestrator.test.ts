@@ -4,6 +4,7 @@ import {
   isTrivialEdit,
   requiresSecurityAudit,
   requiresTestStrategy,
+  assessToolRisk,
 } from "../orchestrator/roles.js";
 import {
   canOverride,
@@ -544,5 +545,29 @@ describe("Orchestrator: cacheStats", () => {
     expect(stats).toHaveProperty("planCacheSize");
     expect(stats).toHaveProperty("testStrategyCacheSize");
     expect(stats).toHaveProperty("totalHits");
+  });
+});
+
+describe("assessToolRisk: allowlisted bash must not be low when it can write", () => {
+  it("plain read-only invocations stay low", () => {
+    expect(assessToolRisk({ name: "run_bash", args: { command: "cat README.md" } })).toBe("low");
+    expect(assessToolRisk({ name: "run_bash", args: { command: "ls -la src" } })).toBe("low");
+    expect(assessToolRisk({ name: "run_bash", args: { command: "grep -rn TODO src" } })).toBe("low");
+  });
+
+  it("redirection makes an allowlisted command medium (fail closed)", () => {
+    expect(assessToolRisk({ name: "run_bash", args: { command: "echo hi > out.txt" } })).toBe("medium");
+    expect(assessToolRisk({ name: "run_bash", args: { command: "cat a.txt >> b.txt" } })).toBe("medium");
+    expect(assessToolRisk({ name: "run_bash", args: { command: "grep x f.txt 2> err.log" } })).toBe("medium");
+  });
+
+  it("piping into a write sink makes an allowlisted command medium", () => {
+    expect(assessToolRisk({ name: "run_bash", args: { command: "cat a.txt | tee b.txt" } })).toBe("medium");
+    expect(assessToolRisk({ name: "run_bash", args: { command: "ls | sponge listing.txt" } })).toBe("medium");
+  });
+
+  it("command substitution makes an allowlisted command medium", () => {
+    expect(assessToolRisk({ name: "run_bash", args: { command: "echo $(date > f.txt)" } })).toBe("medium");
+    expect(assessToolRisk({ name: "run_bash", args: { command: "echo `pwd > f.txt`" } })).toBe("medium");
   });
 });

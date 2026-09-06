@@ -185,8 +185,18 @@ export function assessToolRisk(call: ToolCall): ToolRiskLevel {
     if (/(?:>>|>)\s*[~\/]/.test(command) && SENSITIVE_PATH_REGEX.some((re) => re.test(command))) {
       return "critical";
     }
-    // Default: medium for any shell. Low for `cat`/`ls`/`echo` etc.
-    if (/^\s*(?:cat|ls|echo|wc|pwd|whoami|date|true|false|which|type|file|head|tail|grep|rg)\b/.test(command)) {
+    // Default: medium for any shell. Low only for allowlisted read-only
+    // invocations WITHOUT any write signal: redirection (>, >>, 2>, &>,
+    // <>), write sinks (tee, sponge, dd), or command substitution
+    // $(...)/`...` (which can smuggle writes past a read-only prefix).
+    const writes =
+      /(?:>>|<>|&>|2>|(?<!>)>(?!>))/.test(command) ||
+      /\b(?:tee|sponge|dd)\b/.test(command) ||
+      /\$\(|`/.test(command);
+    if (
+      !writes &&
+      /^\s*(?:cat|ls|echo|wc|pwd|whoami|date|true|false|which|type|file|head|tail|grep|rg)\b/.test(command)
+    ) {
       return "low";
     }
     return "medium";

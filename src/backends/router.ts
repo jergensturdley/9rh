@@ -4,7 +4,6 @@ import { promisify } from "util";
 import { createConnection } from "net";
 import { readFile } from "fs/promises";
 import { homedir } from "os";
-import { execFileSync } from "child_process";
 import chalk from "chalk";
 import type {
   Backend,
@@ -59,14 +58,16 @@ async function fetchJSON<T>(url: string, apiKey: string, timeoutMs = 3_000): Pro
   }
 }
 
-function readFirstApiKey(): string | null {
+async function readFirstApiKey(): Promise<string | null> {
   try {
     const dbPath = `${homedir()}/.9router/db/data.sqlite`;
     if (!existsSync(dbPath)) return null;
-    const key = execFileSync("sqlite3", [dbPath, "SELECT key FROM apiKeys LIMIT 1"], {
-      encoding: "utf8",
-      timeout: 5_000,
-    }).trim();
+    const { stdout } = await execFileAsync(
+      "sqlite3",
+      [dbPath, "SELECT key FROM apiKeys LIMIT 1"],
+      { encoding: "utf8", timeout: 5_000 },
+    );
+    const key = stdout.trim();
     return key || null;
   } catch {
     return null;
