@@ -1,8 +1,9 @@
 import { createConnection } from "net";
-import { execFile, execFileSync, spawn } from "child_process";
+import { execFile, spawn } from "child_process";
 import { createHash } from "crypto";
 import { promisify } from "util";
-import { closeSync, existsSync, openSync, readFileSync } from "fs";
+import { closeSync, existsSync, openSync } from "fs";
+import { readFile } from "fs/promises";
 import os from "os";
 import chalk from "chalk";
 
@@ -17,11 +18,12 @@ async function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function readFirstApiKey(): string | null {
+async function readFirstApiKey(): Promise<string | null> {
   try {
     const dbPath = `${os.homedir()}/.9router/db/data.sqlite`;
     if (!existsSync(dbPath)) return null;
-    const key = execFileSync("sqlite3", [dbPath, "SELECT key FROM apiKeys LIMIT 1"], { encoding: "utf8", timeout: 5000 }).trim();
+    const { stdout } = await execFileAsync("sqlite3", [dbPath, "SELECT key FROM apiKeys LIMIT 1"], { encoding: "utf8", timeout: 5000 });
+    const key = stdout.trim();
     return key || null;
   } catch {
     return null;
@@ -30,21 +32,21 @@ function readFirstApiKey(): string | null {
 
 export { readFirstApiKey };
 
-function machineIdHash(): string {
+async function machineIdHash(): Promise<string> {
   try {
     const idFile = `${os.homedir()}/.9router/machine-id`;
     if (existsSync(idFile)) {
-      return readFileSync(idFile, "utf8").trim();
+      return (await readFile(idFile, "utf8")).trim();
     }
     let id: string;
     if (process.platform === "darwin") {
-      const raw = execFileSync("ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"], { encoding: "utf8", timeout: 5000 });
+      const { stdout: raw } = await execFileAsync("ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"], { encoding: "utf8", timeout: 5000 });
       id = raw.split("IOPlatformUUID")[1]?.split("\n")[0]?.replace(/=|\s+|"/g, "").toLowerCase() ?? "";
     } else if (process.platform === "linux") {
-      const raw = execFileSync("sh", ["-c", "( cat /var/lib/dbus/machine-id /etc/machine-id 2> /dev/null || hostname ) | head -n 1 || :"], { encoding: "utf8", timeout: 5000 });
+      const { stdout: raw } = await execFileAsync("sh", ["-c", "( cat /var/lib/dbus/machine-id /etc/machine-id 2> /dev/null || hostname ) | head -n 1 || :"], { encoding: "utf8", timeout: 5000 });
       id = raw.replace(/\r+|\n+|\s+/g, "").toLowerCase();
     } else if (process.platform === "win32") {
-      const raw = execFileSync("REG", ["QUERY", "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Cryptography", "/v", "MachineGuid"], { encoding: "utf8", timeout: 5000 });
+      const { stdout: raw } = await execFileAsync("REG", ["QUERY", "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Cryptography", "/v", "MachineGuid"], { encoding: "utf8", timeout: 5000 });
       id = raw.split("REG_SZ")[1]?.replace(/\r+|\n+|\s+/g, "").toLowerCase() ?? "";
     } else {
       id = "";
@@ -56,14 +58,14 @@ function machineIdHash(): string {
   }
 }
 
-export function getCliToken(): string {
-  const mid = machineIdHash();
+export async function getCliToken(): Promise<string> {
+  const mid = await machineIdHash();
   if (mid === "" || !mid) return "";
   let secret = "";
   try {
     const secretFile = `${os.homedir()}/.9router/auth/cli-secret`;
     if (existsSync(secretFile)) {
-      secret = readFileSync(secretFile, "utf8").trim();
+      secret = (await readFile(secretFile, "utf8")).trim();
     }
   } catch {}
   return createHash("sha256").update(mid + CLI_TOKEN_SALT + secret).digest("hex").substring(0, 16);
@@ -99,9 +101,9 @@ function processErrorMessage(err: unknown): string {
   return [e.stderr, e.stdout, e.message].filter(Boolean).join("\n").trim() || String(err);
 }
 
-function tailFile(path: string, maxChars = 2000): string {
+async function tailFile(path: string, maxChars = 2000): Promise<string> {
   try {
-    const raw = readFileSync(path, "utf8");
+    const raw = await readFile(path, "utf8");
     return raw.length > maxChars ? raw.slice(-maxChars) : raw;
   } catch {
     return "";
@@ -158,7 +160,7 @@ async function installAndStart(): Promise<{ success: boolean; error?: string }> 
     }
   }
 
-  const logTail = tailFile(logPath).trim();
+  const logTail = (await tailFile(logPath)).trim();
   const details = [
     spawnError ? `spawn error: ${spawnError}` : "",
     logTail ? `startup log (${logPath}):\n${logTail}` : `startup log: ${logPath}`,
@@ -178,7 +180,7 @@ export async function ensureRouter(routerUrl?: string, apiKey?: string): Promise
   const baseURL = inputUrl.replace("localhost", "127.0.0.1");
   const defaultKey = "9router";
 
-  const storedKey = readFirstApiKey();
+  const storedKey = await readFirstApiKey();
 
   if (storedKey && await healthCheck(baseURL, storedKey)) {
     return { baseURL, apiKey: storedKey, wasStarted: false };

@@ -1098,14 +1098,14 @@ async function runRepl(state: SessionState): Promise<void> {
 async function runDoctor(state: SessionState): Promise<boolean> {
   const native = state.baseURL.replace(/\/v1\/?$/, "");
 async function apiFetch(path: string): Promise<Response> {
-      const token = getCliToken();
+      const token = await getCliToken();
       const cliHeaders: Record<string, string> = token ? { "x-9r-cli-token": token } : {};
       const bearerHeaders = { Authorization: `Bearer ${effectiveKey}` };
       const headers = Object.keys(cliHeaders).length ? cliHeaders : bearerHeaders;
       return fetch(`${native}${path}`, { headers, signal: AbortSignal.timeout(3000) });
     }
 
-  const storedKey = readFirstApiKey();
+  const storedKey = await readFirstApiKey();
   const effectiveKey = storedKey ?? state.apiKey;
 
   const results = await Promise.allSettled([

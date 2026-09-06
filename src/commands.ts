@@ -172,8 +172,7 @@ function setCached<T>(value: T): RouterCacheEntry<T> {
 }
 
 async function fetchNativeJSON(state: SessionState, path: string): Promise<unknown> {
-  const token = getCliToken();
-  const storedKey = readFirstApiKey();
+  const [token, storedKey] = await Promise.all([getCliToken(), readFirstApiKey()]);
   const effectiveKey = storedKey ?? state.apiKey;
   const headers: Record<string, string> = token
     ? { "x-9r-cli-token": token }
@@ -843,8 +842,7 @@ const COMMANDS: Record<string, CommandDef> = {
     usage: "/debug-auth",
     description: "Debug 9router authentication and connectivity",
     handler: async (_args, state) => {
-      const token = getCliToken();
-      const storedKey = readFirstApiKey();
+      const [token, storedKey] = await Promise.all([getCliToken(), readFirstApiKey()]);
       const effectiveKey = storedKey ?? state.apiKey;
       const native = base(state);
 
