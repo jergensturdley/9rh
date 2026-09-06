@@ -1,4 +1,4 @@
-import { readdir, readFile, lstat } from "fs/promises";
+import { readdir, readFile, lstat, realpath } from "fs/promises";
 import type { Dirent } from "fs";
 import { execFile } from "child_process";
 import { join, relative, sep } from "path";
@@ -53,7 +53,7 @@ async function execFileText(cmd: string, args: string[], cwd: string, maxBuffer 
 export interface GitStatusEntry {
   /** Two-char XY status code, e.g. "??", "M ", " M", "MM". */
   code: string;
-  /** Slash-normalized repo-relative path. */
+  /** Slash-normalized repo-toplevel-relative path. */
   path: string;
   /** Present for rename/copy entries (R/C). */
   origPath?: string;
@@ -83,18 +83,32 @@ export function parsePorcelainZ(stdout: string): GitStatusEntry[] {
   return out;
 }
 
-async function gitStatus(root: string): Promise<GitStatusEntry[]> {
-  const stdout = await execFileText("git", ["status", "--porcelain", "-z"], root);
-  return parsePorcelainZ(stdout);
+async function gitStatus(root: string): Promise<{ gitPrefix: string; entries: GitStatusEntry[] }> {
+  // `git status --porcelain` always prints repo-TOPLEVEL-relative paths, even
+  // when cwd is a subdirectory, and reports an untracked directory as a single
+  // entry instead of its files. `-uall` expands those directories into files,
+  // and --show-toplevel lets us re-key every path relative to `root` so the
+  // rest of the snapshot/diff pipeline can keep joining onto workDir.
+  const [toplevel, stdout] = await Promise.all([
+    execFileText("git", ["rev-parse", "--show-toplevel"], root).then((s) => s.trim()),
+    execFileText("git", ["status", "--porcelain", "-z", "--untracked-files=all"], root),
+  ]);
+  // macOS /tmp-style symlinks: workDir may be /var/... while git reports the
+  // resolved /private/var/...; compare both under realpath.
+  let relTo: string;
+  try {
+    relTo = relative(await realpath(toplevel), await realpath(root)).split(sep).join("/");
+  } catch {
+    relTo = relative(toplevel, root).split(sep).join("/");
+  }
+  const prefix = relTo === "" || relTo === "." ? "" : `${relTo}/`;
+  return { gitPrefix: prefix, entries: parsePorcelainZ(stdout) };
 }
 
-/**
- * Read the pre-command content of a dirty tracked file: the content staged
- * in git's index (`:path`) is exactly the state before the bash command ran.
- */
-async function gitIndexContent(root: string, relPath: string): Promise<string | null> {
+/** Read pre-command content from git's index; index paths are toplevel-relative. */
+async function gitIndexContent(root: string, prefix: string, relPath: string): Promise<string | null> {
   try {
-    return await execFileText("git", ["show", `:${relPath}`], root, 8 * 1024 * 1024);
+    return await execFileText("git", ["show", `:${prefix}${relPath}`], root, 8 * 1024 * 1024);
   } catch {
     return null;
   }
@@ -126,6 +140,8 @@ export interface BashSnapshot {
   status: Map<string, GitDirtyEntry>;
   /** Walk mode only: path -> mtime/size metadata (content always null). */
   files: Map<string, WorkdirFileEntry> | null;
+  /** Git mode: toplevel-relative prefix to prepend for `git show :<path>` index reads. */
+  gitPrefix?: string;
 }
 
 /**
@@ -137,25 +153,35 @@ export interface BashSnapshot {
  */
 export async function snapshotWorkDirForBash(root: string, excludes: string[] = DEFAULT_EXCLUDES): Promise<BashSnapshot> {
   try {
-    const entries = await gitStatus(root);
+    const { gitPrefix, entries } = await gitStatus(root);
     const status = new Map<string, GitDirtyEntry>();
+    // Key paths relative to `root` (not the repo toplevel): every consumer
+    // joins these onto workDir. Paths outside `root` (submodule pointers etc.)
+    // would escape via ../; skip them rather than attribute nonsense.
+    const rekey = (p: string): string | null => {
+      if (!gitPrefix) return p;
+      if (!p.startsWith(gitPrefix)) return null;
+      return p.slice(gitPrefix.length);
+    };
     const record = async (path: string, code: string) => {
+      const rel = rekey(path);
+      if (rel === null || rel === "") return;
       let mtimeMs = 0;
       let size = 0;
       try {
-        const st = await lstat(join(root, path));
+        const st = await lstat(join(root, rel));
         mtimeMs = st.mtimeMs;
         size = st.size;
       } catch {
         // File vanished between status and stat; zeros still diff sanely.
       }
-      status.set(path, { code, mtimeMs, size });
+      status.set(rel, { code, mtimeMs, size });
     };
     await mapPool(entries, 16, async (e) => {
       await record(e.path, e.code);
       if (e.origPath !== undefined) await record(e.origPath, e.code);
     });
-    return { kind: "git", status, files: null };
+    return { kind: "git", status, files: null, gitPrefix };
   } catch {
     // Not a git repo (or git unavailable): fall back to a parallel walk.
   }
@@ -235,7 +261,9 @@ export async function diffBashSnapshots(
   step: number,
 ): Promise<FileChangeRecord[]> {
   if (before.kind === "git" && after.kind === "git") {
-    return diffGitSnapshots(root, before.status, after.status, step);
+    // Index paths for `git show :<path>` are always toplevel-relative; both
+    // snapshots share the same repo, so either prefix works.
+    return diffGitSnapshots(root, before.status, after.status, step, before.gitPrefix ?? "");
   }
   if (before.files && after.files) {
     return diffWalkSnapshots(root, before.files, after.files, step);
@@ -250,12 +278,14 @@ async function diffGitSnapshots(
   before: Map<string, GitDirtyEntry>,
   after: Map<string, GitDirtyEntry>,
   step: number,
+  gitPrefix = "",
 ): Promise<FileChangeRecord[]> {
   const changed: string[] = [];
   for (const [p, a] of after) {
     const b = before.get(p);
     if (!b) {
-      // Newly dirty (or appeared mid-command).
+      // Newly dirty in this snapshot (new file, or deleted from a clean
+      // state). Snapshot-time rekeying already scoped keys to workDir.
       changed.push(p);
       continue;
     }
@@ -284,12 +314,12 @@ async function diffGitSnapshots(
       // edit with empty after, matching the legacy diff semantics). The
       // pre-command content is the state in git's index.
       const b = before.get(p);
-      const beforeContent = b && b.code === "??" ? undefined : await gitIndexContent(root, p);
+      const beforeContent = b && b.code === "??" ? undefined : await gitIndexContent(root, gitPrefix, p);
       out.push(mkRecord(step, p, "edit", beforeContent ?? undefined, ""));
       continue;
     }
     const operation = statusToOperation(a.code);
-    const beforeContent = operation === "edit" ? await gitIndexContent(root, p) : undefined;
+    const beforeContent = operation === "edit" ? await gitIndexContent(root, gitPrefix, p) : undefined;
     out.push(mkRecord(step, p, operation, beforeContent ?? undefined, hydrated.get(p) ?? ""));
   }
   out.sort((x, y) => x.path.localeCompare(y.path));

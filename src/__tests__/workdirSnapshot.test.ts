@@ -189,3 +189,82 @@ describe("snapshotWorkDirForBash (git fast path)", () => {
     expect(diffs).toEqual([]);
   });
 });
+
+describe("snapshotWorkDirForBash: workDir inside a repo subdirectory (relative-path correctness)", () => {
+  let repoRoot: string;
+  let subDir: string;
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(join(tmpdir(), "9rh-workdirsnap-root-"));
+    subDir = join(repoRoot, "packages/app");
+    mkdirSync(subDir, { recursive: true });
+    // Shell out in the repo root so the fixture is a real repo.
+    const g = (args: string[], cwd: string) =>
+      execFileSync("git", args, { cwd, encoding: "utf-8" });
+    g(["init", "-q"], repoRoot);
+    g(["config", "user.email", "test@example.com"], repoRoot);
+    g(["config", "user.name", "Test"], repoRoot);
+    writeFileSync(join(subDir, "tracked.txt"), "base\n");
+    g(["add", "."], repoRoot);
+    g(["commit", "-q", "-m", "init"], repoRoot);
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it("snapshots taken from a subdir attribute changes to workDir-relative paths", async () => {
+    const before = await snapshotWorkDirForBash(subDir);
+    writeFileSync(join(subDir, "tracked.txt"), "changed\n");
+    const after = await snapshotWorkDirForBash(subDir);
+
+    expect(before.kind).toBe("git");
+    const diffs = await diffBashSnapshots(subDir, before, after, 1);
+    expect(diffs).toHaveLength(1);
+    // Must be workDir-relative ("tracked.txt"), never repo-root-relative
+    // ("packages/app/tracked.txt") — the report joins these onto workDir.
+    expect(diffs[0].path).toBe("tracked.txt");
+    expect(diffs[0].before).toBe("base\n");
+    expect(diffs[0].after).toBe("changed\n");
+  });
+
+  it("detects a new untracked file in a nested subdir of the workDir", async () => {
+    const before = await snapshotWorkDirForBash(subDir);
+    mkdirSync(join(subDir, "nested"));
+    writeFileSync(join(subDir, "nested/out.txt"), "log\n");
+    const after = await snapshotWorkDirForBash(subDir);
+
+    const diffs = await diffBashSnapshots(subDir, before, after, 2);
+    expect(diffs).toHaveLength(1);
+    expect(diffs[0]).toMatchObject({ path: "nested/out.txt", operation: "create" });
+  });
+});
+
+describe("snapshotWorkDirForBash: mixed snapshot kinds", () => {
+  it("diffing a git snapshot against a walk snapshot returns [] (documented, no guessing)", async () => {
+    // Git repo fixture.
+    git(["init", "-q"]);
+    git(["config", "user.email", "test@example.com"]);
+    git(["config", "user.name", "Test"]);
+    writeFileSync(join(root, "tracked.txt"), "base\n");
+    git(["add", "."]);
+    git(["commit", "-q", "-m", "init"]);
+    const gitSnap = await snapshotWorkDirForBash(root);
+    expect(gitSnap.kind).toBe("git");
+
+    // A non-git directory produces a walk snapshot.
+    const plain = mkdtempSync(join(tmpdir(), "9rh-workdirsnap-plain-"));
+    try {
+      writeFileSync(join(plain, "f.txt"), "x");
+      const walkSnap = await snapshotWorkDirForBash(plain);
+      expect(walkSnap.kind).toBe("walk");
+
+      const diffsGitWalk = await diffBashSnapshots(root, gitSnap, walkSnap, 1);
+      const diffsWalkGit = await diffBashSnapshots(root, walkSnap, gitSnap, 1);
+      expect(diffsGitWalk).toEqual([]);
+      expect(diffsWalkGit).toEqual([]);
+    } finally {
+      rmSync(plain, { recursive: true, force: true });
+    }
+  });
+});
