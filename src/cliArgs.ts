@@ -36,6 +36,19 @@ export function resolveMaxIter(rawMaxIter: string | undefined, defaultMax: numbe
   return { ok: true, value: r.value ?? defaultMax };
 }
 
+export type ParallelToolsResult = { ok: true; value: number };
+
+/**
+ * Resolve the --parallel-tools / NINE_RH_PARALLEL_TOOLS value. Invalid
+ * input falls back to the default rather than erroring: a wrong
+ * concurrency value must never block a run. `1` means sequential.
+ */
+export function resolveParallelTools(raw: string | undefined, fallback: number): ParallelToolsResult {
+  const r = parsePositiveInt(raw, "--parallel-tools");
+  if (!r.ok || r.value === undefined) return { ok: true, value: fallback };
+  return { ok: true, value: r.value };
+}
+
 export interface ContinuationOpts {
   continue?: boolean;
   continueModel?: string;

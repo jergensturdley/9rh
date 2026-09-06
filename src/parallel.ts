@@ -8,6 +8,10 @@
 /**
  * Maps `items` through `fn` with at most `limit` invocations in flight.
  * Results are returned in input order regardless of completion order.
+ *
+ * On the first rejection, no *new* items are dispatched; in-flight
+ * invocations are awaited (so their side effects finish) and the first
+ * error is then propagated.
  */
 export async function mapPool<T, R>(
   items: readonly T[],
@@ -17,14 +21,26 @@ export async function mapPool<T, R>(
   const n = Math.max(1, Math.min(limit, items.length || 1));
   const results = new Array<R>(items.length);
   let next = 0;
+  let firstError: unknown;
+  let failed = false;
   const workers = Array.from({ length: n }, async () => {
     while (true) {
+      if (failed) return; // stop pulling new work after a failure
       const i = next++;
       if (i >= items.length) return;
-      results[i] = await fn(items[i], i);
+      try {
+        results[i] = await fn(items[i], i);
+      } catch (err) {
+        if (!failed) {
+          failed = true;
+          firstError = err;
+        }
+        return;
+      }
     }
   });
   await Promise.all(workers);
+  if (failed) throw firstError;
   return results;
 }
 

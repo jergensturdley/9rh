@@ -1518,8 +1518,12 @@ export function createTuiRenderer(opts: TuiOptions): (event: AgentEvent) => void
 
       case "tool_result": {
         stopSpinner();
-        // Mark the matching tool in history as done/failed
-        const lastRunning = [...dashboard.toolHistory].reverse().find(h => h.status === "running");
+        // Mark the matching tool in history as done/failed. Under parallel
+        // execution, several tools run at once; prefer the most recent
+        // running entry of the same tool name before any running entry.
+        const lastRunning =
+          [...dashboard.toolHistory].reverse().find(h => h.status === "running" && h.name === event.name) ??
+          [...dashboard.toolHistory].reverse().find(h => h.status === "running");
         if (lastRunning) {
           lastRunning.status = event.error ? "error" : "success";
         }

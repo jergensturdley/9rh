@@ -40,6 +40,7 @@ import type {
   LLMResponseEvent,
 } from "./replay/eventSchema.js";
 import { Reasoner } from "./reasoner/reasoner.js";
+import { mapPool, AsyncLock } from "./parallel.js";
 import { createExecutor, ObservabilityCollector, isSandboxAvailable, getSandboxStatus } from "./sandbox/index.js";
 import { assessToolRisk, riskAtOrAbove, DEFAULT_TOOL_RISK_THRESHOLD, type ToolRiskLevel, type ToolCall as OrchestratorToolCall, type OrchestratorEvent } from "./orchestrator/index.js";
 import type { SandboxProvider } from "./sandbox/index.js";
@@ -70,6 +71,13 @@ export interface AgentConfig {
    * executed. Default: "high".
    */
   toolRiskThreshold?: ToolRiskLevel;
+  /**
+   * Max tool calls executed concurrently within one assistant turn.
+   * Calls classified low-risk by `assessToolRisk` (read-only) run in a
+   * bounded pool; everything else serializes behind a lock, preserving
+   * the no-parallel-mutation guarantee. Default: 4. `1` = sequential.
+   */
+  toolConcurrency?: number;
   /**
    * Whether the agent is allowed to call `install_skill` at all.
    * When false (the default), every `install_skill` call returns a
@@ -293,6 +301,8 @@ export class Agent {
   private stopFlag: boolean = false;
   private timeoutTimer: ReturnType<typeof setTimeout> | null = null;
   private replayFinalized: boolean = false;
+  /** Serializes mutating tool calls inside a concurrent batch. */
+  private mutationLock = new AsyncLock();
   // Report-data collection (built incrementally; written to disk on done).
   private report: RunReportData | null = null;
   private reportStartMs: number = 0;
@@ -1076,51 +1086,94 @@ export class Agent {
             })),
           });
 
-          for (const tc of parsedToolCalls) {
-            if (tc.parseError) {
-              this.emit({ type: "tool_result", name: tc.name, output: "", error: tc.parseError });
+          // Execute the turn's tool calls with bounded concurrency.
+          // Read-only (low-risk) calls run in parallel; mutating calls
+          // serialize behind mutationLock. Results are collected in the
+          // original order so the assistant -> tool message pairing the
+          // API requires is preserved regardless of completion order.
+          const concurrency = Math.max(1, this.config.toolConcurrency ?? 4);
+          type TurnToolResult =
+            | { kind: "parse-error"; error: string }
+            | { kind: "executed"; result: { output: string; error?: string }; startMs: number; durationMs: number };
+
+          // Note: executeToolWithRepair already catches per-call errors; this
+          // extra containment covers unexpected executor throws so the run
+          // continues and tool messages stay in original call order.
+          const turnResults: TurnToolResult[] = await mapPool(
+            parsedToolCalls,
+            concurrency,
+            async (tc): Promise<TurnToolResult> => {
+              if (tc.parseError) {
+                return { kind: "parse-error", error: tc.parseError };
+              }
+              const run = async () => {
+                const startMs = Date.now();
+                this.emit({ type: "tool_call", name: tc.name, args: tc.args });
+                this.rememberToolHistory(`CALL ${tc.name} ${this.stringifyToolArgs(tc.args)}`);
+
+                const tcEvent: Omit<ToolCallEvent, "seq" | "ts"> = {
+                  type: "tool_call",
+                  step: this.stepContext(),
+                  payload: { toolName: tc.name, args: tc.args, callId: tc.id },
+                };
+                this.logReplay(tcEvent as ToolCallEvent);
+
+                this.reasoner.plan({
+                  callId: tc.id,
+                  toolName: tc.name,
+                  args: tc.args,
+                  goal: this.currentTask,
+                  currentStep: `Step ${this.stepIndex}: call ${tc.name}`,
+                  assumptions: [],
+                  expectedOutcome: `execute ${tc.name} with provided args`,
+                  stepContext: this.stepContext(),
+                });
+
+                const result = await this.executeToolWithRepair(tc.name, tc.args, tc.id);
+                return { kind: "executed" as const, result, startMs, durationMs: Date.now() - startMs };
+              };
+              // Fail closed: anything not provably read-only takes the lock.
+              try {
+                if (assessToolRisk({ name: tc.name, args: tc.args }) === "low") {
+                  return await run();
+                }
+                return await this.mutationLock.run(run);
+              } catch (err) {
+                return {
+                  kind: "executed" as const,
+                  result: { output: "", error: err instanceof Error ? err.message : String(err) },
+                  startMs: Date.now(),
+                  durationMs: 0,
+                };
+              }
+            },
+          );
+
+          // Append per-call side effects and messages in original order.
+          for (let i = 0; i < parsedToolCalls.length; i++) {
+            const tc = parsedToolCalls[i];
+            const turnResult = turnResults[i];
+
+            if (turnResult.kind === "parse-error") {
+              this.emit({ type: "tool_result", name: tc.name, output: "", error: turnResult.error });
               if (this.report) {
                 this.report.toolCalls.push({
                   step: this.stepIndex,
                   name: tc.name,
                   args: {},
-                  error: tc.parseError,
+                  error: turnResult.error,
                   timestamp: Date.now(),
                 });
               }
               this.messages.push({
                 role: "tool",
                 tool_call_id: tc.id,
-                content: `[untrusted:tool_result name=${tc.name} call_id=${tc.id}]\nERROR: ${tc.parseError}\n[/untrusted:tool_result]`,
+                content: `[untrusted:tool_result name=${tc.name} call_id=${tc.id}]\nERROR: ${turnResult.error}\n[/untrusted:tool_result]`,
               });
               continue;
             }
 
-            const callTimestamp = Date.now();
-            this.emit({ type: "tool_call", name: tc.name, args: tc.args });
-            this.rememberToolHistory(`CALL ${tc.name} ${this.stringifyToolArgs(tc.args)}`);
-
-            const tcEvent: Omit<ToolCallEvent, "seq" | "ts"> = {
-              type: "tool_call",
-              step: this.stepContext(),
-              payload: { toolName: tc.name, args: tc.args, callId: tc.id },
-            };
-            this.logReplay(tcEvent as ToolCallEvent);
-
-            this.reasoner.plan({
-              callId: tc.id,
-              toolName: tc.name,
-              args: tc.args,
-              goal: this.currentTask,
-              currentStep: `Step ${this.stepIndex}: call ${tc.name}`,
-              assumptions: [],
-              expectedOutcome: `execute ${tc.name} with provided args`,
-              stepContext: this.stepContext(),
-            });
-
-            const startMs = Date.now();
-            const result = await this.executeToolWithRepair(tc.name, tc.args, tc.id);
-            const durationMs = Date.now() - startMs;
+            const { result, startMs, durationMs } = turnResult;
             const resultPreview = result.error ? `ERROR: ${result.error}` : result.output;
             this.rememberToolHistory(`RESULT ${tc.name} (${durationMs}ms) ${resultPreview}`);
 
@@ -1133,7 +1186,7 @@ export class Agent {
                 output: result.error ? undefined : result.output,
                 error: result.error,
                 durationMs,
-                timestamp: callTimestamp,
+                timestamp: startMs,
               });
             }
 

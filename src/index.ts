@@ -21,6 +21,7 @@ import { ninerhDir } from "./paths.js";
 import {
   hasOption as hasOptionRaw,
   resolveMaxIter,
+  resolveParallelTools,
   buildContinuationPolicy,
   classifyInitCommand,
 } from "./cliArgs.js";
@@ -68,6 +69,7 @@ const DEFAULTS = {
   continuationIter: process.env.NINE_ROUTER_CONTINUATION_ITER,
   continuationSwitchAfter: process.env.NINE_ROUTER_CONTINUATION_SWITCH_AFTER,
   maxIter: 100,
+  parallelTools: process.env.NINE_RH_PARALLEL_TOOLS,
   backend: process.env.NINE_ROUTER_BACKEND,
   directUrl: process.env.OPENAI_BASE_URL ?? process.env.ANTHROPIC_BASE_URL ?? process.env.OPENROUTER_BASE_URL,
   directKey: process.env.OPENAI_API_KEY ?? process.env.ANTHROPIC_API_KEY ?? process.env.OPENROUTER_API_KEY,
@@ -83,6 +85,7 @@ program
   .option("-k, --key <key>", "9router API key", DEFAULTS.key)
   .option("-d, --dir <dir>", "Working directory", process.cwd())
   .option("-i, --max-iter <n>", "Max agent iterations", String(DEFAULTS.maxIter))
+  .option("--parallel-tools <n>", "Concurrent tool calls per step (1 = sequential)", DEFAULTS.parallelTools)
   .option("-b, --backend <name>", "LLM backend: router | direct (default: auto-detect)", DEFAULTS.backend)
   .option("-p, --provider <name>", `Direct-mode provider preset: ${listProviderPresetIds().join(" | ")}`)
   .option("--direct-url <url>", "Direct backend base URL (e.g. https://api.openai.com/v1)", DEFAULTS.directUrl)
@@ -116,6 +119,7 @@ const opts = program.opts<{
   key: string;
   dir: string;
   maxIter: string;
+  parallelTools?: string;
   backend?: string;
   provider?: string;
   directUrl?: string;
@@ -194,6 +198,13 @@ function parseMaxIter(): number {
     process.exit(1);
   }
   return r.value;
+}
+
+function parseParallelTools(): number {
+  // Flag wins; NINE_RH_PARALLEL_TOOLS is the raw fallback; invalid input
+  // falls back to 4 rather than erroring (a wrong concurrency value must
+  // never block a run).
+  return resolveParallelTools(opts.parallelTools ?? DEFAULTS.parallelTools, 4).value;
 }
 
 function parseContinuationPolicy(): ContinuationPolicy | undefined {
@@ -301,6 +312,7 @@ function makeAgent(state: SessionState, onEvent: (e: AgentEvent) => void) {
     apiKey: state.apiKey,
     model: state.model,
     maxIterations: parseMaxIter(),
+    toolConcurrency: parseParallelTools(),
     workDir: state.workDir,
     onEvent,
     continuationPolicy: state.continuationPolicy,
