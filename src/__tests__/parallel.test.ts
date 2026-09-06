@@ -56,6 +56,26 @@ describe("mapPool", () => {
       }),
     ).rejects.toThrow("boom");
   });
+
+  it("drains in-flight work after a failure before rejecting (no abandoned side effects)", async () => {
+    // items 0 and 1 start together (limit 2); 1 fails fast. Items 2..5 must
+    // never start (dispatch stops), but in-flight item 0 must be awaited.
+    const started: number[] = [];
+    const finished: number[] = [];
+    await expect(
+      mapPool([0, 1, 2, 3, 4, 5], 2, async (n) => {
+        started.push(n);
+        if (n === 1) throw new Error("boom");
+        await new Promise((r) => setTimeout(r, 20));
+        finished.push(n);
+        return n;
+      }),
+    ).rejects.toThrow("boom");
+    expect(started).toContain(0);
+    expect(finished).toContain(0); // in-flight work drained, not abandoned
+    expect(started).not.toContain(2); // no new dispatches after the failure
+    expect(started).not.toContain(5);
+  });
 });
 
 describe("AsyncLock", () => {
