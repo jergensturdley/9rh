@@ -1,7 +1,8 @@
-import { existsSync, readdirSync, realpathSync, statSync } from "fs";
+import { readFileSync } from "fs";
 import { join, resolve } from "path";
-import { mkdir, readFile, writeFile } from "fs/promises";
+import { mkdir, readFile, readdir, realpath, stat, writeFile } from "fs/promises";
 import { createHash } from "crypto";
+import { mapPool } from "./parallel.js";
 
 const DB_FILENAME = ".9rh/repo-index.db";
 
@@ -32,8 +33,8 @@ const PROJECT_FILES = new Set([
   "Gemfile", "cabal.project", "project.clj", "mix.exs",
 ]);
 
-function isVcsRoot(dir: string): boolean {
-  const entries = readdirSync(dir, { withFileTypes: true });
+async function isVcsRoot(dir: string): Promise<boolean> {
+  const entries = await readdir(dir, { withFileTypes: true });
   for (const e of entries) {
     if (!e.isDirectory()) {
       if (PROJECT_FILES.has(e.name)) return true;
@@ -57,7 +58,7 @@ function isVcsRoot(dir: string): boolean {
  *    `__pycache__`, `.venv`, `vendor`) are skipped.
  *
  * Symlink handling:
- *  - Each directory is resolved via `realpathSync` before being recorded,
+ *  - Each directory is resolved via `realpath` before being recorded,
  *    so the `seen` set deduplicates entries reached via different paths
  *    (e.g. a symlink to a sibling repo doesn't cause it to be reported
  *    twice). Returned paths are realpath-canonical.
@@ -65,96 +66,94 @@ function isVcsRoot(dir: string): boolean {
  * Errors (permission denied, broken symlinks) are skipped silently; the
  * walker tolerates a missing path without aborting the whole traversal.
  */
-export function findRepos(root: string, maxDepth = 6): string[] {
+export async function findRepos(root: string, maxDepth = 6): Promise<string[]> {
   const results = new Set<string>();
   const seen = new Set<string>();
 
-  function walk(dir: string, depth: number): void {
+  const walk = async (dir: string, depth: number): Promise<void> => {
     if (depth > maxDepth) return;
     try {
-      const resolved = realpathSync(dir);
+      const resolved = await realpath(dir);
+      // No await between check and add: the seen dedupe stays race-free.
       if (seen.has(resolved)) return;
       seen.add(resolved);
-      if (isVcsRoot(resolved)) {
+      if (await isVcsRoot(resolved)) {
         results.add(resolved);
         // Still recurse into children in case of monorepo
       }
-      const entries = readdirSync(resolved, { withFileTypes: true });
+      const entries = await readdir(resolved, { withFileTypes: true });
+      const childDirs: string[] = [];
       for (const e of entries) {
         if (!e.isDirectory()) continue;
         if (VCS_DIRS.has(e.name)) continue; // skip .git contents
         if (e.name.startsWith(".") && e.name !== ".config") continue;
-        if (e.name === "node_modules" || e.name === "target" || e.name === "dist" || e.name === "build" || e.name === "__pycache__" || e.name === ".venv" || e.name === "vendor") continue;
-        walk(join(resolved, e.name), depth + 1);
+        if (SKIP_WALK_DIRS.has(e.name)) continue;
+        childDirs.push(join(resolved, e.name));
       }
+      await mapPool(childDirs, 8, (d) => walk(d, depth + 1));
     } catch {
       // permission denied etc: skip
     }
-  }
+  };
 
-  walk(resolve(root), 0);
+  await walk(resolve(root), 0);
   return [...results].sort();
 }
 
 // ─── Hashing ───────────────────────────────────────────────────────
 
 const HASH_IGNORE = new Set(["node_modules", ".git", ".hg", ".svn", "target", "dist", "build", "__pycache__", ".venv", "vendor", ".9rh", ".codegraph"]);
+/** Directory names never descended into by findRepos (mirrors the old inline checks). */
+const SKIP_WALK_DIRS = new Set(["node_modules", "target", "dist", "build", "__pycache__", ".venv", "vendor"]);
 
-/** Deterministic hash of file listing + sizes. Fast: no content reads. */
-export function hashRepo(root: string): string {
+/**
+ * Single-pass async walker: one traversal collects the file listing (for the
+ * deterministic hash) and the total byte size that hashRepo + roughSize used
+ * to produce in two separate full walks. Directories in HASH_IGNORE are
+ * skipped identically to the legacy implementation. Hashing is CPU-light
+ * (no content reads); files are stat'ed with bounded concurrency so large
+ * trees stay responsive.
+ */
+async function hashAndSize(root: string): Promise<{ hash: string; bytes: number }> {
   const entries: string[] = [];
-  const walk = (dir: string): void => {
+  let bytes = 0;
+
+  const walk = async (dir: string): Promise<void> => {
     let dirEntries;
     try {
-      dirEntries = readdirSync(dir, { withFileTypes: true });
+      dirEntries = await readdir(dir, { withFileTypes: true });
     } catch {
       return;
     }
+    const files: string[] = [];
+    const subdirs: string[] = [];
     for (const e of dirEntries) {
       if (HASH_IGNORE.has(e.name)) continue;
       const full = join(dir, e.name);
+      if (e.isDirectory()) subdirs.push(full);
+      else if (e.isFile()) files.push(full);
+    }
+    await mapPool(files, 16, async (full) => {
       try {
-        if (e.isDirectory()) {
-          walk(full);
-        } else if (e.isFile()) {
-          const st = statSync(full);
-          entries.push(`${full}|${st.size}|${st.mtimeMs}`);
-        }
+        const st = await stat(full);
+        entries.push(`${full}|${st.size}|${st.mtimeMs}`);
+        bytes += st.size;
       } catch {
         // skip unreadable files
       }
-    }
+    });
+    await mapPool(subdirs, 8, walk);
   };
-  walk(root);
+
+  await walk(root);
   const payload = entries.sort().join("\n");
-  return createHash("sha256").update(payload).digest("hex");
+  const hash = createHash("sha256").update(payload).digest("hex");
+  return { hash, bytes };
 }
 
-function roughSize(root: string): number {
-  let total = 0;
-  const walk = (dir: string): void => {
-    let entries;
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of entries) {
-      if (HASH_IGNORE.has(e.name)) continue;
-      const full = join(dir, e.name);
-      try {
-        if (e.isDirectory()) {
-          walk(full);
-        } else if (e.isFile()) {
-          total += statSync(full).size;
-        }
-      } catch {
-        // skip
-      }
-    }
-  };
-  walk(root);
-  return total;
+/** Deterministic hash of file listing + sizes. Fast: no content reads. */
+export async function hashRepo(root: string): Promise<string> {
+  return (await hashAndSize(root)).hash;
 }
 
 // ─── DB (flat JSON file, compressed via gzip-like minification) ────
@@ -186,9 +185,6 @@ async function saveStore(workDir: string, store: Store): Promise<void> {
   await writeFile(dbPath(workDir), JSON.stringify(store), "utf-8");
 }
 
-// Needed for sync loadStore
-import { readFileSync } from "fs";
-
 // ─── Public API ────────────────────────────────────────────────────
 
 export class RepoIndexer {
@@ -204,7 +200,7 @@ export class RepoIndexer {
   async refresh(): Promise<RefreshResult> {
     const startMs = Date.now();
     const now = Date.now();
-    const repos = findRepos(this.workDir);
+    const repos = await findRepos(this.workDir);
 
     // Build lookup of existing by root
     const existing = new Map<string, RepoRecord>();
@@ -215,18 +211,19 @@ export class RepoIndexer {
     const updated: RepoRecord[] = [];
     const seenRoots = new Set<string>();
 
-    for (const root of repos) {
-      seenRoots.add(root);
-      const hash = hashRepo(root);
-      const size = roughSize(root);
+    // Repo-level concurrency stays modest (2): each repo walk is itself
+    // concurrently fanned out internally, so this bounds total FS pressure.
+    const freshRecords = await mapPool(repos, 2, async (root) => {
+      const { hash, bytes } = await hashAndSize(root);
       const existingRec = existing.get(root);
       if (existingRec && existingRec.repoHash === hash) {
         // Same hash: just bump lastSeen
-        updated.push({ ...existingRec, lastSeen: now, stale: 0 });
-      } else {
-        updated.push({ repoRoot: root, repoHash: hash, sizeBytes: size, lastSeen: now, stale: 0 });
+        return { ...existingRec, lastSeen: now, stale: 0 };
       }
-    }
+      return { repoRoot: root, repoHash: hash, sizeBytes: bytes, lastSeen: now, stale: 0 };
+    });
+    for (const root of repos) seenRoots.add(root);
+    updated.push(...freshRecords);
 
     // Mark stale: rows whose root is no longer on disk
     for (const r of this.store.repos) {
