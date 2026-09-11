@@ -229,6 +229,20 @@ describe("applyEnvelope", () => {
     expect(v.hud.activity).toBe("error");
   });
 
+  it("abort folds error + done + turn_end(aborted) into one aborted receipts card", () => {
+    const v = fold([
+      turnStart(2),
+      { type: "thinking", text: "..." },
+      { type: "error", message: "Interrupted by user" },
+      { type: "done", text: "Interrupted by user" },
+      { type: "turn_end", turnIndex: 2, status: "aborted", durationMs: 5 },
+    ]);
+    const receipts = v.blocks.filter((b) => b.kind === "receipts");
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({ status: "aborted", text: "Interrupted by user", turn: 2 });
+    expect(receipts[0].id).toBe("s1:3");
+  });
+
   it("turn_end closes an aborted turn with aborted receipts", () => {
     const v = fold([turnStart(4), { type: "thinking", text: "..." }, { type: "turn_end", turnIndex: 4, status: "aborted", durationMs: 9 }]);
     expect(v.blocks[2]).toEqual({

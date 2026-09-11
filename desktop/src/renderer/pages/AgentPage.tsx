@@ -40,7 +40,9 @@ export type AgentModal =
   | { kind: "brief" }
   | { kind: "skills" }
   | { kind: "report"; path: string }
-  | { kind: "team"; task: string };
+  | { kind: "team"; task: string }
+  /** Not a modal: opens the OS folder picker and re-targets the session. */
+  | { kind: "workdir" };
 
 let modalState: AgentModal | null = null;
 const modalListeners = new Set<() => void>();
@@ -74,7 +76,27 @@ export function AgentPage(props: { onOpenPalette: () => void }) {
   const modal = useSyncExternalStore(subscribeModal, () => modalState);
   const [hudOpen, setHudOpen] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ text: string; nonce: number } | null>(null);
   const activeId = view?.snapshot.id ?? null;
+
+  const changeWorkDir = async (): Promise<void> => {
+    if (!activeId) return;
+    const picked = await window.ninerh.shell.pickDirectory();
+    if (!picked.ok) {
+      setError(picked.error);
+      return;
+    }
+    if (picked.value) report(sessionsActions.setWorkDir(activeId, picked.value));
+  };
+
+  // The palette opens "workdir" through the modal store; it is an action, not a dialog.
+  useEffect(() => {
+    if (modal?.kind === "workdir") {
+      agentPageActions.close();
+      void changeWorkDir();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modal]);
 
   // Initial selection: the store never auto-selects.
   useEffect(() => {
@@ -102,7 +124,9 @@ export function AgentPage(props: { onOpenPalette: () => void }) {
   };
 
   const submit = async (text: string): Promise<void> => {
-    if (!view || view.snapshot.status !== "idle") return;
+    // "error" is a finished turn (max iterations, provider failure); the host
+    // accepts a new run in that state, so the composer must too.
+    if (!view || (view.snapshot.status !== "idle" && view.snapshot.status !== "error")) return;
     if (!view.snapshot.teamMode) {
       const s = await window.ninerh.sessions.suggestTeam(text);
       if (s.ok && s.value) {
@@ -124,7 +148,7 @@ export function AgentPage(props: { onOpenPalette: () => void }) {
 
   const snap = view?.snapshot ?? null;
   const running = snap?.status === "running" || snap?.status === "waiting";
-  const idle = snap?.status === "idle";
+  const idle = snap?.status === "idle" || snap?.status === "error";
   const pending = snap?.pending ?? null;
   const composerHint = snap?.status === "waiting" ? "waiting for your answer" : snap?.status === "running" ? "running; Stop or Abort from the toolbar" : undefined;
 
@@ -142,6 +166,9 @@ export function AgentPage(props: { onOpenPalette: () => void }) {
               </span>
               <button type="button" className="ap-chip mono" title="change model" disabled={running} onClick={() => open({ kind: "model" })}>
                 {snap.model}
+              </button>
+              <button type="button" className="ap-chip mono" title={`change working directory (${snap.workDir})`} disabled={running} onClick={() => void changeWorkDir()}>
+                {basename(snap.workDir) || snap.workDir}
               </button>
               <Button size="sm" aria-pressed={snap.teamMode} disabled={running} onClick={() => report(sessionsActions.setTeamMode(snap.id, !snap.teamMode))}>
                 team
@@ -195,7 +222,7 @@ export function AgentPage(props: { onOpenPalette: () => void }) {
               onOpenDiff={(turn, path) => open({ kind: "diff", turn, path })}
               onOpenReport={(path) => open({ kind: "report", path })}
             />
-            <Composer disabled={!idle} hint={composerHint} onSubmit={(t) => void submit(t)} onOpenPalette={props.onOpenPalette} />
+            <Composer disabled={!idle} hint={composerHint} draft={draft} onSubmit={(t) => void submit(t)} onOpenPalette={props.onOpenPalette} />
           </>
         ) : (
           <EmptyState title="Select a session" hint="Pick one on the left or create a new one." />
@@ -240,7 +267,12 @@ export function AgentPage(props: { onOpenPalette: () => void }) {
             close();
             run(task, team);
           }}
-          onCancel={close}
+          onCancel={() => {
+            // Cancel puts the task back in the composer instead of losing it.
+            const task = modal.task;
+            close();
+            setDraft({ text: task, nonce: Date.now() });
+          }}
         />
       ) : null}
     </div>

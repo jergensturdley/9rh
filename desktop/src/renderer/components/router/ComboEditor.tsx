@@ -104,9 +104,19 @@ export function ComboEditor(props: {
             {results.map((m) => (
               <li
                 key={m.fullModel}
+                role="option"
+                aria-selected={false}
+                tabIndex={0}
                 onClick={() => {
                   setModels([...models, m.fullModel]);
                   setQuery("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setModels([...models, m.fullModel]);
+                    setQuery("");
+                  }
                 }}
               >
                 <span className="rt-mono">{m.fullModel}</span>

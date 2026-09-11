@@ -9,6 +9,7 @@ import type { ProviderPreset, UserConfig } from "9rh";
 import type { AppState, BackendChoice, BackendMode, BackendSummary, IpcResult } from "@shared/ipc";
 import { Badge, Button, ErrorNote, Spinner } from "@renderer/components/ui";
 import { useAsync } from "@renderer/state/useAsync";
+import { setPollDefault } from "@renderer/state/routerStore";
 import "./SettingsPage.css";
 
 type Note = { kind: "saved" } | { kind: "error"; text: string } | null;
@@ -129,6 +130,8 @@ function AppSection() {
 
   const apply = (patch: Partial<AppState>): void => {
     void save(() => window.ninerh.config.setAppState(patch), setForm);
+    // The router console polls with this interval; apply it without a reload.
+    if (patch.routerPollMs !== undefined) setPollDefault(patch.routerPollMs);
   };
   const recents = form.recentWorkDirs ?? [];
 

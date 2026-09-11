@@ -299,6 +299,7 @@ Everything the harness writes for itself lives under one home, never the current
 | `~/.9rh/logs/incidents/` | Repair-system incident reports |
 | `~/.9rh/config.json` | Persisted defaults (model, provider, report path) |
 | `~/.9rh/skills/` | Installed agent skills |
+| `~/.9rh/desktop.json` | Desktop app state: recent workdirs, last model and backend choice, window bounds, preferences |
 
 Set `NINE_RH_HOME` to relocate the whole tree (the test suite points it at a tmpdir).
 
@@ -360,6 +361,132 @@ When a project has `.codegraph/`, 9rh's default prompt tells the agent to prefer
 
 The default tool path checks are cross-platform, but OS-level process sandboxing is currently only enabled when macOS `sandbox-exec` is available. Use `/sandbox` in the REPL to see whether shell commands are using `macos-sandbox` or direct fallback. On Linux and other platforms, `run_bash` falls back to direct execution unless you provide a custom `SandboxProvider` through the programmatic API. Treat shell commands as trusted on those platforms and use container-level isolation if you need hard process boundaries.
 
+## Desktop app
+
+`desktop/` holds an Electron app with two jobs: run 9rh agent sessions against local repositories with a graphical workbench, and administer the local 9router from the same window. The Electron main process imports the `9rh` package for every engine (the agent, the orchestrator, the session ledger, rewind, the flight recorder, backend detection, config, skills, sandbox status), and the renderer is a React app that only sees typed data over IPC. There is no second agent loop, ledger, or router client, and agent behavior, tool sandboxing, and the CLI are unchanged. The folder has its own `package.json`, tests, and [README](../desktop/README.md).
+
+### Prerequisites
+
+- Node 22.12 or newer. Electron 44 and Vite 7 require it; the CLI alone still runs on Node 18.
+- The root package built. `desktop/package.json` depends on `"9rh": "file:.."`, so `desktop/node_modules/9rh` links to the repository root and resolves to `dist/main.js`. Run `npm install && npm run build` at the root before anything in `desktop/`.
+- The Electron binary. If `node_modules/electron/dist` is missing after `npm install` (seen with npm 11), run `node node_modules/electron/install.js` inside `desktop/`. `npm run dev`, `npm run preview`, and the smoke test all need it.
+- 9router at `http://127.0.0.1:20128` for router-mode sessions and the Router page. Direct-mode sessions work without it. `NINE_ROUTER_URL` moves the router base for sessions and the console; the embedded dashboard only allows the default local address.
+
+### Running and building
+
+All commands run inside `desktop/`.
+
+| Command | Effect |
+|---------|--------|
+| `npm install` | Installs Electron, React, electron-vite, Vitest, electron-builder, and the `9rh` link |
+| `npm run dev` | Electron against the Vite dev server: the renderer hot-reloads, main and preload rebuild on change |
+| `npm run build` | Builds main (ESM), preload, and renderer into `desktop/out/` |
+| `npm run preview` | Builds, then launches the built app |
+| `npm run typecheck` | `tsc --noEmit` for the Node side (main, preload, shared) and the web side (renderer, shared) |
+| `npm test` | Vitest over `src/**/*.test.ts` in a Node environment; reducers and services only, no DOM |
+| `npm run package` | Builds, then runs `electron-builder --dir` (see [Packaging stub](#packaging-stub)) |
+
+The window is single-instance; a second launch focuses the first. Window bounds persist in `desktop.json`. The Electron settings behind the window are listed under [Security posture](#security-posture).
+
+### Sessions and the workbench
+
+The Agent page has three columns: the sessions sidebar, the transcript with a toolbar above and the composer below, and the HUD on the right.
+
+**Creating a session.** The New session dialog asks for a working directory (native folder picker, or one of the recent directories), an optional model (typed, or picked from the router catalog once a connection test succeeds), a backend mode (`auto`, `router`, or `direct`; direct mode takes a preset, a base URL, and an API key that stays in memory), team mode, and advanced knobs (max iterations, parallel tools, allow skill install, keep reports). "Test connection" runs the same six-layer `detectBackend` the CLI uses and shows what it would connect to, including warnings. Creation validates the directory, resolves the backend, and picks the default model the way the CLI does (`NINE_ROUTER_MODEL`, then the `config.json` defaults with provider prefixing); a direct backend with nothing configured asks the endpoint for its first model. Backend warnings stay attached to the session and show above the transcript.
+
+**Session hosting.** Each session is a `SessionHost` in the main process with its own `SessionLedger`, a monotonic event sequence, and a ring buffer of the last 5000 events, so a renderer reload replays history instead of losing it. Sessions run side by side; the sidebar shows a status dot (idle, running, waiting for you, error), the directory name, the model, and elapsed time while a turn runs. Model and working directory can be changed while the session is idle.
+
+**Running a task.** The composer takes multi-line input: Enter runs, Shift+Enter adds a line, Cmd/Ctrl+Enter also runs, and `/` in an empty box opens the command palette. Tasks that look structured get the same "run as a team?" prompt as the CLI (`shouldSuggestTeam`), with the streaming agent as the default. A turn goes through `compressUserInput` and `ledger.beginTurn`, then either `new Agent(...)` or the orchestrator pipeline (the same wiring as `runTeamPipeline` in the CLI, with orchestrator events wrapped as `team` events). Every `AgentEvent` is folded into the ledger first, then pushed to the renderer with the session id, a sequence number, and a timestamp. Two desktop-only events, `turn_start` and `turn_end`, bracket each turn so the transcript can show the task text and close a turn that ended without `done` or `error`, which is what an abort looks like.
+
+**Transcript.** One block per event kind: the task text; the thinking stream coalesced into one block (quiet mode collapses it to its first line with a toggle); tool cards that pair the call with its result in place and show the name, a target summary, duration, a six-line output preview that expands, the arguments behind a disclosure, and a copy button; one-line markers for iteration, continuation, model switch, compaction, repair, escalation, circuit open, incident, spec plan, branch, sandbox health, step inspect, and partial output; team role sections; and a receipts card at the end of every turn. The view follows the bottom until you scroll up, then offers a "jump to latest" pill.
+
+**Toolbar.** The goal (pulsing while active), a model chip that opens the picker, `team` and `quiet` toggles, Stop and Abort while running, Brief, Skills, Rewind, Report, a status badge, and a HUD toggle. Stop is graceful (`Agent.requestStop`: the current tool call finishes, then the loop stops); Abort cancels the in-flight stream (`Agent.abort`). In team mode the orchestrator has no abort hook, so Abort marks the outcome and the pipeline runs to completion.
+
+**HUD.** GOAL; NOW (activity, current tool and target, iteration, elapsed, thinking size, continuation round, turn tokens); SESSION (turns, files, commands, tokens, model, backend, and a sandbox chip reading `seatbelt` or `none` from `getSandboxStatus`); LAST (previous outcome); TEAM lanes while a pipeline runs (role, status, elapsed, tokens; a pure port of the TUI's `applyTeamEvent`); and the recent tools list. The HUD is a pure reduction of the event stream that mirrors the TUI's dashboard state.
+
+**Brief and Skills.** Brief shows the `/brief` and `/usage` views together: goal, totals, one row per turn (status, duration, tokens in, out, and total, files, commands, assumptions), and a per-role token table under team turns. Token counts only, as in the CLI. Skills lists `discoverSkills(workDir)` with name, source, description, and path; Refresh re-runs discovery.
+
+**Command palette.** Cmd/Ctrl+K (or `/` in an empty composer) opens it: new session, switch session, brief, quiet and team toggles, change model, rewind, skills, open last report, stop and abort while running, start, stop, and restart 9router, and go to page. Filtering uses the CLI completer's fuzzy scoring. Cmd/Ctrl+1 to 4 switch pages directly.
+
+**Settings page.** Four sections, each with its own Save and an inline saved or error note. Defaults: default model, default provider, backend (`auto`, `router`, `direct`), report path, and keep reports, written to `~/.9rh/config.json` through `updateUserConfig` and shared with the CLI. App: `quietByDefault`, `routerPollMs`, and the recent workdirs list with Remove all, in `~/.9rh/desktop.json`. Backend check: the same mode, preset, URL, and key form as the new-session dialog, run through `detectBackend`; it shows the backend name, reachability, base URL, and warnings, and saves nothing. About: app version, platform, and the 9rh home.
+
+### Human in the loop
+
+The engine's `onAskUser` and `onToolApproval` hooks become a pending request on the session (status `waiting`) and a modal in the renderer.
+
+- Ask-user modal: the question, the options as a list with the recommended default first (arrow keys move, Enter picks), a free-text field when the agent allows it, and Dismiss. Dismiss and Esc send an empty answer, which is what the TUI does on Esc.
+- Approval modal: the tool name, its risk level next to the session threshold, the arguments as pretty-printed JSON, an optional reason, and Approve and Reject. Esc rejects. A reject without a reason is recorded as "rejected by user".
+
+One request is pending at a time (the agent serializes approval-gated calls behind its mutation lock). Abort, session removal, and app shutdown dismiss a pending request the same way (empty answer, or approval refused with reason "aborted"), so `Agent.run` always resolves.
+
+### Receipts, rewind, and replay
+
+**Receipts.** Every turn closes with a card built from the ledger's `TurnDigest`: status, duration, tokens, steps, files with net +/- line counts and a Diff button, commands with pass or fail, tool counts, assumptions, and the report path, followed by the model's prose. The raw before/after file records stay in the main process; the card carries the diffable paths and the Diff button fetches a unified line diff on demand. The diff's added and removed counts use the same rule as the ledger, and files above 4000 lines on either side fall back to a whole-file replace. The report link opens the HTML run report in an in-app viewer (a fully sandboxed iframe, and the main process only serves `.html` files under the 9rh home) with an "Open externally" button.
+
+**Rewind.** The Rewind dialog lists completed turns that touched files, previews the plan from `planRewind` over the ledger (files to restore, files to delete because a rewound turn created them, and skips with reasons), and applies it with `applyRewind`. The safety rules are those of `/rewind`: truncated records and files changed since are skipped, paths outside the working directory are refused, and conversation history is untouched. Rewind is available only while the session is idle.
+
+**Replay.** The Replays page lists `~/.9rh/runs` (run id, age, event count, end reason) and plays one log through the engine's `renderEventLog` at 1x, 2x (default), 5x, or 10x into a read-only transcript built by the same reducer as live sessions. Nothing executes and no model is called; Stop ends playback early, and starting another replay aborts the current one. Desktop agent turns record to `~/.9rh/runs` like CLI runs, so a turn you just ran appears in the list after Refresh.
+
+### 9router console
+
+The Router page starts with a status card and has seven tabs. Only the visible tab is mounted, so each panel refreshes on demand (the Refresh button) and on a 15 s poll while it is visible and the window is not hidden. Errors render inline in the panel that requested them, and destructive actions confirm in-app before calling the API.
+
+| Tab | Shows | Actions |
+|-----|-------|---------|
+| Status card | Reachability, version and an update badge, auth mode and whether login is required, the tunnel URL with a Copy button | Start (`ensureRouter`: probe, install if missing, spawn, wait), Stop (`POST /api/shutdown`, then wait up to 10 s for the port to close), Restart, open the dashboard in the browser |
+| Providers | Connections sorted by priority: name, provider, auth type, priority, active flag, test status with the last error, last used; a filter box | Test (the result opens as JSON), toggle active, Delete |
+| Combos | Named fallback chains: name, kind, model count, the first models | New, Edit (name, ordered model list with Up, Down, and Remove, and a search over the router catalog to add models), Delete |
+| Keys | API keys masked by default, with Reveal and Copy, active flag, created time | New key (the key opens in a copy dialog and stays in the list), Delete |
+| Models | The catalog grouped by provider with availability badges and capability chips (vision, reasoning, search, context window, max output); search | Use in session (sets the active session's model while it is idle) |
+| Usage | Totals (requests, prompt, completion, and cached tokens, cost as 9router reports it), a token bar chart over the last periods, a per-provider table, and the recent request log | Live totals from the router's server-sent events stream while the tab is open, reconnecting with backoff |
+| Settings | A read-only summary of `GET /api/settings`: login and API key requirements, auth mode, tunnel, combo and fallback strategies, request logs, observability, MITM, outbound proxy, and feature flags | None; edit these in the dashboard |
+| Dashboard | The stock 9router dashboard in an Electron `<webview>` | Reload, open externally |
+
+Every call goes through `desktop/src/main/routerClient.ts`, the only module that knows 9router URLs. Reads time out after 5 s and mutations after 30 s; an unreachable router is reported as a panel error, never as a crash. The session model picker reads `/v1/models` through the session's backend; the console reads `/api/models`.
+
+### Authentication to 9router
+
+Two mechanisms, the same ones the CLI uses:
+
+- Native `/api/*` calls carry the `x-9r-cli-token` header from `getCliToken()`: a sha256 over the machine id, a salt, and `~/.9router/auth/cli-secret`. It authorizes providers, combos, keys, models, settings, version, usage, and tunnel status. When no token can be derived, the client falls back to a bearer key, the first key stored in 9router's database (`readFirstApiKey`) or the default `9router`.
+- The dashboard does not honor that header; it uses a cookie login. The Dashboard tab embeds `http://127.0.0.1:20128/dashboard` in a `<webview>` with the `persist:9router` partition, so you type your 9router password into 9router's own page and the login cookie survives app restarts. The app never sees the password. The guest-page rules are under [Security posture](#security-posture).
+
+Model traffic from sessions uses the session backend's bearer key on `/v1/*`, exactly as the CLI does.
+
+### Where state is stored
+
+| Path | Contents |
+|------|----------|
+| `~/.9rh/desktop.json` | Recent working directories (last 10), last model, last backend choice (mode, URLs, preset; never the API key), window bounds, and the preferences `quietByDefault` and `routerPollMs` |
+| `~/.9rh/config.json` | CLI defaults edited from Settings: default model and provider, backend, report path, `keepReports` |
+| `~/.9rh/runs/` | Flight-recorder logs; every desktop agent turn writes one and the Replays page reads them |
+| `~/.9rh/last-run.html`, `~/.9rh/reports/` | Run reports opened by the in-app viewer |
+
+`NINE_RH_HOME` relocates everything, as for the CLI. A missing or corrupt `desktop.json` reads as defaults. Direct-mode API keys live in memory for the life of a session and are never written to disk. Settings > App saves `quietByDefault` and `routerPollMs`; in this build the router panels poll at 15 s and new sessions start with quiet off regardless, so treat those two fields as stored preferences rather than live switches.
+
+### Security posture
+
+- The window runs with `contextIsolation` on and `nodeIntegration` off. `sandbox` is off only because the preload is an ES module; `webviewTag` is on solely for the Dashboard tab.
+- The renderer sees one object, `window.ninerh`, built by the preload from the channel table in `src/shared/ipc.ts`. It imports nothing from `9rh` or Node at runtime; every handler checks its arguments in the main process and resolves to `{ ok, value }` or `{ ok, error }`, so nothing throws across the bridge.
+- The Dashboard `<webview>` may load only `http://127.0.0.1:20128` or `http://localhost:20128` in the `persist:9router` partition. The main process cancels any other guest page and strips preload and Node integration from the one it allows. The renderer's content security policy is `default-src 'self'` with frames allowed from the local router only.
+- Links open in the system browser: a `window.open` or `target="_blank"` for an `http` or `https` URL goes to the default browser and the in-app window is denied. `openExternal` accepts `http`, `https`, and `file` URLs only; `openPath` accepts absolute paths only.
+- The run report viewer serves only `.html` files under the 9rh home and renders them in a fully sandboxed `<iframe>` (no scripts, no same-origin access). Replays accept only `.jsonl` files under `~/.9rh/runs`.
+- Direct-mode API keys stay in memory for the life of a session; `desktop.json` stores the backend choice without them.
+
+### Smoke test
+
+`NINERH_SMOKE=1` turns a launch into a headless check. The main process points `NINE_RH_HOME` at a fresh temporary directory so the real `~/.9rh` is never touched, opens the window hidden, waits for the renderer to load, verifies that `window.ninerh` is an object (the preload bridge came up), and calls the `sessions:list` handler. It prints `SMOKE OK` and exits 0, or `SMOKE FAIL: <reason>` and exits 1, with a 20 s timeout.
+
+```sh
+cd desktop
+npm run build
+NINERH_SMOKE=1 ./node_modules/.bin/electron out/main/index.js   # prints SMOKE OK
+```
+
+### Packaging stub
+
+`desktop/electron-builder.yml` is deliberately small: app id `dev.9rh.desktop`, product name `9rh`, `dir` targets for macOS, Linux, and Windows, output under `desktop/release/`, and an `asarUnpack` rule for the engine's `dist/` (electron-builder follows the `file:` link and bundles it with its runtime dependencies). `npm run package` runs the build and then `electron-builder --dir`. There is no signing, notarization, installer, or auto-update.
+
 ## Programmatic API
 
 9rh exposes the core agent, the backends, and the support modules as a library:
@@ -400,6 +527,20 @@ The package exports:
 - `Backend`, `BackendName`, `ModelInfo`, `ProviderInfo`, `ComboInfo`, `KeyInfo`, `HealthSnapshot`: backend interface and types
 - `parseTaskSpecification`, `synthesizeTestPlan`, `formatSpecDrivenPrompt`, `shouldUseSpecDrivenTesting`: spec-driven testing helpers
 - `createRunVisualization`, `applyAgentEvent`, `applyReplayEvent`, `renderRunVisualization`, `exportRunVisualization`, `visibleSteps`: live run visualization
+- `Orchestrator`: the multi-role team pipeline, with its config, event, and result types
+- `SessionLedger`, `buildTurnDigest`: the per-session ledger and the receipts digest (`LedgerView`, `LedgerTurn`, `TurnDigest`, `DigestFileEntry`, `DigestCommandEntry`, `StoredToolResult`)
+- `planRewind`, `applyRewind`: turn-level workdir undo (`RewindPlan`, `RewindAction`, `RewindSkip`, `RewindResult`)
+- `listRunLogs`, `readEventLog`, `renderEventLog`, `mapReplayEvent`: flight-recorder listing and paced playback (`RunLogInfo`, `ReplayEvent`, `ReplayRenderOptions`)
+- `readUserConfig`, `updateUserConfig`, `resolveConfiguredModel`, `configPath`, `ninerhHome`, `ninerhDir`: `~/.9rh/config.json` and the app home (`UserConfig`, `SandboxBackend`)
+- `getCliToken`, `readFirstApiKey`: 9router native-API auth, the `x-9r-cli-token` header and the stored bearer key
+- `PROVIDER_PRESETS`, `getProviderPreset`, `listProviderPresetIds`: direct-mode provider presets (`ProviderPreset`)
+- `AskUserRequest`, `AskUserResponse`, `ToolApprovalRequest`, `ToolApprovalDecision`, `ToolRiskLevel`, `resolveAskUserCall`: the human-in-the-loop types behind `onAskUser` and `onToolApproval`
+- `compressUserInput`, `shouldSuggestTeam`: input compression and the team-suggestion gate
+- `discoverSkills`: skill discovery over the user and workdir skill roots (`SkillManifestEntry`, `SkillSource`)
+- `getSandboxStatus`: whether OS-level command sandboxing is available (`SandboxStatus`)
+- `applyTeamEvent`: the TUI's pure TEAM-lane reducer (`TeamLane`, `TeamLaneEvent`)
+
+The desktop app in `desktop/` is the reference embedder for these exports; see [Desktop app](#desktop-app).
 
 ## Spec-driven testing mode
 

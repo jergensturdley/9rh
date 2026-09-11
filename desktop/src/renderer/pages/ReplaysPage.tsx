@@ -122,7 +122,19 @@ export function ReplaysPage() {
 
 function LogItem({ log, active, onSelect }: { log: RunLogInfo; active: boolean; onSelect: () => void }) {
   return (
-    <li role="option" aria-selected={active} className={active ? "replays-item is-active" : "replays-item"} onClick={onSelect}>
+    <li
+      role="option"
+      aria-selected={active}
+      tabIndex={0}
+      className={active ? "replays-item is-active" : "replays-item"}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+    >
       <span className="replays-item-id" title={log.path}>
         {log.runId}
       </span>

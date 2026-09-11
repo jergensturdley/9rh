@@ -40,6 +40,15 @@ describe("appState", () => {
     expect(await readAppState()).toEqual(b);
   });
 
+  it("never persists API keys inside lastBackend", async () => {
+    const state = await updateAppState({
+      lastBackend: { mode: "direct", preset: "openai", directKey: "sk-secret", routerKey: "rk-secret" },
+    });
+    expect(state.lastBackend).toEqual({ mode: "direct", preset: "openai" });
+    const raw = readFileSync(filePath, "utf8");
+    expect(raw).not.toContain("secret");
+  });
+
   it("rememberWorkDir dedupes, moves to front, caps at 10", async () => {
     await updateAppState({ recentWorkDirs: [] });
     for (let i = 0; i < 12; i++) await rememberWorkDir(`/w/${i}`);

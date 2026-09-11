@@ -38,6 +38,33 @@ export function applyEnvelope(view: SessionView, env: SessionEventEnvelope): Ses
     push(detail === undefined ? { kind: "marker", ...base(), variant, text } : { kind: "marker", ...base(), variant, text, detail });
   const team = (role: string, status: TeamBlock["status"], text?: string, tokens?: number): void =>
     push({ kind: "team", ...base(), role, status, ...(text !== undefined ? { text } : {}), ...(tokens !== undefined ? { tokens } : {}) });
+  /** Index of the current turn's receipts card, or -1. */
+  const receiptsIndex = (): number => {
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      const b = blocks[i];
+      if (b.kind === "receipts" && b.turn === currentTurn) return i;
+      if (b.kind === "user" && b.turn === currentTurn) break;
+    }
+    return -1;
+  };
+  /**
+   * One receipts card per turn. An aborted run emits `error` and then `done`
+   * with the same digest, so a second terminal event updates the card in
+   * place instead of adding another; turn_end then marks it aborted.
+   */
+  const receipts = (status: "completed" | "error", text: string, digest?: TurnDigest, reportPath?: string): void => {
+    const next: TranscriptBlock = {
+      kind: "receipts",
+      ...base(),
+      status,
+      text,
+      ...(digest ? { digest: liteDigest(digest) } : {}),
+      ...(reportPath ? { reportPath } : {}),
+    };
+    const i = receiptsIndex();
+    if (i < 0) push(next);
+    else blocks = [...blocks.slice(0, i), { ...next, id: blocks[i].id }, ...blocks.slice(i + 1)];
+  };
 
   switch (e.type) {
     case "turn_start":
@@ -158,37 +185,28 @@ export function applyEnvelope(view: SessionView, env: SessionEventEnvelope): Ses
     }
 
     case "done":
-      push({
-        kind: "receipts",
-        ...base(),
-        status: "completed",
-        text: e.text,
-        ...(e.digest ? { digest: liteDigest(e.digest) } : {}),
-        ...(e.reportPath ? { reportPath: e.reportPath } : {}),
-      });
+      receipts("completed", e.text, e.digest, e.reportPath);
       break;
 
     case "error":
-      push({
-        kind: "receipts",
-        ...base(),
-        status: "error",
-        text: e.message,
-        ...(e.digest ? { digest: liteDigest(e.digest) } : {}),
-        ...(e.reportPath ? { reportPath: e.reportPath } : {}),
-      });
+      receipts("error", e.message, e.digest, e.reportPath);
       break;
 
-    case "turn_end":
-      if (!blocks.some((b) => b.kind === "receipts" && b.turn === currentTurn)) {
+    case "turn_end": {
+      const i = receiptsIndex();
+      const existing = i >= 0 ? blocks[i] : undefined;
+      if (!existing || existing.kind !== "receipts") {
         push({
           kind: "receipts",
           ...base(),
           status: e.status === "aborted" ? "aborted" : "error",
           text: "turn ended without a result",
         });
+      } else if (e.status === "aborted" && existing.status !== "aborted") {
+        blocks = [...blocks.slice(0, i), { ...existing, status: "aborted" }, ...blocks.slice(i + 1)];
       }
       break;
+    }
 
     case "usage":
     case "replay_event":

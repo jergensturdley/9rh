@@ -31,10 +31,12 @@ All inside `desktop/`.
 | `npm run preview` | Builds, then launches the built app |
 | `npm run typecheck` | `tsc --noEmit` for `tsconfig.node.json` (main, preload, shared, configs) and `tsconfig.web.json` (renderer, shared) |
 | `npm test` | Vitest over `src/**/*.test.ts` in a Node environment |
-| `NINERH_SMOKE=1 npm run preview` | Headless smoke check; prints `SMOKE OK` or `SMOKE FAIL: <reason>` and exits |
+| `NINERH_SMOKE=1 ./node_modules/.bin/electron out/main/index.js` | Headless smoke check over the built app (run `npm run build` first); prints `SMOKE OK` or `SMOKE FAIL: <reason>` and exits |
 | `npm run package` | Builds, then `electron-builder --dir` into `release/` |
 
 Run a single test file with `npx vitest run src/main/diff.test.ts`.
+
+If `node_modules/electron/dist` is missing after `npm install` (seen with npm 11), run `node node_modules/electron/install.js` in this folder to download the Electron binary. `npm run dev`, `npm run preview`, and the smoke check all need it.
 
 ### Smoke check
 

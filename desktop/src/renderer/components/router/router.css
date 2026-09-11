@@ -98,6 +98,7 @@
   font-size: 12px;
   font-family: var(--font-mono);
   word-break: break-all;
+  text-align: left;
 }
 .rt-error-text--clamped {
   display: inline-block;

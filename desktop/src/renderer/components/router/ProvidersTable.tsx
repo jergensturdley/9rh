@@ -108,13 +108,15 @@ export function ProvidersTable(props: { refreshSignal?: number }) {
                   <Badge tone={statusTone(p.testStatus)}>{p.testStatus ?? "untested"}</Badge>
                   {p.lastError && (
                     <div>
-                      <span
+                      <button
+                        type="button"
                         className={`rt-error-text ${expanded === p.id ? "" : "rt-error-text--clamped"}`}
                         title={expanded === p.id ? "click to collapse" : "click to expand"}
+                        aria-expanded={expanded === p.id}
                         onClick={() => setExpanded(expanded === p.id ? null : p.id)}
                       >
                         {p.lastError}
-                      </span>
+                      </button>
                       {p.lastErrorAt && <span className="rt-sub">{relativeTime(p.lastErrorAt)}</span>}
                     </div>
                   )}

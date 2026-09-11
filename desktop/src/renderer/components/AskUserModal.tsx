@@ -8,7 +8,7 @@ import { useRef, useState } from "react";
 import type { PendingRequest } from "@shared/ipc";
 import { sessionsActions } from "@renderer/state/sessionsStore";
 import { Modal } from "./Modal";
-import { Button } from "./ui";
+import { Button, ErrorNote } from "./ui";
 import "./hitl.css";
 
 type AskRequest = Extract<PendingRequest, { kind: "ask" }>;
@@ -17,12 +17,19 @@ export function AskUserModal(props: { sessionId: string; request: AskRequest }) 
   const { sessionId, request } = props;
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
   const send = (answer: string): void => {
     if (busy) return;
     setBusy(true);
-    void sessionsActions.answerAsk(sessionId, request.requestId, answer).finally(() => setBusy(false));
+    setError(null);
+    void sessionsActions
+      .answerAsk(sessionId, request.requestId, answer)
+      .then((r) => {
+        if (!r.ok) setError(r.error);
+      })
+      .finally(() => setBusy(false));
   };
 
   const onListKey = (e: React.KeyboardEvent<HTMLUListElement>): void => {
@@ -79,6 +86,7 @@ export function AskUserModal(props: { sessionId: string; request: AskRequest }) 
           </Button>
         </form>
       ) : null}
+      {error ? <ErrorNote message={error} /> : null}
       <div className="hitl-actions">
         <Button variant="ghost" disabled={busy} onClick={() => send("")}>
           Dismiss

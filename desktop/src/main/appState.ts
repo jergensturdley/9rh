@@ -30,6 +30,11 @@ export async function readAppState(): Promise<AppState> {
 
 export async function updateAppState(patch: Partial<AppState>): Promise<AppState> {
   const next: AppState = { ...(await readAppState()), ...patch };
+  if (next.lastBackend) {
+    // API keys live in the session only; they never reach disk.
+    const { directKey: _direct, routerKey: _router, ...rest } = next.lastBackend;
+    next.lastBackend = rest;
+  }
   const path = appStatePath();
   await mkdir(dirname(path), { recursive: true });
   // ponytail: plain write, no atomic rename. Switch to write-tmp-then-rename if

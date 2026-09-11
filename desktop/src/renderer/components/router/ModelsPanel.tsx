@@ -74,8 +74,10 @@ export function ModelsPanel(props: { refreshSignal?: number }) {
   }, [models.data, query]);
 
   const searching = query.trim().length > 0;
-  const canUse = active !== null && active.snapshot.status === "idle";
-  const useHint = !active ? "Select a session first" : active.snapshot.status !== "idle" ? "Session is busy" : undefined;
+  // "error" is a finished turn, not a busy state; the session accepts a new run.
+  const settled = active !== null && (active.snapshot.status === "idle" || active.snapshot.status === "error");
+  const canUse = settled;
+  const useHint = !active ? "Select a session first" : !settled ? "Session is busy" : undefined;
 
   function toggle(provider: string): void {
     const next = new Set(open);

@@ -299,6 +299,8 @@ export class SessionHost {
       onEvent: (e) => this.emitEvent(e),
       continuationPolicy: this.continuationPolicy,
       keepReports: this.keepReports,
+      // Parallel sessions must not share the engine's single last-run.html.
+      reportPath: this.keepReports ? undefined : ninerhDir("reports", `${this.id}-last-run.html`),
       allowSkillInstall: this.allowSkillInstall,
       onToolApproval: (req) => this.awaitApproval(req),
       onAskUser: (req) => this.awaitAsk(req),
@@ -351,14 +353,18 @@ export class SessionHost {
   /** Fold into the ledger first (like withLedger), then push to the ring and renderer. */
   private emitEvent(event: SessionEvent): void {
     if (this.disposed) return;
+    let outbound: SessionEvent = event;
     if (event.type !== "turn_start" && event.type !== "turn_end") {
       this.ledger.onAgentEvent(event, this.now());
       if (event.type === "done" || event.type === "error") {
         this.lastTerminal = event.type;
         if (event.reportPath) this.lastReportPath = event.reportPath;
+        // The ledger keeps the raw before/after records for rewind and diff;
+        // the renderer gets the lite digest with workDir-relative diffable paths.
+        if (event.digest) outbound = { ...event, digest: liteDigest(event.digest, workDirPrefix(this.workDir)) };
       }
     }
-    const env: SessionEventEnvelope = { sessionId: this.id, seq: ++this.seq, ts: this.now(), event };
+    const env: SessionEventEnvelope = { sessionId: this.id, seq: ++this.seq, ts: this.now(), event: outbound };
     this.ring.push(env);
     // ponytail: shift() is O(n) but the cap is small; a circular index if it shows up in a profile.
     if (this.ring.length > RING_CAP) this.ring.shift();

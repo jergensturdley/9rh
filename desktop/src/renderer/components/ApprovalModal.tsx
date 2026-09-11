@@ -7,7 +7,7 @@ import { useState } from "react";
 import type { PendingRequest } from "@shared/ipc";
 import { sessionsActions } from "@renderer/state/sessionsStore";
 import { Modal } from "./Modal";
-import { Badge, Button } from "./ui";
+import { Badge, Button, ErrorNote } from "./ui";
 import "./hitl.css";
 
 type ApprovalRequest = Extract<PendingRequest, { kind: "approval" }>;
@@ -18,12 +18,17 @@ export function ApprovalModal(props: { sessionId: string; request: ApprovalReque
   const { sessionId, request } = props;
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const decide = (approved: boolean): void => {
     if (busy) return;
     setBusy(true);
+    setError(null);
     void sessionsActions
       .decideApproval(sessionId, request.requestId, approved, reason.trim() || undefined)
+      .then((r) => {
+        if (!r.ok) setError(r.error);
+      })
       .finally(() => setBusy(false));
   };
 
@@ -44,6 +49,7 @@ export function ApprovalModal(props: { sessionId: string; request: ApprovalReque
         onChange={(e) => setReason(e.target.value)}
         aria-label="reason"
       />
+      {error ? <ErrorNote message={error} /> : null}
       <div className="hitl-actions">
         <Button variant="danger" disabled={busy} onClick={() => decide(false)}>
           Reject

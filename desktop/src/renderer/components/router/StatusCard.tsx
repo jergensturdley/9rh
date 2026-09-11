@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { RouterProcessResult } from "@shared/ipc";
 import { Badge, Button, ErrorNote, Spinner } from "@renderer/components/ui";
 import { Modal } from "@renderer/components/Modal";
-import { useRouterStatus } from "@renderer/state/routerStore";
+import { useRouterNotice, useRouterStatus } from "@renderer/state/routerStore";
 import "./router.css";
 
 /** Confirm dialog shared by the console's destructive actions. */
@@ -37,10 +37,17 @@ export function StatusCard(props: { refreshSignal?: number }) {
   const [busy, setBusy] = useState<Action | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Outcome of start/stop/restart triggered from the command palette.
+  const notice = useRouterNotice();
 
   useEffect(() => {
     if (props.refreshSignal) void status.refresh();
   }, [props.refreshSignal]);
+
+  useEffect(() => {
+    if (notice.nonce > 0) void status.refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notice.nonce]);
 
   useEffect(() => {
     if (!copied) return;
@@ -121,9 +128,9 @@ export function StatusCard(props: { refreshSignal?: number }) {
           Open dashboard in browser
         </Button>
       </div>
-      {(actionError ?? status.error) && (
+      {(actionError ?? notice.message ?? status.error) && (
         <div className="rt-status__error">
-          <ErrorNote message={actionError ?? status.error ?? ""} onRetry={() => void status.refresh()} />
+          <ErrorNote message={actionError ?? notice.message ?? status.error ?? ""} onRetry={() => void status.refresh()} />
         </div>
       )}
       {confirm && (

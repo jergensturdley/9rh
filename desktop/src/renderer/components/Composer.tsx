@@ -12,11 +12,19 @@ const MAX_LINES = 8;
 export function Composer(props: {
   disabled: boolean;
   hint?: string;
+  /** Text to put back in the box (a cancelled run prompt); the nonce re-applies equal text. */
+  draft?: { text: string; nonce: number } | null;
   onSubmit: (text: string) => void;
   onOpenPalette: () => void;
 }) {
   const [text, setText] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!props.draft) return;
+    setText(props.draft.text);
+    ref.current?.focus();
+  }, [props.draft]);
 
   useEffect(() => {
     const el = ref.current;

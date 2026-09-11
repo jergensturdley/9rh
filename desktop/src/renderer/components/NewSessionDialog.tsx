@@ -28,8 +28,11 @@ export function NewSessionDialog(props: { onClose: () => void; initialWorkDir?: 
   const [teamMode, setTeamMode] = useState(false);
   const [maxIterations, setMaxIterations] = useState("");
   const [toolConcurrency, setToolConcurrency] = useState("");
+  const [maxContinuations, setMaxContinuations] = useState("");
+  const [iterPerContinuation, setIterPerContinuation] = useState("");
   const [allowSkillInstall, setAllowSkillInstall] = useState(false);
   const [keepReports, setKeepReports] = useState(false);
+  const [quietByDefault, setQuietByDefault] = useState(false);
   const [summary, setSummary] = useState<BackendSummary | null>(null);
   const [testing, setTesting] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -42,6 +45,7 @@ export function NewSessionDialog(props: { onClose: () => void; initialWorkDir?: 
       if (!live || !res.ok) return;
       const s = res.value;
       setRecent(s.recentWorkDirs ?? []);
+      setQuietByDefault(Boolean(s.quietByDefault));
       if (!props.initialWorkDir && s.recentWorkDirs?.[0]) setWorkDir(s.recentWorkDirs[0]);
       if (s.lastModel) setModel(s.lastModel);
       if (s.lastBackend) {
@@ -106,6 +110,10 @@ export function NewSessionDialog(props: { onClose: () => void; initialWorkDir?: 
       backend,
       maxIterations: num(maxIterations),
       toolConcurrency: num(toolConcurrency),
+      continuationPolicy:
+        num(maxContinuations) !== undefined
+          ? { maxContinuations: num(maxContinuations)!, iterationsPerContinuation: num(iterPerContinuation) }
+          : undefined,
       allowSkillInstall,
       keepReports,
       teamMode,
@@ -115,6 +123,7 @@ export function NewSessionDialog(props: { onClose: () => void; initialWorkDir?: 
       setError(res.error);
       return;
     }
+    if (quietByDefault) void sessionsActions.setQuiet(res.value.id, true);
     const { directKey: _omit, ...remembered } = backend;
     const patch: Partial<AppState> = {
       recentWorkDirs: [dir, ...recent.filter((r) => r !== dir)].slice(0, RECENT_CAP),
@@ -227,6 +236,14 @@ export function NewSessionDialog(props: { onClose: () => void; initialWorkDir?: 
             <label className="nsd-field">
               <span className="nsd-label">Parallel tools</span>
               <input type="number" min={1} value={toolConcurrency} onChange={(e) => setToolConcurrency(e.target.value)} placeholder="default" />
+            </label>
+            <label className="nsd-field">
+              <span className="nsd-label">Max continuations</span>
+              <input type="number" min={0} value={maxContinuations} onChange={(e) => setMaxContinuations(e.target.value)} placeholder="engine default" />
+            </label>
+            <label className="nsd-field">
+              <span className="nsd-label">Iterations per continuation</span>
+              <input type="number" min={1} value={iterPerContinuation} onChange={(e) => setIterPerContinuation(e.target.value)} placeholder="default" />
             </label>
             <label className="nsd-check">
               <input type="checkbox" checked={allowSkillInstall} onChange={(e) => setAllowSkillInstall(e.target.checked)} /> Allow skill install

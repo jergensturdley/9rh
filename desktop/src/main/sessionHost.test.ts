@@ -105,6 +105,35 @@ describe("SessionHost", () => {
     expect(snap.sandbox.label).toMatch(/^(seatbelt|none)$/);
   });
 
+  it("sends lite digests over the wire and gives each session its own report path", async () => {
+    const digest = buildTurnDigest(
+      {
+        task: "edit",
+        startedAt: 1,
+        workDir: WORK,
+        fileChanges: [{ step: 1, path: `${WORK}/src/a.ts`, operation: "edit", before: "a\n", after: "b\n" }],
+        toolCalls: [],
+      },
+      { status: "completed", steps: 1 },
+    );
+    let reportPath: unknown = "unset";
+    const { host, events } = makeHost(async (config) => {
+      reportPath = config.reportPath;
+      config.onEvent?.({ type: "done", text: "ok", digest });
+    });
+    hosts.push(host);
+    await host.run({ task: "edit" });
+
+    const done = events().find((e) => e.type === "done") as { digest?: Record<string, unknown> } | undefined;
+    expect(done?.digest).toBeDefined();
+    expect("fileChangeRecords" in done!.digest!).toBe(false);
+    expect(done!.digest!.diffablePaths).toEqual(["src/a.ts"]);
+    // The ledger still holds the raw records, so rewind and diff keep working.
+    expect(host.rewindPlan(1).writes).toHaveLength(1);
+    expect(host.diff(1, "src/a.ts").added).toBe(1);
+    expect(String(reportPath)).toMatch(/reports[\\/]s1-last-run\.html$/);
+  });
+
   it("folds events into the ledger: usage tokens and a lite digest with diffablePaths", async () => {
     const digest = buildTurnDigest(
       {

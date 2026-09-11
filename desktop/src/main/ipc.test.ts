@@ -138,7 +138,10 @@ describe("buildHandlers", () => {
     const handlers = buildHandlers(fakeDeps().deps);
     expect(await handlers[CH.shell.openExternal]!("javascript:alert(1)")).toEqual({ ok: false, error: "blocked url scheme" });
     expect(await handlers[CH.shell.openExternal]!("https://example.com")).toEqual({ ok: true, value: undefined });
-    expect(await handlers[CH.shell.openPath]!("relative/path")).toEqual({ ok: false, error: "path must be absolute" });
+    // openPath is confined to run reports under the 9rh home, like readReport.
+    expect((await handlers[CH.shell.openPath]!("relative/path")).ok).toBe(false);
+    expect((await handlers[CH.shell.openPath]!("/Applications/Calculator.app")).ok).toBe(false);
+    expect(await handlers[CH.shell.openExternal]!("file:///Applications/Calculator.app")).toEqual({ ok: false, error: "blocked url scheme" });
     const outside = await handlers[CH.shell.readReport]!("/etc/hosts");
     expect(outside.ok).toBe(false);
     const wrongExt = await handlers[CH.shell.readReport]!(join(ninerhHome(), "report.txt"));

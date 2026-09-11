@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { initSessionsStore, sessionsActions, useActiveSession, useSessionsState } from "@renderer/state/sessionsStore";
+import { runRouterAction } from "@renderer/state/routerStore";
 import { CommandPalette, type PaletteAction } from "@renderer/components/CommandPalette";
 import { basename } from "@renderer/components/ui";
 import { AgentPage, agentPageActions } from "@renderer/pages/AgentPage";
@@ -80,6 +81,7 @@ export function App() {
       out.push({ id: "quiet", label: s.quiet ? "Quiet mode off" : "Quiet mode on", group: "Session", run: () => void sessionsActions.setQuiet(s.id, !s.quiet) });
       if (!running) out.push({ id: "team", label: s.teamMode ? "Team mode off" : "Team mode on", group: "Session", run: () => void sessionsActions.setTeamMode(s.id, !s.teamMode) });
       if (!running) out.push({ id: "model", label: "Change model", hint: s.model, group: "Session", run: agent(() => agentPageActions.open({ kind: "model" })) });
+      if (!running) out.push({ id: "workdir", label: "Change workdir", hint: s.workDir, group: "Session", run: agent(() => agentPageActions.open({ kind: "workdir" })) });
       if (s.status === "idle") out.push({ id: "rewind", label: "Rewind", hint: "restore the workdir to before a turn", group: "Session", run: agent(() => agentPageActions.open({ kind: "rewind" })) });
       out.push({ id: "skills", label: "Skills", group: "Session", run: agent(() => agentPageActions.open({ kind: "skills" })) });
       if (s.lastReportPath) out.push({ id: "report", label: "Open last report", hint: s.lastReportPath, group: "Session", run: agent(() => agentPageActions.open({ kind: "report", path: s.lastReportPath! })) });
@@ -88,9 +90,15 @@ export function App() {
         out.push({ id: "abort", label: "Abort", group: "Session", run: () => void sessionsActions.abort(s.id) });
       }
     }
-    out.push({ id: "router:start", label: "Start 9router", group: "Router", run: () => void window.ninerh.router.start() });
-    out.push({ id: "router:stop", label: "Stop 9router", group: "Router", run: () => void window.ninerh.router.stop() });
-    out.push({ id: "router:restart", label: "Restart 9router", group: "Router", run: () => void window.ninerh.router.restart() });
+    // Router process actions land on the Router page, where the status card
+    // shows the outcome (or the error) instead of failing silently.
+    const router = (action: "start" | "stop" | "restart") => (): void => {
+      setPage("router");
+      void runRouterAction(action);
+    };
+    out.push({ id: "router:start", label: "Start 9router", group: "Router", run: router("start") });
+    out.push({ id: "router:stop", label: "Stop 9router", group: "Router", run: router("stop") });
+    out.push({ id: "router:restart", label: "Restart 9router", group: "Router", run: router("restart") });
     for (const p of PAGES) out.push({ id: `go:${p.id}`, label: `Go to ${p.label}`, group: "Go to", run: () => setPage(p.id) });
     return out;
   }, [state.order, state.byId, active]);

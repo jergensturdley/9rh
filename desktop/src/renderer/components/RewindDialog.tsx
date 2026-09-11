@@ -74,7 +74,14 @@ export function RewindDialog({ sessionId, onClose }: { sessionId: string; onClos
                     role="option"
                     aria-selected={t.index === target}
                     className={t.index === target ? "rewind-turn is-active" : "rewind-turn"}
+                    tabIndex={0}
                     onClick={() => void pick(t.index)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        void pick(t.index);
+                      }
+                    }}
                   >
                     <span className="rewind-turn-index">before turn {t.index}</span>
                     <span className="rewind-turn-task" title={t.task}>
