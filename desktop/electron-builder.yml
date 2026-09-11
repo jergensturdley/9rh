@@ -5,6 +5,7 @@ directories:
 files:
   - out/**
   - package.json
+  - "!node_modules/9rh/!(dist|package.json){,/**/*}"
 # The 9rh engine is a file: dependency on the repo root; electron-builder
 # follows the symlink and bundles dist/ plus its runtime deps.
 asarUnpack:
