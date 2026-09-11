@@ -1,0 +1,15 @@
+/* Scaffold stub: the theme lands in a later step. */
+:root {
+  color-scheme: dark;
+  --bg: #0f1115;
+  --fg: #e6e6e6;
+}
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+}

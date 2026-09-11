@@ -109,3 +109,45 @@ export type {
   SemanticReviewFilter,
   SemanticSeverity,
 } from "./semanticDiff.js";
+
+// ---------------------------------------------------------------------------
+// Embedder surface (desktop app, programmatic harnesses). Additive re-exports
+// of engines the CLI already wires: ledger, rewind, replay, config, router
+// auth, presets, HITL types, and pure reducers. No behavior lives here.
+// ---------------------------------------------------------------------------
+export { SessionLedger, buildTurnDigest } from "./ledger.js";
+export type {
+  LedgerView,
+  LedgerTurn,
+  TurnDigest,
+  DigestFileEntry,
+  DigestCommandEntry,
+  StoredToolResult,
+} from "./ledger.js";
+export { planRewind, applyRewind } from "./rewind.js";
+export type { RewindPlan, RewindAction, RewindSkip, RewindResult } from "./rewind.js";
+export { listRunLogs, readEventLog, renderEventLog, mapReplayEvent } from "./flightRecorder.js";
+export type { RunLogInfo, ReplayRenderOptions } from "./flightRecorder.js";
+export type { ReplayEvent } from "./replay/eventSchema.js";
+export { readUserConfig, updateUserConfig, resolveConfiguredModel, configPath } from "./config.js";
+export type { UserConfig, SandboxBackend } from "./config.js";
+export { ninerhHome, ninerhDir } from "./paths.js";
+export { getCliToken, readFirstApiKey } from "./init.js";
+export { PROVIDER_PRESETS, getProviderPreset, listProviderPresetIds } from "./backends/presets.js";
+export type { ProviderPreset } from "./backends/presets.js";
+export { resolveAskUserCall } from "./agent.js";
+export type {
+  AskUserRequest,
+  AskUserResponse,
+  ToolApprovalRequest,
+  ToolApprovalDecision,
+} from "./agent.js";
+export type { ToolRiskLevel } from "./orchestrator/roles.js";
+export { compressUserInput } from "./inputCompression.js";
+export { shouldSuggestTeam } from "./orchestrator/dispatch.js";
+export { discoverSkills } from "./skills.js";
+export type { SkillManifestEntry, SkillSource } from "./skills.js";
+export { getSandboxStatus } from "./sandbox/index.js";
+export type { SandboxStatus } from "./sandbox/sandboxer.js";
+export { applyTeamEvent } from "./tui.js";
+export type { TeamLane, TeamLaneEvent } from "./tui.js";
