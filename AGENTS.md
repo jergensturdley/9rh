@@ -61,7 +61,37 @@ src/
   reports/      Run report generator (HTML+CSS, file snapshot tracking, token usage)
   replay/       event schema/logger, replay engine, checkpoints, branches
   repair/       error taxonomy, circuit breaker, snapshots, incident logging
+desktop/        Electron + React desktop app (agent workbench and 9router console); own package, imports "9rh" from the root
 ```
+
+## Desktop app
+
+`desktop/` is a separate package (Electron 44, electron-vite 5, React 19, Vitest) that depends on `"9rh": "file:.."`. Build the root first: `desktop/node_modules/9rh` links to the repo root and resolves to `dist/main.js`. Node 22.12 or newer.
+
+Contract files, read before touching either side of the bridge:
+
+| File | Owns |
+|------|------|
+| `desktop/src/shared/ipc.ts` | Channel names (`CH`), request and response shapes, push events, the `IpcResult` envelope, the `window.ninerh` type |
+| `desktop/src/shared/routerTypes.ts` | 9router `/api/*` record shapes |
+| `desktop/src/renderer/state/types.ts` | Renderer view model: `TranscriptBlock`, `HudState`, `SessionView` |
+
+`src/preload/index.ts` and `src/main/ipc.ts` both derive from `CH`, so a channel added on one side only fails the typecheck.
+
+Commands, run inside `desktop/`: `npm run dev`, `npm run build`, `npm run typecheck`, `npm test`, `npm run package` (unsigned `dir` build). After a build, `NINERH_SMOKE=1 ./node_modules/.bin/electron out/main/index.js` is the headless bridge check; it prints `SMOKE OK` and exits 0. If `node_modules/electron/dist` is missing after `npm install` (npm 11), run `node node_modules/electron/install.js` first.
+
+9router updates live in `src/main/routerUpdate.ts`. It resolves every install (`which -a 9router` through symlinks, plus `npm prefix -g`), compares them with the version the daemon reports and the registry, and updates with `npm i -g 9router@latest --prefix <that install's prefix>`. Force mode adds `--force`, updates every install, and escalates shutdown to SIGTERM then SIGKILL for processes whose command line is a 9router `cli.js` or package path. Both modes restart through `ensureRouter` and fail unless the daemon comes back on the version now on disk. `src/main/loginPath.ts` merges the login shell `PATH` at startup, without which a Dock launch cannot find npm or 9router. Every OS call is injectable; the tests use fakes and never touch the machine.
+
+State on disk: `~/.9rh/desktop.json` (recent workdirs, window bounds, app prefs; `src/main/appState.ts`), `~/.9rh/config.json` (defaults shared with the CLI), `~/.9rh/runs/` (flight-recorder logs the Replays page plays back). `NINE_RH_HOME` relocates all of them; smoke runs point it at a fresh tmpdir so the real home is untouched.
+
+Rules:
+
+- The renderer never imports `9rh` or Node built-ins at runtime. It is a browser bundle; `import type` is fine, values arrive over IPC.
+- `desktop/` uses bundler resolution: no `.js` suffix on relative imports, aliases `@shared/*` and `@renderer/*`. This is the opposite of the root rule in [TypeScript](#typescript).
+- Every IPC handler resolves to `{ ok: true, value } | { ok: false, error }`; nothing throws across the bridge.
+- `desktop/src/main/routerClient.ts` is the only module that knows 9router URLs.
+- Tests are DOM-free: reducers, services with injected fakes, formatters. No component rendering.
+- Engine additions the app needs go into `src/main.ts` as additive re-exports; the app introduces no second agent loop, ledger, or router client.
 
 ## Tool sandbox
 

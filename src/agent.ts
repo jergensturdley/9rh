@@ -142,8 +142,12 @@ export interface ReplayConfig {
 
 export type AgentEvent =
   | { type: "thinking"; text: string }
-  | { type: "tool_call"; name: string; args: Record<string, unknown> }
-  | { type: "tool_result"; name: string; output: string; error?: string }
+  // callId ties a result to its call. Parallel tool batches emit tool_call in
+  // dispatch order (read-only calls start at once, mutating ones queue behind
+  // the lock) and tool_result in original order, so name order alone can pair
+  // same-name calls wrongly. Absent on synthetic results (API retries).
+  | { type: "tool_call"; name: string; args: Record<string, unknown>; callId?: string }
+  | { type: "tool_result"; name: string; output: string; error?: string; callId?: string }
   | { type: "done"; text: string; reportPath?: string; digest?: TurnDigest }
   | { type: "error"; message: string; reportPath?: string; digest?: TurnDigest }
   | { type: "usage"; lastCompletion: TokenUsage; turn: TokenUsage }
@@ -1108,7 +1112,7 @@ export class Agent {
               }
               const run = async () => {
                 const startMs = Date.now();
-                this.emit({ type: "tool_call", name: tc.name, args: tc.args });
+                this.emit({ type: "tool_call", name: tc.name, args: tc.args, callId: tc.id });
                 this.rememberToolHistory(`CALL ${tc.name} ${this.stringifyToolArgs(tc.args)}`);
 
                 const tcEvent: Omit<ToolCallEvent, "seq" | "ts"> = {
@@ -1155,7 +1159,7 @@ export class Agent {
             const turnResult = turnResults[i];
 
             if (turnResult.kind === "parse-error") {
-              this.emit({ type: "tool_result", name: tc.name, output: "", error: turnResult.error });
+              this.emit({ type: "tool_result", name: tc.name, output: "", error: turnResult.error, callId: tc.id });
               if (this.report) {
                 this.report.toolCalls.push({
                   step: this.stepIndex,
@@ -1195,6 +1199,7 @@ export class Agent {
               name: tc.name,
               output: result.output,
               error: result.error,
+              callId: tc.id,
             });
 
             this.reasoner.summarize({

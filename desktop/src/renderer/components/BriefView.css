@@ -1,0 +1,107 @@
+.brief {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.brief-goal {
+  margin: 0;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.brief-goal-label {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.brief-goal-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.brief-totals {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+}
+
+.brief-totals dt {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.brief-totals dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.brief-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.brief-table th,
+.brief-table td {
+  padding: 5px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.brief-table th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.brief-table .num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.brief-table .brief-task {
+  max-width: 0;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.brief-row.is-running td {
+  color: var(--accent);
+}
+
+.brief-roles-row td {
+  padding: 0 8px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.brief-roles {
+  border-collapse: collapse;
+  color: var(--muted);
+}
+
+.brief-roles td {
+  border: 0;
+  padding: 1px 8px;
+}
+
+.brief-roles .brief-role::before {
+  content: "\2514 ";
+}
+
+.brief-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}

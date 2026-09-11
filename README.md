@@ -12,6 +12,7 @@
 - **Clarifying questions**: the agent can pause and ask via an arrow-key picker (`ask_user`); in non-interactive runs the default is auto-picked and surfaced as an assumption in the receipts.
 - **Pluggable backends**: use 9router for combo chains, or talk straight to OpenAI / OpenRouter / Ollama / LM Studio. Auto-detected from your environment, overridable per-invocation.
 - **Interactive REPL**: a fuzzy command palette, arrow-key pickers, and slash commands for models, providers, router status, sandbox status, working directory, setup, and diagnostics.
+- **Desktop app**: `desktop/` holds an Electron workbench that runs sessions side by side with the same receipts, rewind, replay, and team lanes, plus a console for the local 9router (providers, combos, keys, models, usage, updates, embedded dashboard). See [Desktop app](#desktop-app).
 - **Run reports**: every agent turn writes a self-contained HTML summary of changes made, reasoning, tools used, and tokens used. Linked in the chat, openable via `/report`.
 - **Sandbox-aware tools**: file operations are path-checked, symlinks are blocked for file reads/writes, and shell commands use macOS `sandbox-exec` when available with visible `/sandbox` status.
 - **Spec, replay, and repair systems**: optional spec-driven task framing, live run visualization, replay logs, checkpoints, error taxonomy, and repair hooks.
@@ -64,6 +65,27 @@ node dist/index.js --provider=ollama --model llama3.1:70b "summarize this reposi
 ```
 
 See [Backends](#backends) below for the full list and the auto-detection rules.
+
+## Desktop app
+
+`desktop/` holds an Electron app that hosts agent sessions and a 9router console in one window. It imports the `9rh` package for every engine; nothing about agent behavior changes.
+
+```sh
+npm install && npm run build   # repo root: the desktop app links dist/
+cd desktop
+npm install
+npm run dev
+```
+
+| Page | Contents |
+|------|----------|
+| Agent | Sessions sidebar, streaming transcript with tool cards and receipts, composer, HUD with GOAL / NOW / SESSION / LAST / TEAM panels, ask-user and approval modals, Stop and Abort, Brief, Skills, Rewind, Diff, run report viewer |
+| Router | 9router status with Start, Stop, and Restart, then tabs for providers, combos, API keys, models, usage, updates, a read-only settings summary, and the stock dashboard embedded |
+| Router updates | Lists every 9router install on the machine, says which one PATH resolves and what the daemon reports, and updates it. Force update refreshes every install, stops every 9router process, restarts, and verifies the version |
+| Replays | Plays a recorded run from `~/.9rh/runs` into a read-only transcript at 1x to 10x |
+| Settings | CLI defaults in `~/.9rh/config.json`, app preferences in `~/.9rh/desktop.json`, a backend detection check |
+
+Needs Node 22.12 or newer. If `node_modules/electron/dist` is missing after `npm install` (npm 11), run `node node_modules/electron/install.js` inside `desktop/`. `npm test`, `npm run typecheck`, and `npm run package` (an unsigned, unpacked build under `desktop/release/`) also run inside `desktop/`. Details: [desktop/README.md](desktop/README.md) and the [Desktop app](docs/full-documentation.md#desktop-app) section of the full documentation.
 
 ## Requirements
 
@@ -124,7 +146,7 @@ Slash commands that depend on 9router's native `/api/*` endpoints (`/providers`,
 
 ## Documentation
 
-Full setup, CLI options, REPL commands, sandbox notes, replay, repair, programmatic API, and the backend abstraction live in:
+Full setup, CLI options, REPL commands, sandbox notes, replay, repair, the desktop app, programmatic API, and the backend abstraction live in:
 
 - [Full documentation](docs/full-documentation.md)
 

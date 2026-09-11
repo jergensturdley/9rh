@@ -1,0 +1,18 @@
+appId: dev.9rh.desktop
+productName: 9rh
+directories:
+  output: release
+files:
+  - out/**
+  - package.json
+# The 9rh engine is a file: dependency on the repo root; electron-builder
+# follows the symlink and bundles dist/ plus its runtime deps.
+asarUnpack:
+  - "**/node_modules/9rh/dist/**"
+mac:
+  category: public.app-category.developer-tools
+  target: dir
+linux:
+  target: dir
+win:
+  target: dir

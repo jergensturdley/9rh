@@ -1,0 +1,36 @@
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+
+.composer-input {
+  flex: 1 1 auto;
+  resize: none;
+  min-height: 34px;
+  line-height: 19px;
+  padding: 7px 10px;
+  background: var(--bg);
+  font-family: var(--font);
+  overflow-y: auto;
+}
+
+.composer-input:disabled {
+  opacity: 0.6;
+}
+
+.composer-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.composer-hint {
+  font-size: 11px;
+  white-space: nowrap;
+}

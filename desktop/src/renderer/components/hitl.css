@@ -1,0 +1,92 @@
+/* Human-in-the-loop modals: ask-user and approval. */
+
+.hitl-question {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.hitl-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.hitl-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.hitl-option:hover:not(:disabled),
+.hitl-option:focus-visible {
+  border-color: var(--accent);
+  background: var(--bg-elev);
+}
+
+.hitl-option.is-recommended {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+
+.hitl-option-index {
+  color: var(--muted);
+  width: 14px;
+}
+
+.hitl-option-text {
+  flex: 1;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.hitl-recommended {
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.hitl-free {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.hitl-input {
+  flex: 1;
+  width: 100%;
+}
+
+.hitl-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.hitl-tool {
+  margin-bottom: 10px;
+}
+
+.hitl-tool-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hitl-args {
+  max-height: 40vh;
+  overflow: auto;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
