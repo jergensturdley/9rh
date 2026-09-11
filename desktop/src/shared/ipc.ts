@@ -307,6 +307,69 @@ export interface RouterStatusBundle {
 }
 
 // ---------------------------------------------------------------------------
+// Router updates. 9router's own updater runs `npm i -g` into npm's global
+// prefix and relaunches the cli.js path it was started from, so a machine
+// with two prefixes (one on PATH, one npm's default) or a daemon that never
+// restarted stays on the old version. The desktop updater targets the
+// install PATH resolves, can force every install, and verifies the version
+// the restarted daemon reports.
+// ---------------------------------------------------------------------------
+
+export interface RouterInstall {
+  /** Package directory, e.g. /opt/homebrew/lib/node_modules/9router. */
+  dir: string;
+  /** package.json version on disk, null when unreadable. */
+  version: string | null;
+  /** npm prefix that owns this install (the `--prefix` to update it). */
+  prefix: string;
+  /** True when a `9router` bin on PATH resolves here; rank 0 is what runs. */
+  onPath: boolean;
+  pathRank: number | null;
+  /** True when this is the install under `npm prefix -g`. */
+  npmDefault: boolean;
+}
+
+export interface RouterUpdateInfo {
+  /** Version the running daemon reports over /api/version. */
+  runningVersion: string | null;
+  runningPid: number | null;
+  /** Package directory the daemon was started from, when a process is found. */
+  runningDir: string | null;
+  /** Latest published version (registry, else 9router's own check). */
+  latestVersion: string | null;
+  npmPrefix: string | null;
+  installs: RouterInstall[];
+  /** Plain-language findings about why an update may not have taken. */
+  diagnosis: string[];
+  canUpdate: boolean;
+}
+
+export interface RouterUpdateInput {
+  /** Update every install, kill every 9router process, then start and verify. */
+  force?: boolean;
+}
+
+export interface RouterUpdateProgress {
+  phase: "inspect" | "install" | "stop" | "start" | "verify" | "done";
+  line: string;
+}
+
+export interface RouterUpdateResult {
+  ok: boolean;
+  /** Version the daemon reported before the update. */
+  before: string | null;
+  /** Version the restarted daemon reports, null when it did not come back. */
+  after: string | null;
+  latest: string | null;
+  updatedInstalls: string[];
+  restarted: boolean;
+  /** Tail of the npm and updater output. */
+  log: string[];
+  error?: string;
+  diagnosis: string[];
+}
+
+// ---------------------------------------------------------------------------
 // The bridge exposed on window.ninerh
 // ---------------------------------------------------------------------------
 
@@ -367,6 +430,10 @@ export interface RouterApi {
   usageStreamStop(): Promise<IpcResult<void>>;
   /** Dashboard URL for the embedded webview. */
   dashboardUrl(): Promise<IpcResult<string>>;
+  /** Installs, running version, latest version, and why an update may be stuck. */
+  updateInfo(): Promise<IpcResult<RouterUpdateInfo>>;
+  /** Update (and restart) 9router; progress lines arrive on events.onRouterUpdateProgress. */
+  update(input: RouterUpdateInput): Promise<IpcResult<RouterUpdateResult>>;
 }
 
 export interface ReplaysApi {
@@ -403,6 +470,7 @@ export interface EventsApi {
   onReplayEvent(cb: (e: ReplayEventEnvelope) => void): Unsubscribe;
   onReplayStatus(cb: (s: ReplayStatus) => void): Unsubscribe;
   onRouterUsage(cb: (stats: RouterUsageStats) => void): Unsubscribe;
+  onRouterUpdateProgress(cb: (p: RouterUpdateProgress) => void): Unsubscribe;
 }
 
 export interface NinerhApi {
@@ -475,6 +543,8 @@ export const CH = {
     usageStreamStart: "router:usageStreamStart",
     usageStreamStop: "router:usageStreamStop",
     dashboardUrl: "router:dashboardUrl",
+    updateInfo: "router:updateInfo",
+    update: "router:update",
   },
   replays: {
     list: "replays:list",
@@ -505,5 +575,6 @@ export const CH = {
     replayEvent: "replays:on-event",
     replayStatus: "replays:on-status",
     routerUsage: "router:on-usage",
+    routerUpdateProgress: "router:on-update-progress",
   },
 } as const;

@@ -17,7 +17,9 @@ import type { Handler } from "./ipc";
 import { ReplayService } from "./replayService";
 import { RouterClient } from "./routerClient";
 import { RouterProcess } from "./routerProcess";
+import { RouterUpdater } from "./routerUpdate";
 import { SessionRegistry } from "./sessionRegistry";
+import { applyLoginPath } from "./loginPath";
 
 const SMOKE = process.env.NINERH_SMOKE === "1";
 // Smoke runs must never touch the real ~/.9rh. The engine resolves its home
@@ -178,6 +180,7 @@ function main(): void {
     process.stderr.write(`[9rh-desktop] dashboard host ${dashboard.hostname} is not loopback; the embedded dashboard is disabled\n`);
   }
   const routerProcess = new RouterProcess(router);
+  const routerUpdater = new RouterUpdater({ client: router, process: routerProcess });
   const replays = new ReplayService({
     emit: (e) => send(CH.push.replayEvent, e),
     onStatus: (s) => send(CH.push.replayStatus, s),
@@ -187,7 +190,7 @@ function main(): void {
     onChanged: (s) => send(CH.push.sessionChanged, s),
     onRemoved: (id) => send(CH.push.sessionRemoved, id),
   });
-  const handlers = registerIpc({ registry, router, routerProcess, replays, send });
+  const handlers = registerIpc({ registry, router, routerProcess, routerUpdater, replays, send });
 
   app.on("second-instance", () => {
     if (!win) return;
@@ -203,6 +206,9 @@ function main(): void {
   });
 
   void app.whenReady().then(async () => {
+    // A Dock launch inherits launchd's PATH, which has no npm and no user
+    // prefixes, so the updater and ensureRouter would not find 9router.
+    await applyLoginPath().catch(logError("read the login shell PATH"));
     // The app uses no browser permissions (camera, mic, notifications, ...),
     // and Electron grants them by default when no handler is installed.
     for (const s of [session.defaultSession, session.fromPartition(WEBVIEW_PARTITION)]) {

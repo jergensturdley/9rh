@@ -38,6 +38,13 @@ function fakeDeps() {
     registry,
     router,
     routerProcess: {},
+    routerUpdater: {
+      inspect: vi.fn(async () => ({ installs: [], diagnosis: [], canUpdate: true })),
+      update: vi.fn(async (_input: unknown, onProgress?: (p: unknown) => void) => {
+        onProgress?.({ phase: "install", line: "npm i -g 9router@latest" });
+        return { ok: true, updatedInstalls: [], log: [] };
+      }),
+    },
     replays: { stop: vi.fn() },
     send: (channel: string, payload: unknown) => sent.push([channel, payload]),
   } as unknown as IpcDeps;
@@ -132,6 +139,24 @@ describe("buildHandlers", () => {
     await handlers[CH.router.usageStreamStart]!();
     expect(usageStream).toHaveBeenCalledTimes(2);
     await handlers[CH.router.usageStreamStop]!();
+  });
+
+  it("router update: forwards the force flag and pushes progress to the renderer", async () => {
+    const { deps, sent } = fakeDeps();
+    const handlers = buildHandlers(deps);
+    expect(await handlers[CH.router.updateInfo]!()).toEqual({ ok: true, value: { installs: [], diagnosis: [], canUpdate: true } });
+
+    const res = await handlers[CH.router.update]!({ force: true });
+    expect(res).toEqual({ ok: true, value: { ok: true, updatedInstalls: [], log: [] } });
+    expect((deps.routerUpdater.update as ReturnType<typeof vi.fn>).mock.calls[0][0]).toEqual({ force: true });
+    expect(sent.filter(([ch]) => ch === CH.push.routerUpdateProgress)).toEqual([
+      [CH.push.routerUpdateProgress, { phase: "install", line: "npm i -g 9router@latest" }],
+    ]);
+
+    // No argument means a default (non-forced) update; a non-object is refused.
+    await handlers[CH.router.update]!();
+    expect((deps.routerUpdater.update as ReturnType<typeof vi.fn>).mock.calls[1][0]).toEqual({});
+    expect(await handlers[CH.router.update]!("force")).toEqual({ ok: false, error: "bad argument input" });
   });
 
   it("shell guards: blocked schemes and out-of-home reports fail cleanly", async () => {

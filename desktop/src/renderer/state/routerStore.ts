@@ -101,6 +101,29 @@ export async function runRouterAction(action: "start" | "stop" | "restart"): Pro
 }
 
 // ---------------------------------------------------------------------------
+// Router page tab, so the command palette can open a specific panel
+// ---------------------------------------------------------------------------
+
+export type RouterTab = "providers" | "combos" | "keys" | "models" | "usage" | "update" | "settings" | "dashboard";
+
+let tab: RouterTab = "providers";
+const tabListeners = new Set<() => void>();
+
+export function setRouterTab(next: RouterTab): void {
+  tab = next;
+  for (const l of tabListeners) l();
+}
+
+export function useRouterTab(): RouterTab {
+  return useSyncExternalStore((l) => {
+    tabListeners.add(l);
+    return () => {
+      tabListeners.delete(l);
+    };
+  }, () => tab);
+}
+
+// ---------------------------------------------------------------------------
 // Resources
 // ---------------------------------------------------------------------------
 

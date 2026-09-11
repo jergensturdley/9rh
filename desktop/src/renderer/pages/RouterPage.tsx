@@ -8,6 +8,8 @@ import { ModelsPanel } from "@renderer/components/router/ModelsPanel";
 import { UsagePanel } from "@renderer/components/router/UsagePanel";
 import { SettingsSummary } from "@renderer/components/router/SettingsSummary";
 import { DashboardView } from "@renderer/components/router/DashboardView";
+import { UpdatePanel } from "@renderer/components/router/UpdatePanel";
+import { setRouterTab, useRouterTab } from "@renderer/state/routerStore";
 import "./RouterPage.css";
 
 const TABS = [
@@ -16,6 +18,7 @@ const TABS = [
   ["keys", "Keys"],
   ["models", "Models"],
   ["usage", "Usage"],
+  ["update", "Update"],
   ["settings", "Settings"],
   ["dashboard", "Dashboard"],
 ] as const;
@@ -23,7 +26,9 @@ const TABS = [
 type Tab = (typeof TABS)[number][0];
 
 export function RouterPage() {
-  const [tab, setTab] = useState<Tab>("providers");
+  // Tab lives in the router store so the command palette can open one directly.
+  const tab = useRouterTab() as Tab;
+  const setTab = setRouterTab;
   // Bumped by the Refresh button; the mounted panel re-fetches on change.
   const [tick, setTick] = useState(0);
 
@@ -36,6 +41,7 @@ export function RouterPage() {
     : tab === "keys" ? <KeysPanel refreshSignal={tick} />
     : tab === "models" ? <ModelsPanel refreshSignal={tick} />
     : tab === "usage" ? <UsagePanel refreshSignal={tick} />
+    : tab === "update" ? <UpdatePanel refreshSignal={tick} />
     : tab === "settings" ? <SettingsSummary refreshSignal={tick} />
     : <DashboardView refreshSignal={tick} />;
 

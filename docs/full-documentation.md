@@ -429,7 +429,7 @@ One request is pending at a time (the agent serializes approval-gated calls behi
 
 ### 9router console
 
-The Router page starts with a status card and has seven tabs. Only the visible tab is mounted, so each panel refreshes on demand (the Refresh button) and on a 15 s poll while it is visible and the window is not hidden. Errors render inline in the panel that requested them, and destructive actions confirm in-app before calling the API.
+The Router page starts with a status card and has eight tabs. Only the visible tab is mounted, so each panel refreshes on demand (the Refresh button) and on a 15 s poll while it is visible and the window is not hidden. Errors render inline in the panel that requested them, and destructive actions confirm in-app before calling the API.
 
 | Tab | Shows | Actions |
 |-----|-------|---------|
@@ -439,10 +439,28 @@ The Router page starts with a status card and has seven tabs. Only the visible t
 | Keys | API keys masked by default, with Reveal and Copy, active flag, created time | New key (the key opens in a copy dialog and stays in the list), Delete |
 | Models | The catalog grouped by provider with availability badges and capability chips (vision, reasoning, search, context window, max output); search | Use in session (sets the active session's model while it is idle) |
 | Usage | Totals (requests, prompt, completion, and cached tokens, cost as 9router reports it), a token bar chart over the last periods, a per-provider table, and the recent request log | Live totals from the router's server-sent events stream while the tab is open, reconnecting with backoff |
+| Update | Every 9router install found on the machine with its version, npm prefix, and whether PATH resolves it; the version the daemon reports; the latest published version; a plain-language diagnosis when they disagree | Update (refresh the install on PATH, restart, verify), Force update (refresh every install, stop every 9router process, restart, verify), Recheck; a live log of the npm and restart output |
 | Settings | A read-only summary of `GET /api/settings`: login and API key requirements, auth mode, tunnel, combo and fallback strategies, request logs, observability, MITM, outbound proxy, and feature flags | None; edit these in the dashboard |
 | Dashboard | The stock 9router dashboard in an Electron `<webview>` | Reload, open externally |
 
 Every call goes through `desktop/src/main/routerClient.ts`, the only module that knows 9router URLs. Reads time out after 5 s and mutations after 30 s; an unreachable router is reported as a panel error, never as a crash. The session model picker reads `/v1/models` through the session's backend; the console reads `/api/models`.
+
+### Updating 9router
+
+9router ships its own updater, and it can leave a machine pinned to an old version in three ways. Its update runs `npm i -g 9router@latest`, which writes into npm's global prefix; when the `9router` that PATH resolves lives in a different prefix, the update lands in a copy that never runs. Its relaunch starts the same `cli.js` path the daemon was started from, so a stale path stays stale. And a daemon that is never restarted keeps serving the old build even after the files change.
+
+The Update tab addresses all three. It reads every `9router` on PATH (`which -a`, resolved through symlinks to the package directory) plus the install under `npm prefix -g`, reads each `package.json` version, finds the running daemon in the process list, and asks the npm registry for the latest version. When those disagree it says so in plain sentences, for example that npm's global prefix holds a newer copy than the one PATH resolves.
+
+| Mode | What it does |
+|------|--------------|
+| Update | `npm i -g 9router@latest --prefer-online --prefix <prefix of the install PATH resolves>`, a clean shutdown over `POST /api/shutdown`, a start through `ensureRouter`, then a check that the daemon reports the version now on disk |
+| Force update | The same install for every install found, with `--force`, and it keeps going when one prefix fails; then a shutdown followed by SIGTERM and, if needed, SIGKILL for every remaining 9router process; then start and verify |
+
+Both modes stream their output to the panel and both verify the result: if the daemon comes back on a different version than the copy on PATH, if any install failed to update, or if the daemon is still behind the published version, the update is reported as failed with the reason. Process matching only accepts a node process running `9router/cli.js` or a path inside a `9router` package directory, so editors, greps, and this app are never killed. Nothing here runs as root; a prefix that needs elevated permissions fails with npm's own error.
+
+The command palette has "Update 9router", which opens this tab rather than updating silently.
+
+Because a Dock launch inherits launchd's minimal `PATH` (no npm, no `~/.local/bin`), the app asks your login shell for its `PATH` once at startup and merges it in front of its own. Without that, both the updater and `ensureRouter` would be unable to find npm or 9router.
 
 ### Authentication to 9router
 

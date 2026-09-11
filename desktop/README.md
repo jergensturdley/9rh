@@ -84,6 +84,12 @@ src/
 - Deliberate shortcuts carry a `// ponytail:` comment that names the ceiling and the upgrade path.
 - Engine additions the app needs go into the root `src/main.ts` as additive re-exports.
 
+## Updating 9router
+
+The Router page's Update tab lists every 9router install on the machine (each `9router` on PATH plus the one under `npm prefix -g`), the version the daemon reports, and the latest published version, and explains any mismatch. Update refreshes the install PATH resolves and restarts the daemon; Force update refreshes every install, stops every 9router process (SIGKILL only if a clean shutdown and SIGTERM are ignored), then restarts. Both verify the version the restarted daemon reports and fail loudly when it does not match.
+
+This exists because 9router's own updater installs into npm's global prefix and relaunches the path it started from, which silently does nothing when those differ from the copy that actually runs.
+
 ## Where state lives
 
 | Path | Contents |

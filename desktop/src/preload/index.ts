@@ -48,6 +48,7 @@ const api = {
     onReplayEvent: subscribe(CH.push.replayEvent),
     onReplayStatus: subscribe(CH.push.replayStatus),
     onRouterUsage: subscribe(CH.push.routerUsage),
+    onRouterUpdateProgress: subscribe(CH.push.routerUpdateProgress),
   },
 } satisfies NinerhApi;
 

@@ -17,6 +17,7 @@ import type {
   BackendChoice,
   IpcResult,
   ReplayStartInput,
+  RouterUpdateInput,
   RunTaskInput,
   SessionCreateInput,
 } from "@shared/ipc";
@@ -26,6 +27,7 @@ import { listPresets, summarizeBackend } from "./backendService";
 import type { ReplayService } from "./replayService";
 import type { RouterClient } from "./routerClient";
 import type { RouterProcess } from "./routerProcess";
+import type { RouterUpdater } from "./routerUpdate";
 import type { SessionRegistry } from "./sessionRegistry";
 import * as shell from "./shell";
 
@@ -33,6 +35,7 @@ export interface IpcDeps {
   registry: SessionRegistry;
   router: RouterClient;
   routerProcess: RouterProcess;
+  routerUpdater: RouterUpdater;
   replays: ReplayService;
   /** Push a payload to the renderer; must no-op when the window is gone. */
   send: (channel: string, payload: unknown) => void;
@@ -82,7 +85,7 @@ function comboInput(v: unknown): RouterComboInput {
 }
 
 export function buildHandlers(deps: IpcDeps): Record<string, Handler> {
-  const { registry, router, routerProcess, replays, send } = deps;
+  const { registry, router, routerProcess, routerUpdater, replays, send } = deps;
   const host = (id: unknown) => registry.host(str(id, "id"));
   // ponytail: one app-wide SSE subscription with no refcount; start is
   // idempotent and stop ends it for everyone. Add a subscriber count if two
@@ -156,6 +159,9 @@ export function buildHandlers(deps: IpcDeps): Record<string, Handler> {
       usage = null;
     },
     [CH.router.dashboardUrl]: () => router.dashboardUrl(),
+    [CH.router.updateInfo]: () => routerUpdater.inspect(),
+    [CH.router.update]: (input) =>
+      routerUpdater.update(input === undefined ? {} : rec<RouterUpdateInput>(input, "input"), (p) => send(CH.push.routerUpdateProgress, p)),
 
     // replays
     [CH.replays.list]: () => replays.list(),

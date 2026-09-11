@@ -80,6 +80,8 @@ Contract files, read before touching either side of the bridge:
 
 Commands, run inside `desktop/`: `npm run dev`, `npm run build`, `npm run typecheck`, `npm test`, `npm run package` (unsigned `dir` build). After a build, `NINERH_SMOKE=1 ./node_modules/.bin/electron out/main/index.js` is the headless bridge check; it prints `SMOKE OK` and exits 0. If `node_modules/electron/dist` is missing after `npm install` (npm 11), run `node node_modules/electron/install.js` first.
 
+9router updates live in `src/main/routerUpdate.ts`. It resolves every install (`which -a 9router` through symlinks, plus `npm prefix -g`), compares them with the version the daemon reports and the registry, and updates with `npm i -g 9router@latest --prefix <that install's prefix>`. Force mode adds `--force`, updates every install, and escalates shutdown to SIGTERM then SIGKILL for processes whose command line is a 9router `cli.js` or package path. Both modes restart through `ensureRouter` and fail unless the daemon comes back on the version now on disk. `src/main/loginPath.ts` merges the login shell `PATH` at startup, without which a Dock launch cannot find npm or 9router. Every OS call is injectable; the tests use fakes and never touch the machine.
+
 State on disk: `~/.9rh/desktop.json` (recent workdirs, window bounds, app prefs; `src/main/appState.ts`), `~/.9rh/config.json` (defaults shared with the CLI), `~/.9rh/runs/` (flight-recorder logs the Replays page plays back). `NINE_RH_HOME` relocates all of them; smoke runs point it at a fresh tmpdir so the real home is untouched.
 
 Rules:
