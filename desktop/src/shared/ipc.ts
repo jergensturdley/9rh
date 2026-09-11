@@ -176,14 +176,6 @@ export interface SessionSnapshot {
   lastError: string | null;
 }
 
-export interface SessionEventEnvelope {
-  sessionId: string;
-  /** Monotonic per session, starting at 1. */
-  seq: number;
-  ts: number;
-  event: AgentEvent;
-}
-
 export interface RunTaskInput {
   task: string;
   /** Override the session's team mode for this turn only. */
@@ -193,6 +185,25 @@ export interface RunTaskInput {
 export interface RunTaskOutcome {
   status: "completed" | "error" | "aborted";
   durationMs: number;
+}
+
+/**
+ * Desktop-only events the session host adds around each turn. They are not
+ * part of 9rh's `AgentEvent` union; the transcript uses them to render the
+ * task text and to close a turn that ended without `done`/`error` (abort).
+ */
+export type DesktopEvent =
+  | { type: "turn_start"; task: string; turnIndex: number; team: boolean }
+  | { type: "turn_end"; turnIndex: number; status: RunTaskOutcome["status"]; durationMs: number };
+
+export type SessionEvent = AgentEvent | DesktopEvent;
+
+export interface SessionEventEnvelope {
+  sessionId: string;
+  /** Monotonic per session, starting at 1. */
+  seq: number;
+  ts: number;
+  event: SessionEvent;
 }
 
 export interface RewindPlanView {
