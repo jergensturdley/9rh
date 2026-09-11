@@ -1,0 +1,132 @@
+.ap {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr) 300px;
+  height: 100%;
+  min-height: 0;
+}
+
+.ap-hud-closed {
+  grid-template-columns: 240px minmax(0, 1fr);
+}
+
+.ap-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ap-main {
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.ap-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+  flex-wrap: wrap;
+}
+
+.ap-goal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 320px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-weight: 600;
+  min-width: 0;
+}
+
+.ap-goal.is-active {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+
+.ap-goal-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.4s ease-in-out infinite;
+  flex: 0 0 auto;
+}
+
+.ap-chip {
+  max-width: 220px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ap-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.ap-chip:disabled {
+  opacity: 0.6;
+}
+
+.ap-warnings {
+  padding: 4px 12px;
+  color: var(--warn);
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ap-error {
+  padding: 6px 12px 0;
+}
+
+.hud-placeholder {
+  border-left: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+
+.ap-big-new {
+  font-size: 14px;
+  padding: 8px 18px;
+}
+
+.ap-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 360px;
+  max-width: 100%;
+  margin-top: 8px;
+  text-align: left;
+}
+
+.ap-recent-title {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 0 8px 2px;
+}
+
+.ap-recent-item {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 5px 8px;
+  border-radius: var(--radius);
+  text-align: left;
+  color: var(--fg);
+}
+
+.ap-recent-item:hover {
+  background: var(--panel);
+}
+
+.ap-recent-name {
+  font-weight: 600;
+}

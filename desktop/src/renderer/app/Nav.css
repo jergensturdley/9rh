@@ -1,0 +1,51 @@
+.nav {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 8px 6px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+
+.nav-brand {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  padding: 4px 0 10px;
+}
+
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 7px 2px;
+  border-radius: var(--radius);
+  color: var(--muted);
+  border: 1px solid transparent;
+}
+
+.nav-item:hover {
+  color: var(--fg);
+  background: var(--panel);
+}
+
+.nav-item.is-active {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
+
+.nav-glyph {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.nav-label {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}

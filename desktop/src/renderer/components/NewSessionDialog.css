@@ -1,0 +1,123 @@
+.nsd {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.nsd-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.nsd-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.nsd-recent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.nsd-chip {
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--muted);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nsd-chip:hover,
+.nsd-chip.is-active {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
+.nsd-modes {
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+}
+
+.nsd-modes legend {
+  padding: 0;
+  margin-bottom: 4px;
+}
+
+.nsd-radio,
+.nsd-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.nsd-direct {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.nsd-hint {
+  font-size: 12px;
+}
+
+.nsd-advanced summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.nsd-adv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin-top: 8px;
+}
+
+.nsd-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  font-size: 12px;
+}
+
+.nsd-summary.is-ok {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
+}
+
+.nsd-summary.is-bad {
+  border-color: color-mix(in srgb, var(--err) 45%, var(--border));
+}
+
+.nsd-warning {
+  color: var(--warn);
+}
+
+.nsd-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}

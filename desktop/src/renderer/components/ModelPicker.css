@@ -1,0 +1,42 @@
+.mp-filter {
+  margin-bottom: 8px;
+}
+
+.mp-loading {
+  padding: 16px;
+  text-align: center;
+}
+
+.mp-list {
+  max-height: 50vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mp-empty {
+  padding: 8px;
+}
+
+.mp-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+}
+
+.mp-item:hover,
+.mp-item:focus-visible {
+  background: var(--panel);
+  border-color: var(--border);
+}
+
+.mp-item.is-current {
+  border-color: var(--accent);
+}

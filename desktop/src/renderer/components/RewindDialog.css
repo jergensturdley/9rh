@@ -1,0 +1,108 @@
+.rewind-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+  min-height: 260px;
+}
+
+.rewind-turns {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-y: auto;
+  max-height: 60vh;
+}
+
+.rewind-turn {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+
+.rewind-turn:last-child {
+  border-bottom: 0;
+}
+
+.rewind-turn.is-active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.rewind-turn-index {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.rewind-turn-files {
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+
+.rewind-turn-task {
+  grid-column: 1 / -1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rewind-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rewind-heading {
+  margin: 0;
+  font-size: 14px;
+}
+
+.rewind-section h4 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rewind-paths {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+
+.rewind-paths li {
+  padding: 2px 0;
+  overflow-wrap: anywhere;
+}
+
+.rewind-reason {
+  color: var(--warn);
+  font-family: var(--font);
+}
+
+.rewind-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.rewind-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rewind-note.warn {
+  color: var(--warn);
+}

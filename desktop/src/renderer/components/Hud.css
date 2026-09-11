@@ -1,0 +1,148 @@
+.hud {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  background: var(--bg-elev);
+  font-size: 12px;
+}
+
+.hud-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.hud-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+
+.hud-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.hud-goal,
+.hud-last {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 120px;
+  overflow: auto;
+}
+
+.hud-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.hud-k {
+  flex: 0 0 72px;
+  color: var(--muted);
+}
+
+.hud-v {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hud-activity {
+  font-weight: 600;
+}
+
+.hud-activity-thinking,
+.hud-activity-tool {
+  color: var(--accent);
+}
+
+.hud-activity-done {
+  color: var(--ok);
+}
+
+.hud-activity-error {
+  color: var(--err);
+}
+
+.hud-lanes,
+.hud-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hud-lane {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.hud-lane-role {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 11px;
+}
+
+.hud-lane-active .hud-lane-status {
+  color: var(--accent);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.hud-lane-done .hud-lane-status {
+  color: var(--ok);
+}
+
+.hud-lane-skipped .hud-lane-status,
+.hud-lane-cache .hud-lane-status {
+  color: var(--muted);
+}
+
+.hud-tool {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.hud-tool-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: 0 0 auto;
+}
+
+.hud-tool-running .hud-tool-dot {
+  background: var(--accent);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.hud-tool-success .hud-tool-dot {
+  background: var(--ok);
+}
+
+.hud-tool-error .hud-tool-dot {
+  background: var(--err);
+}

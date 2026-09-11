@@ -1,0 +1,95 @@
+.replays {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  height: 100%;
+  min-height: 0;
+}
+
+.replays-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.replays-list-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.replays-list-header h2 {
+  margin: 0;
+  font-size: 15px;
+  flex: 1;
+}
+
+.replays-intro {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.replays-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.replays-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.replays-item.is-active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.replays-item-id {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.replays-item-meta {
+  grid-column: 1;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.replays-player {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 12px;
+  gap: 10px;
+}
+
+.replays-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.replays-status {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.replays-error {
+  color: var(--err);
+}
+
+.replays-transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
