@@ -222,7 +222,7 @@ In `desktop/src/renderer/app/App.tsx`, apply these exact edits:
  import { Nav, PAGES, type Page } from "./Nav";
 +import { rendererChrome } from "./windowChrome";
  import "./App.css";
- 
+
  export function App() {
 +  const chrome = rendererChrome(window.ninerh.platform);
    const [page, setPage] = useState<Page>("agent");
