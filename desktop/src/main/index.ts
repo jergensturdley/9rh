@@ -54,16 +54,24 @@ function originOf(url: string): string {
  * cancelled; http(s) targets go to the system browser instead, which is where
  * docs links and OAuth flows belong.
  */
+function logError(what: string): (err: unknown) => void {
+  return (err) => process.stderr.write(`[9rh-desktop] ${what}: ${err instanceof Error ? err.message : String(err)}\n`);
+}
+
+function openExternal(url: string): void {
+  electronShell.openExternal(url).catch(logError(`open ${url}`));
+}
+
 function pinNavigation(contents: WebContents, allowed: (url: string) => boolean): void {
   const guard = (event: Electron.Event, url: string): void => {
     if (allowed(url)) return;
     event.preventDefault();
-    if (isHttp(url)) void electronShell.openExternal(url);
+    if (isHttp(url)) openExternal(url);
   };
   contents.on("will-navigate", guard);
   contents.on("will-redirect", guard);
   contents.setWindowOpenHandler(({ url }) => {
-    if (isHttp(url)) void electronShell.openExternal(url);
+    if (isHttp(url)) openExternal(url);
     return { action: "deny" };
   });
 }
@@ -122,7 +130,7 @@ async function createWindow(): Promise<BrowserWindow> {
   const persistBounds = (): void => {
     clearTimeout(boundsTimer);
     boundsTimer = setTimeout(() => {
-      if (!w.isDestroyed()) void updateAppState({ window: w.getBounds() });
+      if (!w.isDestroyed()) updateAppState({ window: w.getBounds() }).catch(logError("persist window bounds"));
     }, BOUNDS_DEBOUNCE_MS);
   };
   w.on("resize", persistBounds);
@@ -155,6 +163,8 @@ function main(): void {
     app.quit();
     return;
   }
+  // Nothing in main should fail silently; every stray rejection is logged.
+  process.on("unhandledRejection", logError("unhandled rejection"));
 
   const router = new RouterClient();
   const dashboard = new URL(router.dashboardUrl());

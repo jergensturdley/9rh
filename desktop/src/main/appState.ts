@@ -28,7 +28,17 @@ export async function readAppState(): Promise<AppState> {
   return { recentWorkDirs: [] };
 }
 
-export async function updateAppState(patch: Partial<AppState>): Promise<AppState> {
+// Writers (window bounds from main, settings and recents from the renderer)
+// can overlap; serialize the read-modify-write so no patch is lost.
+let chain: Promise<unknown> = Promise.resolve();
+
+export function updateAppState(patch: Partial<AppState>): Promise<AppState> {
+  const next = chain.then(() => writeAppState(patch));
+  chain = next.catch(() => undefined);
+  return next;
+}
+
+async function writeAppState(patch: Partial<AppState>): Promise<AppState> {
   const next: AppState = { ...(await readAppState()), ...patch };
   if (next.lastBackend) {
     // API keys live in the session only; they never reach disk.

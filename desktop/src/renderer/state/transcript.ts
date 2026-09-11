@@ -83,12 +83,16 @@ export function applyEnvelope(view: SessionView, env: SessionEventEnvelope): Ses
     }
 
     case "tool_call":
-      push({ kind: "tool", ...base(), name: e.name, args: e.args, status: "running" });
+      push({ kind: "tool", ...base(), name: e.name, args: e.args, status: "running", ...(e.callId ? { callId: e.callId } : {}) });
       break;
 
     case "tool_result": {
       const status = e.error ? "error" : "success";
-      const idx = blocks.findIndex((b) => b.kind === "tool" && b.status === "running" && b.name === e.name);
+      // Pair by call id when the engine provides one (parallel batches emit
+      // calls and results in different orders); name FIFO only for old logs.
+      const idx = e.callId
+        ? blocks.findIndex((b) => b.kind === "tool" && b.status === "running" && b.callId === e.callId)
+        : blocks.findIndex((b) => b.kind === "tool" && b.status === "running" && b.name === e.name);
       const done = { status, output: e.output, ...(e.error ? { error: e.error } : {}), endedTs: env.ts } as const;
       if (idx >= 0) {
         blocks = blocks.slice();
@@ -139,7 +143,8 @@ export function applyEnvelope(view: SessionView, env: SessionEventEnvelope): Ses
       marker("branch_create", `branch ${e.branchId} from ${e.stepId}: ${e.reason}`);
       break;
     case "sandbox_health":
-      marker("sandbox_health", `sandbox: ${e.sandboxed}/${e.total} sandboxed`, `direct ${e.direct}, timed out ${e.timedOut}`);
+      // Emitted every iteration; "0/0" before any command ran is noise.
+      if (e.total > 0) marker("sandbox_health", `sandbox: ${e.sandboxed}/${e.total} sandboxed`, `direct ${e.direct}, timed out ${e.timedOut}`);
       break;
     case "step_inspect":
       marker(

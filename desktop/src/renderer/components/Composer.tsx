@@ -49,6 +49,8 @@ export function Composer(props: {
       return;
     }
     if (e.key === "Enter" && (!e.shiftKey || e.metaKey || e.ctrlKey)) {
+      // Enter that commits an IME candidate must not run the task.
+      if (e.nativeEvent.isComposing || e.keyCode === 229) return;
       e.preventDefault();
       submit();
     }

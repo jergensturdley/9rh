@@ -67,7 +67,7 @@ export function mapReplayEvent(event: ReplayEvent): AgentEvent[] {
       return text ? [{ type: "thinking", text }] : [];
     }
     case "tool_call":
-      return [{ type: "tool_call", name: event.payload.toolName, args: event.payload.args }];
+      return [{ type: "tool_call", name: event.payload.toolName, args: event.payload.args, callId: event.payload.callId }];
     case "tool_result":
       return [
         {
@@ -75,6 +75,7 @@ export function mapReplayEvent(event: ReplayEvent): AgentEvent[] {
           name: event.payload.toolName,
           output: event.payload.output,
           error: event.payload.error,
+          callId: event.payload.callId,
         },
       ];
     case "compact":

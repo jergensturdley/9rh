@@ -111,8 +111,10 @@ function catchUp(id: string, pending?: SessionEventEnvelope): Promise<void> {
         return;
       }
       const res = await api.sessions.history(id, view.lastSeq);
-      const envs = res.ok ? res.value : [];
-      applyEnvelopes(id, pending ? [...envs, pending] : envs);
+      // Leave lastSeq where it is on failure so the next envelope retries the
+      // gap instead of skipping it for good.
+      if (!res.ok) return;
+      applyEnvelopes(id, pending ? [...res.value, pending] : res.value);
     })
     .finally(() => {
       if (catchUps.get(id) === next) catchUps.delete(id);

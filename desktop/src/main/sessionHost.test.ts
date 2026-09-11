@@ -134,6 +134,103 @@ describe("SessionHost", () => {
     expect(String(reportPath)).toMatch(/reports[\\/]s1-last-run\.html$/);
   });
 
+  it("auto-dismisses HITL requests raised after abort()", async () => {
+    const decisions: Array<{ approved: boolean; reason?: string }> = [];
+    const gate = { name: "run_bash", args: { command: "rm -rf x" }, risk: "high" as const, threshold: "high" as const };
+    const { host, changes } = makeHost(async (config) => {
+      decisions.push(await config.onToolApproval!(gate));
+      // The engine finishes the current tool batch after abort(): a second
+      // gated call still arrives and must not park the turn.
+      decisions.push(await config.onToolApproval!(gate));
+    });
+    hosts.push(host);
+    const running = host.run({ task: "t" });
+    await until(() => host.snapshot().status === "waiting");
+    host.abort();
+    expect(host.snapshot().aborting).toBe(true);
+    const outcome = await running;
+
+    expect(outcome.status).toBe("aborted");
+    expect(decisions).toEqual([
+      { approved: false, reason: "aborted" },
+      { approved: false, reason: "aborted" },
+    ]);
+    expect(changes.filter((s) => s.status === "waiting")).toHaveLength(1);
+    expect(host.snapshot().aborting).toBe(false);
+  });
+
+  it("run() settles when the session is disposed while a request is pending", async () => {
+    const { host } = makeHost(async (config) => {
+      await config.onAskUser!({ question: "which?", options: ["a", "b"], allowFreeText: true });
+      await config.onAskUser!({ question: "and?", options: [], allowFreeText: true });
+    });
+    const running = host.run({ task: "t" });
+    await until(() => host.snapshot().status === "waiting");
+    host.dispose();
+    const outcome = await running;
+    expect(outcome.status).toBe("aborted");
+  });
+
+  it("keeps the digest-bearing terminal when a digest-less error precedes it", async () => {
+    const digest = buildTurnDigest(
+      {
+        task: "edit",
+        startedAt: 1,
+        workDir: WORK,
+        fileChanges: [{ step: 1, path: `${WORK}/src/a.ts`, operation: "edit", before: "a\n", after: "b\n" }],
+        toolCalls: [],
+      },
+      { status: "error", steps: 1 },
+    );
+    const { host } = makeHost(async (config) => {
+      // Mirrors the engine on an API failure: the stream layer emits a bare
+      // error, then Agent.run's catch emits the terminal with the digest.
+      config.onEvent?.({ type: "error", message: "OpenAI API error: 503" });
+      config.onEvent?.({ type: "error", message: "OpenAI API error: 503", digest });
+      throw new Error("OpenAI API error: 503");
+    });
+    hosts.push(host);
+    const outcome = await host.run({ task: "edit" });
+
+    expect(outcome.status).toBe("error");
+    const snap = host.snapshot();
+    expect(snap.ledger.turnCount).toBe(1);
+    expect(snap.ledger.goalActive).toBe(false);
+    expect(snap.ledger.turns[0].digest?.diffablePaths).toEqual(["src/a.ts"]);
+    expect(host.rewindPlan(1).writes).toHaveLength(1);
+    expect(host.diff(1, "src/a.ts").removed).toBe(1);
+  });
+
+  it("closes the ledger turn when the only terminal is a digest-less error", async () => {
+    const { host } = makeHost(async (config) => {
+      config.onEvent?.({ type: "error", message: "Agent timed out after 1ms" });
+    });
+    hosts.push(host);
+    const outcome = await host.run({ task: "t" });
+    expect(outcome.status).toBe("error");
+    const snap = host.snapshot();
+    expect(snap.ledger.goalActive).toBe(false);
+    expect(snap.ledger.completedTurnCount).toBe(1);
+    expect(snap.ledger.turns[0].status).toBe("error");
+  });
+
+  it("evicts streamed thinking before structural events when the ring overflows", async () => {
+    const { host } = makeHost(async (config) => {
+      config.onEvent?.({ type: "tool_call", name: "read_file", args: { path: "a" }, callId: "c1" });
+      for (let i = 0; i < 5200; i++) config.onEvent?.({ type: "thinking", text: "x" });
+      config.onEvent?.({ type: "tool_result", name: "read_file", output: "ok", callId: "c1" });
+      config.onEvent?.({ type: "done", text: "ok" });
+    });
+    hosts.push(host);
+    await host.run({ task: "t" });
+    const kinds = host.history().map((e) => e.event.type);
+    expect(kinds[0]).toBe("turn_start");
+    expect(kinds).toContain("tool_call");
+    expect(kinds).toContain("tool_result");
+    expect(kinds.at(-1)).toBe("turn_end");
+    expect(host.history()).toHaveLength(5000);
+  });
+
   it("folds events into the ledger: usage tokens and a lite digest with diffablePaths", async () => {
     const digest = buildTurnDigest(
       {

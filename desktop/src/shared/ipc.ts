@@ -162,6 +162,8 @@ export interface SessionSnapshot {
   createdAt: number;
   /** Set while a turn runs. */
   turnStartedAt: number | null;
+  /** True after abort() until the turn ends: the engine cancels the stream but a running tool call returns first. */
+  aborting?: boolean;
   ledger: LedgerSnapshot;
   sandbox: SandboxChip;
   pending: PendingRequest | null;

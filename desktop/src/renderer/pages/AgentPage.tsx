@@ -181,8 +181,14 @@ export function AgentPage(props: { onOpenPalette: () => void }) {
                   <Button size="sm" onClick={() => report(sessionsActions.stop(snap.id))} title="finish the current tool call, then stop">
                     Stop
                   </Button>
-                  <Button size="sm" variant="danger" onClick={() => report(sessionsActions.abort(snap.id))} title="cancel immediately">
-                    Abort
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    disabled={snap.aborting === true}
+                    onClick={() => report(sessionsActions.abort(snap.id))}
+                    title={snap.aborting ? "the stream is cancelled; waiting for the current tool call to return" : "cancel the stream; a running tool call finishes first"}
+                  >
+                    {snap.aborting ? "Aborting..." : "Abort"}
                   </Button>
                 </>
               ) : null}
@@ -217,6 +223,7 @@ export function AgentPage(props: { onOpenPalette: () => void }) {
               </div>
             ) : null}
             <Transcript
+              key={snap.id}
               blocks={view.blocks}
               quiet={snap.quiet}
               onOpenDiff={(turn, path) => open({ kind: "diff", turn, path })}

@@ -91,6 +91,9 @@ export function useReplay(): ReplayHandle {
     ];
     return () => {
       for (const u of unsubs) u();
+      // Nobody is listening once the page unmounts; stop the playback in main.
+      const s = statusRef.current;
+      if (s && s.state === "playing") void api.replays.stop(s.replayId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

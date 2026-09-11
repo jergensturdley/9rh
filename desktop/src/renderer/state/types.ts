@@ -37,6 +37,8 @@ export type TranscriptBlock =
       output?: string;
       error?: string;
       endedTs?: number;
+      /** Engine call id; results pair by it when present (name FIFO otherwise). */
+      callId?: string;
     }
   /** One-line markers for loop bookkeeping and repair telemetry. */
   | {
@@ -90,6 +92,7 @@ export interface ToolHistoryItem {
   name: string;
   target: string;
   status: "running" | "success" | "error";
+  callId?: string;
 }
 
 export interface TeamLaneView {

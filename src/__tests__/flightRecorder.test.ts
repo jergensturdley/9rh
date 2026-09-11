@@ -22,7 +22,7 @@ describe("mapReplayEvent", () => {
       step,
       payload: { toolName: "run_bash", args: { command: "ls" }, callId: "c1" },
     });
-    expect(call).toEqual([{ type: "tool_call", name: "run_bash", args: { command: "ls" } }]);
+    expect(call).toEqual([{ type: "tool_call", name: "run_bash", args: { command: "ls" }, callId: "c1" }]);
     const result = mapReplayEvent({
       type: "tool_result",
       seq: 3,
@@ -30,7 +30,7 @@ describe("mapReplayEvent", () => {
       step,
       payload: { toolName: "run_bash", callId: "c1", output: "a\nb", durationMs: 5 },
     });
-    expect(result).toEqual([{ type: "tool_result", name: "run_bash", output: "a\nb", error: undefined }]);
+    expect(result).toEqual([{ type: "tool_result", name: "run_bash", output: "a\nb", error: undefined, callId: "c1" }]);
   });
 
   it("maps llm_response text to thinking and drops empty text", () => {

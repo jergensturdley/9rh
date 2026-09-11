@@ -32,7 +32,7 @@ export function applyHudEvent(hud: HudState, env: SessionEventEnvelope): HudStat
 
     case "tool_call": {
       const target = describeToolTarget(e.name, e.args);
-      const item: ToolHistoryItem = { name: e.name, target, status: "running" };
+      const item: ToolHistoryItem = { name: e.name, target, status: "running", ...(e.callId ? { callId: e.callId } : {}) };
       return {
         ...hud,
         activity: "tool",
@@ -44,10 +44,11 @@ export function applyHudEvent(hud: HudState, env: SessionEventEnvelope): HudStat
     }
 
     case "tool_result": {
-      // Oldest running entry with the same name (FIFO under parallel tools),
-      // falling back to the oldest running entry of any name like the TUI.
-      let idx = hud.toolHistory.findIndex((h) => h.status === "running" && h.name === e.name);
-      if (idx < 0) idx = hud.toolHistory.findIndex((h) => h.status === "running");
+      // By call id when present; else the oldest running entry with the same
+      // name (FIFO), falling back to the oldest running entry like the TUI.
+      let idx = e.callId ? hud.toolHistory.findIndex((h) => h.status === "running" && h.callId === e.callId) : -1;
+      if (idx < 0 && !e.callId) idx = hud.toolHistory.findIndex((h) => h.status === "running" && h.name === e.name);
+      if (idx < 0 && !e.callId) idx = hud.toolHistory.findIndex((h) => h.status === "running");
       const toolHistory = hud.toolHistory.slice();
       if (idx >= 0) toolHistory[idx] = { ...toolHistory[idx], status: e.error ? "error" : "success" };
       return { ...hud, activity: "thinking", currentTool: null, currentToolTarget: null, toolHistory };

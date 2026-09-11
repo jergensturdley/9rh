@@ -124,6 +124,7 @@ export class SessionHost {
   private readonly createdAt: number;
 
   private status: SessionStatus = "idle";
+  private aborting = false;
   private seq = 0;
   private requestSeq = 0;
   private ring: SessionEventEnvelope[] = [];
@@ -202,6 +203,7 @@ export class SessionHost {
       status: this.status,
       createdAt: this.createdAt,
       turnStartedAt: this.turnStartedAt,
+      aborting: this.aborting,
       ledger: {
         sessionStartedAt: view.sessionStartedAt,
         turnCount: view.turnCount,
@@ -278,7 +280,11 @@ export class SessionHost {
         ? "error"
         : "completed";
     const durationMs = Math.max(0, this.now() - startedAt);
+    // A turn whose only terminal carried no digest (timeout, stream failure
+    // with no report) is still open in the ledger; close it with the outcome.
+    if (this.ledger.view().goalActive) this.ledger.completeTurn(undefined, status === "completed" ? "completed" : "error", this.now());
     this.status = status === "error" ? "error" : "idle";
+    this.aborting = false;
     this.pending = null;
     this.pendingResolve = null;
     this.turnStartedAt = null;
@@ -355,7 +361,11 @@ export class SessionHost {
     if (this.disposed) return;
     let outbound: SessionEvent = event;
     if (event.type !== "turn_start" && event.type !== "turn_end") {
-      this.ledger.onAgentEvent(event, this.now());
+      const terminal = event.type === "done" || event.type === "error";
+      // The ledger closes a turn first-wins, and the engine emits a
+      // digest-less `error` before the digest-bearing one on API failures, so
+      // only terminals that carry a digest fold; run() closes anything left open.
+      if (!terminal || event.digest) this.ledger.onAgentEvent(event, this.now());
       if (event.type === "done" || event.type === "error") {
         this.lastTerminal = event.type;
         if (event.reportPath) this.lastReportPath = event.reportPath;
@@ -366,8 +376,13 @@ export class SessionHost {
     }
     const env: SessionEventEnvelope = { sessionId: this.id, seq: ++this.seq, ts: this.now(), event: outbound };
     this.ring.push(env);
-    // ponytail: shift() is O(n) but the cap is small; a circular index if it shows up in a profile.
-    if (this.ring.length > RING_CAP) this.ring.shift();
+    if (this.ring.length > RING_CAP) {
+      // Evict streamed thinking deltas first so turn_start, tool cards and
+      // receipts survive a renderer reload even through a long turn.
+      // ponytail: linear scan per eviction; a circular index if it shows up in a profile.
+      const i = this.ring.findIndex((r) => r.event.type === "thinking");
+      this.ring.splice(i >= 0 ? i : 0, 1);
+    }
     this.deps.emit(env);
     if (event.type === "usage" || event.type === "done" || event.type === "error") this.changed();
   }
@@ -383,8 +398,12 @@ export class SessionHost {
   abort(): void {
     if (!this.isRunning()) return;
     this.abortRequested = true;
+    // Agent.abort cancels the LLM stream; a tool call already executing runs
+    // to completion first, so the snapshot reports "aborting" until then.
+    this.aborting = true;
     this.agent?.abort();
     this.dismissPending();
+    this.changed();
   }
 
   dispose(): void {
@@ -463,6 +482,11 @@ export class SessionHost {
   }
 
   private waitFor<T>(request: PendingRequest): Promise<T> {
+    // The engine finishes the current tool batch after abort(), so a gated
+    // call can still arrive; nobody will answer it, so dismiss it at once.
+    if (this.disposed || this.abortRequested) {
+      return Promise.resolve((request.kind === "ask" ? { answer: "" } : { approved: false, reason: "aborted" }) as T);
+    }
     return new Promise<T>((resolve) => {
       this.pending = request;
       this.pendingResolve = resolve as (value: unknown) => void;

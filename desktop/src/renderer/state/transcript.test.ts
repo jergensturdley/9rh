@@ -142,7 +142,7 @@ describe("applyEnvelope", () => {
       { type: "incident", stepId: "st1", cause: "timeout", repairAttempt: 2, circuitOpen: true },
       { type: "spec_plan", summary: "plan" },
       { type: "branch_create", stepId: "st1", branchId: "b2", reason: "retry" },
-      { type: "sandbox_health", total: 0, sandboxed: 0, direct: 0, timedOut: 0 },
+      { type: "sandbox_health", total: 2, sandboxed: 2, direct: 0, timedOut: 0 },
       { type: "step_inspect", stepId: "st2", params: "p", output: "o" },
       { type: "partial_output", stepId: "st2", text: "chunk" },
     ]);
@@ -159,7 +159,7 @@ describe("applyEnvelope", () => {
       ["incident", "incident at st1: timeout"],
       ["spec_plan", "generated test plan"],
       ["branch_create", "branch b2 from st1: retry"],
-      ["sandbox_health", "sandbox: 0/0 sandboxed"],
+      ["sandbox_health", "sandbox: 2/2 sandboxed"],
       ["step_inspect", "step st2"],
       ["partial_output", "partial output from st2"],
     ]);
@@ -227,6 +227,30 @@ describe("applyEnvelope", () => {
     const v = fold([turnStart(), { type: "error", message: "nope", reportPath: "/e.html" }]);
     expect(v.blocks[1]).toMatchObject({ kind: "receipts", status: "error", text: "nope", reportPath: "/e.html" });
     expect(v.hud.activity).toBe("error");
+  });
+
+  it("pairs tool results by callId when a parallel batch emits calls and results in different orders", () => {
+    const v = fold([
+      turnStart(),
+      { type: "tool_call", name: "run_bash", args: { command: "cat package.json" }, callId: "c1" },
+      { type: "tool_call", name: "run_bash", args: { command: "npm test" }, callId: "c0" },
+      { type: "tool_result", name: "run_bash", output: "tests failed", error: "exit 1", callId: "c0" },
+      { type: "tool_result", name: "run_bash", output: "{}", callId: "c1" },
+    ]);
+    const tools = v.blocks.filter((b): b is Extract<TranscriptBlock, { kind: "tool" }> => b.kind === "tool");
+    expect(tools.map((t) => [t.args.command, t.status, t.output])).toEqual([
+      ["cat package.json", "success", "{}"],
+      ["npm test", "error", "tests failed"],
+    ]);
+    expect(v.hud.toolHistory.map((h) => [h.target, h.status])).toEqual([
+      ["cat package.json", "success"],
+      ["npm test", "error"],
+    ]);
+  });
+
+  it("drops the sandbox marker before any command ran", () => {
+    const v = fold([turnStart(), { type: "sandbox_health", total: 0, sandboxed: 0, direct: 0, timedOut: 0 }, { type: "sandbox_health", total: 2, sandboxed: 2, direct: 0, timedOut: 0 }]);
+    expect(v.blocks.filter((b) => b.kind === "marker")).toHaveLength(1);
   });
 
   it("abort folds error + done + turn_end(aborted) into one aborted receipts card", () => {
