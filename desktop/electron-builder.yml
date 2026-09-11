@@ -5,14 +5,22 @@ directories:
 files:
   - out/**
   - package.json
+  - "!node_modules/9rh/!(dist|package.json){,/**/*}"
+  - "!node_modules/9rh/dist/**/__tests__/**"
 # The 9rh engine is a file: dependency on the repo root; electron-builder
 # follows the symlink and bundles dist/ plus its runtime deps.
 asarUnpack:
   - "**/node_modules/9rh/dist/**"
+extraResources:
+  - from: build/icon.png
+    to: icon.png
 mac:
   category: public.app-category.developer-tools
+  icon: build/icon.icns
   target: dir
 linux:
+  icon: build/icon.png
   target: dir
 win:
+  icon: build/icon.ico
   target: dir

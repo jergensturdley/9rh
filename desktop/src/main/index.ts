@@ -20,6 +20,7 @@ import { RouterProcess } from "./routerProcess";
 import { RouterUpdater } from "./routerUpdate";
 import { SessionRegistry } from "./sessionRegistry";
 import { applyLoginPath } from "./loginPath";
+import { resolveAppIconPath, windowChromeOptions } from "./windowChrome";
 
 const SMOKE = process.env.NINERH_SMOKE === "1";
 // Smoke runs must never touch the real ~/.9rh. The engine resolves its home
@@ -34,6 +35,7 @@ if (SMOKE) {
 const WEBVIEW_PARTITION = "persist:9router";
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 const BOUNDS_DEBOUNCE_MS = 500;
+const APP_ICON = resolveAppIconPath(app.isPackaged, process.resourcesPath, import.meta.url);
 
 /** Origins the dashboard <webview> may load; derived from the router base in main(). */
 let webviewOrigins = new Set<string>();
@@ -97,7 +99,7 @@ async function createWindow(): Promise<BrowserWindow> {
     minHeight: 640,
     title: "9rh",
     show: !SMOKE,
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    ...windowChromeOptions(process.platform, APP_ICON),
     webPreferences: {
       preload: fileURLToPath(new URL("../preload/index.cjs", import.meta.url)),
       contextIsolation: true,
@@ -206,6 +208,7 @@ function main(): void {
   });
 
   void app.whenReady().then(async () => {
+    if (process.platform === "darwin") app.dock?.setIcon(APP_ICON);
     // A Dock launch inherits launchd's PATH, which has no npm and no user
     // prefixes, so the updater and ensureRouter would not find 9router.
     await applyLoginPath().catch(logError("read the login shell PATH"));

@@ -474,6 +474,7 @@ export interface EventsApi {
 }
 
 export interface NinerhApi {
+  readonly platform: NodeJS.Platform;
   sessions: SessionsApi;
   router: RouterApi;
   replays: ReplaysApi;

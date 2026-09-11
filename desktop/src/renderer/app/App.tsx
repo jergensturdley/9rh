@@ -14,9 +14,11 @@ import { RouterPage } from "@renderer/pages/RouterPage";
 import { ReplaysPage } from "@renderer/pages/ReplaysPage";
 import { SettingsPage } from "@renderer/pages/SettingsPage";
 import { Nav, PAGES, type Page } from "./Nav";
+import { rendererChrome } from "./windowChrome";
 import "./App.css";
 
 export function App() {
+  const chrome = rendererChrome(window.ninerh.platform);
   const [page, setPage] = useState<Page>("agent");
   const [palette, setPalette] = useState(false);
   const state = useSessionsState();
@@ -115,7 +117,8 @@ export function App() {
   }, [state.order, state.byId, active]);
 
   return (
-    <div className="app">
+    <div className={chrome.appClassName}>
+      {chrome.showDragStrip ? <div className="window-drag-strip" aria-hidden="true" /> : null}
       <Nav page={page} onChange={setPage} />
       <main className="app-main">
         {page === "agent" ? (
