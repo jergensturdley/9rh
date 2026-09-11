@@ -35,6 +35,7 @@ function subscribe<T>(channel: string): (cb: (payload: T) => void) => Unsubscrib
 }
 
 const api = {
+  platform: process.platform,
   sessions: invokeGroup(CH.sessions),
   router: invokeGroup(CH.router),
   replays: invokeGroup(CH.replays),
