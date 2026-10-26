@@ -1,0 +1,31 @@
+perf: benchmark harness and results
+
+scripts/perf-check.cjs: self-contained benchmark harness (median of 5
+iterations, alternating arm order to cancel warm-cache bias) covering:
+
+- workdir snapshot cold/warm + diff on a 300-file git fixture
+- indexer refresh on 3 pseudo-repos x 250 files
+- 6 parallel-safe tool calls (search_files -> grep subprocesses)
+  through a real Agent with a streaming stub, at toolConcurrency 1
+  vs 4, measuring the first-tool_call..last-tool_result window
+
+Results (macOS aarch64, this repo's shape):
+
+| benchmark                                   | main  | branch | delta        |
+| --- | --- | --- | --- |
+| snapshot cold (300-file git repo)           | 17.6ms | 9.4ms | 1.9x faster  |
+| snapshot warm + diff (1 dirty)              | 16.7ms | 14.3ms | 1.2x faster |
+| snapshot overhead, 10 trivial bash calls    | 318.4ms | 206.0ms | 1.55x faster |
+| indexer refresh (3x250 files)               | 3.9ms | 4.8ms | noise*       |
+| 6 greps, toolConcurrency=1                  | -     | 28.0ms | parity       |
+| 6 greps, toolConcurrency=4                  | -     | 12.1ms | 2.31x vs =1  |
+
+*Indexer fixture is small; the structural win is one traversal instead
+of two full walks plus event-loop-friendly async I/O.
+
+The 10-bash floor on the branch is ~20 git-status spawns (~9.6ms each
+on this machine); main instead pays two full 300-file content-read
+walks per bash call. Sequential mode is within noise of main.
+
+Merge gate: 51 suites / 703 tests green, npm run build clean,
+parallel speedup 2.31x >= 2x target at pool=4.

@@ -1,0 +1,24 @@
+perf: async exec in router/init hot paths
+
+Startup and per-command sync process spawns / file reads leave the
+event loop blocked for up to 5s each (sqlite3, ioreg, REG probes).
+All of them become awaited async calls:
+
+- src/backends/router.ts + src/init.ts readFirstApiKey: sync
+  sqlite3 exec -> execFileAsync; still returns null on missing DB
+  or exec failure (behavior unchanged for callers).
+- src/init.ts machineIdHash: ioreg / sh / REG probes and the
+  machine-id + cli-secret reads -> execFileAsync + fs/promises
+  readFile. Failure handling untouched: returns "" on error.
+- getCliToken is now async (callers already async: commands.ts
+  fetchNativeJSON and /debug-auth use Promise.all for token+key,
+  index.ts runDoctor awaits).
+- tailFile (startup-log tail) also converted to fs/promises; no
+  sync readFileSync remains in init.ts.
+
+New src/__tests__/init.test.ts stubs child_process/os via
+unstable_mockModule (callback-bridging jest.fn because init.ts
+promisifies execFile) and asserts: key resolved from stubbed
+sqlite stdout, null without exec when DB missing, null on exec
+failure, 16-char stable cli token, and swallowed probe failures
+(no throw). Full suite: 703 passing.

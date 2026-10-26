@@ -1,0 +1,24 @@
+perf: indexer single-pass async walk
+
+Three synchronous full traversals per repo collapse into one:
+
+- findRepos is now async with concurrent directory descent
+  (mapPool(dirs, 8)); traversal rules unchanged (VCS-dir skip,
+  dot-dir skip except .config, build-dir skip, realpath dedupe,
+  depth cap). The seen-set check and add stay in the same
+  microtask (no await between them) so dedupe remains race-free.
+- hashRepo + roughSize fold into one hashAndSize walk: a single
+  traversal collects the sorted "path|size|mtime" listing for the
+  sha256 hash and the byte total, stat'ing files concurrently
+  (mapPool(files, 16)). hashRepo remains exported as a thin async
+  wrapper; SKIP_WALK_DIRS mirrors the old inline name checks.
+- refresh() processes repos with mapPool(repos, 2): repo-level
+  concurrency stays modest because each repo walk fans out
+  internally. Stale marking, pruning, and persist semantics are
+  unchanged (same contract as audit-fix A5).
+
+Golden comparison: a deterministic fixture (pinned mtimes, fixed
+path, two refresh passes around a create/edit/delete mutation)
+produces byte-identical normalized index JSON before and after the
+rewrite. New tests pin findRepos awaitability, golden hashes and
+sizes, stale marking on root disappearance, and ignore rules.

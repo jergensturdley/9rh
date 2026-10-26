@@ -1,0 +1,62 @@
+{
+ "pass1": {
+  "totalRepos": 4,
+  "freshRepos": 4
+ },
+ "pass2": {
+  "totalRepos": 4,
+  "freshRepos": 4
+ },
+ "repos1": [
+  {
+   "repoRoot": "WORK/.config/tool",
+   "repoHash": "bcc85990b9cf6c6648513eb660498ca3107049b8205b8f05d967cfc5ded59d02",
+   "sizeBytes": 15,
+   "stale": 0
+  },
+  {
+   "repoRoot": "WORK/proj-a",
+   "repoHash": "11b8e97ec7f3c2dd32dfe2f2da1afcced8eb882aa60993b1df06cb61e4c6f734",
+   "sizeBytes": 138,
+   "stale": 0
+  },
+  {
+   "repoRoot": "WORK/proj-a/sub-pkg",
+   "repoHash": "35c8215eb772cdd51b8f6718c4e7e8e7e0347eb5aab6c4afd58d91c9edcb4535",
+   "sizeBytes": 29,
+   "stale": 0
+  },
+  {
+   "repoRoot": "WORK/proj-b",
+   "repoHash": "c1ef80bcf711cdb88cb5bddb27aa2d7e096af0fcee27980543e0ee6c2c00e728",
+   "sizeBytes": 5697,
+   "stale": 0
+  }
+ ],
+ "repos2": [
+  {
+   "repoRoot": "WORK/.config/tool",
+   "repoHash": "bcc85990b9cf6c6648513eb660498ca3107049b8205b8f05d967cfc5ded59d02",
+   "sizeBytes": 15,
+   "stale": 0
+  },
+  {
+   "repoRoot": "WORK/proj-a",
+   "repoHash": "17d2d86e8109a2688f8f9f576894a2cbdb872233836ba01a8ba0717e325d6134",
+   "sizeBytes": 154,
+   "stale": 0
+  },
+  {
+   "repoRoot": "WORK/proj-a/sub-pkg",
+   "repoHash": "35c8215eb772cdd51b8f6718c4e7e8e7e0347eb5aab6c4afd58d91c9edcb4535",
+   "sizeBytes": 29,
+   "stale": 0
+  },
+  {
+   "repoRoot": "WORK/proj-b",
+   "repoHash": "c8e48a43d97d736aa85f14752e8cf0760e117f14a2a98733c5b80581971d9e5b",
+   "sizeBytes": 5667,
+   "stale": 0
+  }
+ ]
+}
